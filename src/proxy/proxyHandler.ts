@@ -491,16 +491,34 @@ export class ProxyHandler {
   private toOllamaChatResponse(response: unknown, model: string) {
     const choice =
       response && typeof response === "object" && Array.isArray((response as { choices?: unknown }).choices)
-        ? (response as { choices: Array<{ message?: { role?: string; content?: unknown } }> }).choices[0]
+        ? (
+            response as {
+              choices: Array<{
+                message?: {
+                  role?: string;
+                  content?: unknown;
+                  tool_calls?: Array<{
+                    id?: string;
+                    function?: { name?: string; arguments?: unknown };
+                  }>;
+                };
+              }>;
+            }
+          ).choices[0]
         : undefined;
     const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
+    const toolCalls = this.toOllamaToolCalls(choice?.message?.tool_calls);
+    const message: { role: string; content: string; tool_calls?: unknown[] } = {
+      role: choice?.message?.role || "assistant",
+      content,
+    };
+    if (toolCalls.length > 0) {
+      message.tool_calls = toolCalls;
+    }
     return {
       model,
       created_at: new Date().toISOString(),
-      message: {
-        role: choice?.message?.role || "assistant",
-        content,
-      },
+      message,
       done: true,
     };
   }
@@ -511,6 +529,34 @@ export class ProxyHandler {
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     let buffer = "";
+    const toolCallParts = new Map<
+      number,
+      { id?: string; name?: string; arguments: string }
+    >();
+
+    const emitToolCalls = (controller: TransformStreamDefaultController<Uint8Array>) => {
+      const toolCalls = this.toOllamaToolCalls(
+        Array.from(toolCallParts.values()).map((toolCall) => ({
+          id: toolCall.id,
+          function: {
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          },
+        }))
+      );
+      if (toolCalls.length === 0) return;
+      controller.enqueue(
+        encoder.encode(
+          JSON.stringify({
+            model,
+            created_at: new Date().toISOString(),
+            message: { role: "assistant", content: "", tool_calls: toolCalls },
+            done: false,
+          }) + "\n"
+        )
+      );
+      toolCallParts.clear();
+    };
 
     return stream.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
@@ -524,6 +570,7 @@ export class ProxyHandler {
             const data = line.slice(5).trim();
             if (!data) continue;
             if (data === "[DONE]") {
+              emitToolCalls(controller);
               controller.enqueue(
                 encoder.encode(
                   JSON.stringify({
@@ -539,9 +586,27 @@ export class ProxyHandler {
 
             try {
               const parsed = JSON.parse(data) as {
-                choices?: Array<{ delta?: { role?: string; content?: string } }>;
+                choices?: Array<{
+                  delta?: {
+                    role?: string;
+                    content?: string;
+                    tool_calls?: Array<{
+                      index?: number;
+                      id?: string;
+                      function?: { name?: string; arguments?: string };
+                    }>;
+                  };
+                }>;
               };
               const delta = parsed.choices?.[0]?.delta;
+              for (const toolCall of delta?.tool_calls || []) {
+                const index = typeof toolCall.index === "number" ? toolCall.index : toolCallParts.size;
+                const existing = toolCallParts.get(index) || { arguments: "" };
+                if (toolCall.id) existing.id = toolCall.id;
+                if (toolCall.function?.name) existing.name = toolCall.function.name;
+                if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
+                toolCallParts.set(index, existing);
+              }
               const content = delta?.content || "";
               if (!content) continue;
               controller.enqueue(
@@ -562,6 +627,7 @@ export class ProxyHandler {
         flush(controller) {
           buffer += decoder.decode();
           if (buffer.trim() === "data: [DONE]") {
+            emitToolCalls(controller);
             controller.enqueue(
               encoder.encode(
                 JSON.stringify({
@@ -576,5 +642,40 @@ export class ProxyHandler {
         },
       })
     );
+  }
+
+  private toOllamaToolCalls(
+    toolCalls:
+      | Array<{
+          id?: string;
+          function?: { name?: string; arguments?: unknown };
+        }>
+      | undefined
+  ) {
+    if (!Array.isArray(toolCalls)) return [];
+    return toolCalls
+      .map((toolCall) => {
+        const name = toolCall.function?.name;
+        if (!name) return null;
+        return {
+          function: {
+            name,
+            arguments: this.parseToolArguments(toolCall.function?.arguments),
+          },
+        };
+      })
+      .filter((toolCall): toolCall is { function: { name: string; arguments: unknown } } =>
+        Boolean(toolCall)
+      );
+  }
+
+  private parseToolArguments(args: unknown) {
+    if (args && typeof args === "object") return args;
+    if (typeof args !== "string" || args.trim() === "") return {};
+    try {
+      return JSON.parse(args);
+    } catch {
+      return { arguments: args };
+    }
   }
 }

@@ -272,4 +272,51 @@ describe("proxy integration", () => {
     expect(lines[1].done).toBe(true);
     expect(lines[1].message.content).toBe("");
   });
+
+  test("Ollama /api/chat stream maps OpenAI tool calls", async () => {
+    const upstreamBaseUrl = createMockUpstream(() => {
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\\"path\\":"}}]}}]}\n\n'
+            )
+          );
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"BOOT.md\\"}"}}]}}]}\n\n'
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "minimax-m2.5",
+        messages: [{ role: "user", content: "read BOOT.md" }],
+        tools: [{ type: "function", function: { name: "read", parameters: {} } }],
+      }),
+    });
+    const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+
+    expect(response.status).toBe(200);
+    expect(lines[0].message.tool_calls[0].function.name).toBe("read");
+    expect(lines[0].message.tool_calls[0].function.arguments.path).toBe("BOOT.md");
+    expect(lines[0].done).toBe(false);
+    expect(lines[1].done).toBe(true);
+  });
 });
