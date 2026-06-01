@@ -177,4 +177,99 @@ describe("proxy integration", () => {
     expect(response.status).toBe(200);
     expect(body.model).toBe("actual-model");
   });
+
+  test("Ollama /api/tags maps OpenAI models response", async () => {
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      expect(new URL(req.url).pathname).toBe("/v1/models");
+      expect(req.headers.get("authorization")).toBe("Bearer good-key");
+      return Response.json({ object: "list", data: [{ id: "minimax-m2.5", object: "model" }] });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/tags`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.models[0].name).toBe("minimax-m2.5");
+    expect(body.models[0].model).toBe("minimax-m2.5");
+  });
+
+  test("Ollama /api/chat non-stream maps to OpenAI chat completions", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/v1/chat/completions");
+      const body = await req.json();
+      expect(body.model).toBe("actual-model");
+      expect(body.stream).toBe(false);
+      return Response.json({
+        model: body.model,
+        choices: [{ message: { role: "assistant", content: "OK" } }],
+      });
+    });
+    const app = createApp(
+      config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } })
+    );
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "minimax-m2.5",
+        messages: [{ role: "user", content: "hi" }],
+        stream: false,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message.content).toBe("OK");
+    expect(body.done).toBe(true);
+  });
+
+  test("Ollama /api/chat stream includes message on final done chunk", async () => {
+    const upstreamBaseUrl = createMockUpstream(() => {
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"role":"assistant","content":"OK"}}]}\n\n'
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "minimax-m2.5",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(lines[0].message.content).toBe("OK");
+    expect(lines[1].done).toBe(true);
+    expect(lines[1].message.content).toBe("");
+  });
 });

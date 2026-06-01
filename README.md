@@ -9,6 +9,8 @@
 - `/v1/models`
 - `/v1/chat/completions`
 - `/v1/completions`
+- `/api/tags`
+- `/api/chat`
 - `Key Pool Manager`：weighted healthy rotation、per-key concurrency、cooldown/block state
 - `Concurrency Manager`：全域最多 5 個 upstream request，第 6 個進 queue
 - `Client Token`：多 client token，events/stats 會記錄 clientName
@@ -151,7 +153,7 @@ docker build -t ollama-cloud-proxy:test .
 docker run --rm -v "$PWD:/work" -w /work ollama-cloud-proxy:test bun test
 ```
 
-目前包含 weekly reset function、Admin key 建立、client token、mock upstream 轉送、401 invalid key、model alias rewrite 測試。
+目前包含 weekly reset function、Admin key 建立、client token、mock upstream 轉送、401 invalid key、model alias rewrite、OpenAI `/v1/*` 與 Ollama `/api/tags` / `/api/chat` 相容測試。
 
 ## 不要 commit secrets
 

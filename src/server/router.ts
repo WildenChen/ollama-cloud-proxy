@@ -44,7 +44,11 @@ export class Router {
       return this.admin.handle(req, path);
     }
 
-    if (path.startsWith("/v1/")) {
+    if (
+      path.startsWith("/v1/") ||
+      path === "/api/tags" ||
+      path === "/api/chat"
+    ) {
       const auth = authenticateClient(req, this.config);
       if ("response" in auth) return auth.response;
       return this.proxy.handle(req, path, auth.identity);
