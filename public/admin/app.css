@@ -293,14 +293,17 @@ svg {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.052);
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(86px, 0.65fr)) minmax(280px, auto);
+  grid-template-columns: minmax(190px, 0.8fr) minmax(360px, 1.5fr) minmax(130px, auto);
   gap: 12px;
-  align-items: center;
+  align-items: stretch;
   padding: 12px;
 }
 
 .keyTitle {
   min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 5px;
 }
 
 .keyTitle strong {
@@ -310,11 +313,33 @@ svg {
   white-space: nowrap;
 }
 
+.keyTitle small {
+  overflow-wrap: anywhere;
+}
+
+.keyMeta {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(74px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.cell {
+  min-width: 0;
+  border-radius: 8px;
+  background: rgba(6, 13, 23, 0.28);
+  padding: 9px 10px;
+}
+
 .keyTitle small,
 .cell small {
   display: block;
   color: var(--muted);
   margin-top: 4px;
+  min-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cell span {
@@ -330,6 +355,9 @@ svg {
   margin-top: 4px;
   font-size: 14px;
   font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status {
@@ -370,14 +398,18 @@ svg {
 .actions {
   display: flex;
   justify-content: flex-end;
+  align-content: center;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 124px;
 }
 
 .actions .button {
   min-height: 32px;
   padding: 0 10px;
   font-size: 12px;
+  flex: 1 1 54px;
 }
 
 .eventPanel {
@@ -501,12 +533,17 @@ dialog::backdrop {
   }
 
   .keyCard {
-    grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(90px, auto));
+    grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
+  }
+
+  .keyMeta {
+    grid-template-columns: repeat(3, minmax(86px, 1fr));
   }
 
   .actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
+    min-width: 0;
   }
 }
 
@@ -549,8 +586,19 @@ dialog::backdrop {
     min-width: 0;
   }
 
-  .keyCard,
   .miniRow {
     grid-template-columns: 1fr;
+  }
+
+  .keyCard {
+    grid-template-columns: 1fr;
+  }
+
+  .keyMeta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actions .button {
+    flex-basis: calc(50% - 4px);
   }
 }

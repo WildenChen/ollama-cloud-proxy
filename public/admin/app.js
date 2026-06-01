@@ -59,6 +59,15 @@ const actionText = {
   delete: "刪除",
 };
 
+const actionTitle = {
+  test: "呼叫上游模型列表測試這把金鑰是否可用",
+  enable: "重新啟用這把金鑰，讓代理可再次選用",
+  disable: "暫停使用這把金鑰，不會刪除保存資料",
+  "reset-cooldown": "清除冷卻時間，讓這把金鑰重新進入可選池",
+  rotate: "替換這把金鑰的 API key，保留名稱與統計資料",
+  delete: "軟刪除這把金鑰，列表不再顯示但保留事件紀錄",
+};
+
 const eventTypeText = {
   request_started: "請求開始",
   request_finished: "請求完成",
@@ -281,17 +290,19 @@ function renderKeys() {
             <strong>${escapeHtml(key.name)}</strong>
             <small>${escapeHtml(key.apiKeyPreview)}</small>
           </div>
-          <div class="cell"><span>狀態</span><strong>${statusLabel(key)}</strong><small>${escapeHtml(key.blockReason || "無封鎖原因")}</small></div>
-          <div class="cell"><span>處理中</span><strong>${formatNumber(key.activeRequests)}</strong><small>每把金鑰上限 1 個</small></div>
-          <div class="cell"><span>成功</span><strong>${formatNumber(key.totalSuccesses)}</strong><small>${lastSuccess}</small></div>
-          <div class="cell"><span>失敗</span><strong>${formatNumber(key.totalFailures)}</strong><small>連續 ${formatNumber(key.consecutiveFailures)} 次</small></div>
-          <div class="cell"><span>冷卻</span><strong>${cooldown}</strong><small>${escapeHtml(translateUsageSource(key.usageSource))} / ${escapeHtml(translateResetSource(key.resetSource))}</small></div>
+          <div class="keyMeta">
+            <div class="cell"><span>狀態</span><strong>${statusLabel(key)}</strong><small>${escapeHtml(key.blockReason || "無封鎖原因")}</small></div>
+            <div class="cell"><span>處理中</span><strong>${formatNumber(key.activeRequests)}</strong><small>每把上限 1</small></div>
+            <div class="cell"><span>成功</span><strong>${formatNumber(key.totalSuccesses)}</strong><small>${lastSuccess}</small></div>
+            <div class="cell"><span>失敗</span><strong>${formatNumber(key.totalFailures)}</strong><small>連續 ${formatNumber(key.consecutiveFailures)} 次</small></div>
+            <div class="cell"><span>冷卻</span><strong>${cooldown}</strong><small>${escapeHtml(translateUsageSource(key.usageSource))} / ${escapeHtml(translateResetSource(key.resetSource))}</small></div>
+          </div>
           <div class="actions">
-            <button class="button" data-action="test">${actionText.test}</button>
-            <button class="button" data-action="${key.enabled ? "disable" : "enable"}">${key.enabled ? actionText.disable : actionText.enable}</button>
-            <button class="button warn" data-action="reset-cooldown">${actionText["reset-cooldown"]}</button>
-            <button class="button" data-action="rotate">${actionText.rotate}</button>
-            <button class="button danger" data-action="delete">${actionText.delete}</button>
+            <button class="button" data-action="test" title="${actionTitle.test}" aria-label="${actionTitle.test}">${actionText.test}</button>
+            <button class="button" data-action="${key.enabled ? "disable" : "enable"}" title="${key.enabled ? actionTitle.disable : actionTitle.enable}" aria-label="${key.enabled ? actionTitle.disable : actionTitle.enable}">${key.enabled ? actionText.disable : actionText.enable}</button>
+            <button class="button warn" data-action="reset-cooldown" title="${actionTitle["reset-cooldown"]}" aria-label="${actionTitle["reset-cooldown"]}">${actionText["reset-cooldown"]}</button>
+            <button class="button" data-action="rotate" title="${actionTitle.rotate}" aria-label="${actionTitle.rotate}">${actionText.rotate}</button>
+            <button class="button danger" data-action="delete" title="${actionTitle.delete}" aria-label="${actionTitle.delete}">${actionText.delete}</button>
           </div>
         </article>
       `;

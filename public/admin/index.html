@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css" />
+    <link rel="stylesheet" href="/admin/app.css?v=20260601-key-card-layout" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -17,11 +17,11 @@
         <form id="tokenForm" class="tokenBar">
           <label for="adminToken">管理權杖</label>
           <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="輸入管理權杖" />
-          <button type="submit" class="button primary">
+          <button type="submit" class="button primary" title="儲存管理權杖並載入後台資料" aria-label="儲存管理權杖並載入後台資料">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
             儲存
           </button>
-          <button id="refreshButton" type="button" class="iconButton" title="重新整理">
+          <button id="refreshButton" type="button" class="iconButton" title="重新向後端載入最新狀態" aria-label="重新整理後台狀態">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4M3 12A9 9 0 0 1 18.3 5.6M3 4v6h6M21 20v-6h-6" /></svg>
           </button>
         </form>
@@ -59,7 +59,7 @@
               <h2>金鑰池</h2>
               <p>管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
             </div>
-            <button id="addKeyButton" class="button primary" type="button">
+            <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               新增金鑰
             </button>
@@ -117,7 +117,7 @@
       <form id="keyForm" class="dialogCard">
         <header>
           <h2>新增 Ollama 金鑰</h2>
-          <button id="closeKeyDialogButton" class="iconButton ghost" value="cancel" type="button" title="關閉">
+          <button id="closeKeyDialogButton" class="iconButton ghost" value="cancel" type="button" title="關閉新增金鑰視窗" aria-label="關閉新增金鑰視窗">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </header>
@@ -134,12 +134,12 @@
           <textarea name="notes" rows="3" placeholder="可留空"></textarea>
         </label>
         <footer>
-          <button class="button" type="button" id="cancelKeyButton">取消</button>
-          <button class="button primary" type="submit" id="createKeyButton">建立金鑰</button>
+          <button class="button" type="button" id="cancelKeyButton" title="放棄輸入並關閉視窗">取消</button>
+          <button class="button primary" type="submit" id="createKeyButton" title="加密保存這把金鑰並加入輪替池">建立金鑰</button>
         </footer>
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=20260601-key-form-fix-2" type="module"></script>
+    <script src="/admin/app.js?v=20260601-key-card-layout" type="module"></script>
   </body>
 </html>
