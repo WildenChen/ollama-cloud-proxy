@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ollama Cloud Proxy Admin</title>
+    <title>Ollama 雲端代理管理台</title>
     <link rel="stylesheet" href="/admin/app.css" />
   </head>
   <body>
@@ -11,17 +11,17 @@
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>Ollama Cloud Proxy</h1>
-          <p id="summaryLine">Admin dashboard</p>
+          <h1>Ollama 雲端代理</h1>
+          <p id="summaryLine">管理總覽</p>
         </div>
         <form id="tokenForm" class="tokenBar">
-          <label for="adminToken">Admin Token</label>
-          <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="Bearer token" />
+          <label for="adminToken">管理權杖</label>
+          <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="輸入管理權杖" />
           <button type="submit" class="button primary">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-            Save
+            儲存
           </button>
-          <button id="refreshButton" type="button" class="iconButton" title="Refresh">
+          <button id="refreshButton" type="button" class="iconButton" title="重新整理">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4M3 12A9 9 0 0 1 18.3 5.6M3 4v6h6M21 20v-6h-6" /></svg>
           </button>
         </form>
@@ -29,26 +29,26 @@
 
       <section id="notice" class="notice hidden" role="status"></section>
 
-      <section class="metricGrid" aria-label="System metrics">
+      <section class="metricGrid" aria-label="系統指標">
         <article class="metric">
-          <span>Active</span>
+          <span>處理中</span>
           <strong id="activeRequests">-</strong>
-          <small>upstream requests</small>
+          <small>上游請求</small>
         </article>
         <article class="metric">
-          <span>Queued</span>
+          <span>排隊中</span>
           <strong id="queuedRequests">-</strong>
-          <small id="queueLimit">queue</small>
+          <small id="queueLimit">佇列</small>
         </article>
         <article class="metric good">
-          <span>Available Keys</span>
+          <span>可用金鑰</span>
           <strong id="availableKeys">-</strong>
-          <small id="totalKeys">pool total</small>
+          <small id="totalKeys">金鑰池總數</small>
         </article>
         <article class="metric warn">
-          <span>Weekly Reset</span>
+          <span>每週重置</span>
           <strong id="weeklyReset">-</strong>
-          <small id="weeklyBlocked">blocked keys</small>
+          <small id="weeklyBlocked">受限金鑰</small>
         </article>
       </section>
 
@@ -56,12 +56,12 @@
         <section class="panel keyPanel">
           <div class="panelHeader">
             <div>
-              <h2>Key Pool</h2>
-              <p>Manage encrypted Ollama Cloud keys and cooldown state.</p>
+              <h2>金鑰池</h2>
+              <p>管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
             </div>
             <button id="addKeyButton" class="button primary" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              Add Key
+              新增金鑰
             </button>
           </div>
           <div id="keyList" class="keyList"></div>
@@ -70,20 +70,20 @@
         <aside class="panel eventPanel">
           <div class="panelHeader compact">
             <div>
-              <h2>Events</h2>
-              <p>Recent proxy and key activity.</p>
+              <h2>事件</h2>
+              <p>近期代理與金鑰活動。</p>
             </div>
           </div>
           <div class="filters">
-            <select id="eventLevel" aria-label="Event level">
-              <option value="">All levels</option>
-              <option value="debug">Debug</option>
-              <option value="info">Info</option>
-              <option value="warn">Warn</option>
-              <option value="error">Error</option>
+            <select id="eventLevel" aria-label="事件層級">
+              <option value="">所有層級</option>
+              <option value="debug">除錯</option>
+              <option value="info">資訊</option>
+              <option value="warn">警告</option>
+              <option value="error">錯誤</option>
             </select>
-            <select id="eventType" aria-label="Event type">
-              <option value="">All types</option>
+            <select id="eventType" aria-label="事件類型">
+              <option value="">所有類型</option>
             </select>
           </div>
           <div id="eventList" class="eventList"></div>
@@ -94,8 +94,8 @@
         <section class="panel">
           <div class="panelHeader compact">
             <div>
-              <h2>Clients</h2>
-              <p>Today by token identity.</p>
+              <h2>客戶端</h2>
+              <p>依今日權杖身分統計。</p>
             </div>
           </div>
           <div id="clientList" class="miniTable"></div>
@@ -104,8 +104,8 @@
         <section class="panel">
           <div class="panelHeader compact">
             <div>
-              <h2>Models</h2>
-              <p>Aliases and request counts.</p>
+              <h2>模型</h2>
+              <p>別名與請求次數。</p>
             </div>
           </div>
           <div id="modelList" class="miniTable"></div>
@@ -116,30 +116,30 @@
     <dialog id="keyDialog">
       <form id="keyForm" method="dialog" class="dialogCard">
         <header>
-          <h2>Add Ollama Key</h2>
-          <button class="iconButton ghost" value="cancel" type="submit" title="Close">
+          <h2>新增 Ollama 金鑰</h2>
+          <button class="iconButton ghost" value="cancel" type="submit" title="關閉">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </header>
         <label>
-          Name
+          名稱
           <input name="name" required placeholder="free-13" />
         </label>
         <label>
-          Account Label
+          帳號標籤
           <input name="accountLabel" placeholder="account-m" />
         </label>
         <label>
-          API Key
+          API 金鑰
           <input name="apiKey" required type="password" autocomplete="off" placeholder="ollama_xxxxxxxxx" />
         </label>
         <label>
-          Notes
-          <textarea name="notes" rows="3" placeholder="optional"></textarea>
+          備註
+          <textarea name="notes" rows="3" placeholder="可留空"></textarea>
         </label>
         <footer>
-          <button class="button" type="button" id="cancelKeyButton">Cancel</button>
-          <button class="button primary" type="submit">Create Key</button>
+          <button class="button" type="button" id="cancelKeyButton">取消</button>
+          <button class="button primary" type="submit">建立金鑰</button>
         </footer>
       </form>
     </dialog>
