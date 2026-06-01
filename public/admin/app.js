@@ -3,6 +3,9 @@ const state = {
   stats: null,
   keys: [],
   events: [],
+  loaded: false,
+  loading: false,
+  loadNotice: null,
   creatingKey: false,
 };
 
@@ -113,6 +116,11 @@ function showNotice(message, kind = "info") {
   notice.className = `notice ${kind === "error" ? "error" : ""}`;
   window.clearTimeout(showNotice.timer);
   showNotice.timer = window.setTimeout(() => notice.classList.add("hidden"), 5000);
+}
+
+function closeKeyDialog() {
+  const dialog = $("keyDialog");
+  if (dialog.open) dialog.close();
 }
 
 function headers(json = false) {
@@ -246,8 +254,20 @@ function renderStats() {
 
 function renderKeys() {
   const root = $("keyList");
+  if (!state.token) {
+    root.innerHTML = `<div class="empty">請先輸入管理權杖，再按「儲存」載入金鑰池。</div>`;
+    return;
+  }
+  if (state.loading) {
+    root.innerHTML = `<div class="empty">正在載入金鑰池。</div>`;
+    return;
+  }
+  if (state.loadNotice) {
+    root.innerHTML = `<div class="empty">${escapeHtml(state.loadNotice)}</div>`;
+    return;
+  }
   if (state.keys.length === 0) {
-    root.innerHTML = `<div class="empty">請輸入並儲存管理權杖後重新整理。若金鑰池為空，請在這裡新增第一把已加密保存的 Ollama 金鑰。</div>`;
+    root.innerHTML = `<div class="empty">目前沒有金鑰。請新增第一把已加密保存的 Ollama 金鑰。</div>`;
     return;
   }
 
@@ -378,12 +398,21 @@ function renderAll() {
   renderModels();
 }
 
-async function refresh() {
+async function refresh(options = {}) {
+  const showErrors = options.showErrors ?? true;
+  const preserveOnError = options.preserveOnError ?? false;
   if (!state.token) {
-    showNotice("請先輸入並儲存管理權杖。", "error");
-    return;
+    state.loaded = false;
+    state.loading = false;
+    state.loadNotice = null;
+    renderAll();
+    if (showErrors) showNotice("請先輸入並儲存管理權杖。", "error");
+    return false;
   }
   try {
+    state.loading = true;
+    state.loadNotice = null;
+    if (!preserveOnError) renderAll();
     const level = $("eventLevel").value;
     const type = $("eventType").value;
     const eventQuery = new URLSearchParams({ limit: "80" });
@@ -397,9 +426,20 @@ async function refresh() {
     state.stats = stats;
     state.keys = keys.keys || [];
     state.events = events.events || [];
+    state.loaded = true;
+    state.loading = false;
+    state.loadNotice = null;
     renderAll();
+    return true;
   } catch (error) {
-    showNotice(error.message, "error");
+    state.loading = false;
+    if (!preserveOnError) {
+      state.loaded = false;
+      state.loadNotice = "無法載入資料，請確認管理權杖後按「儲存」或「重新整理」。";
+      renderAll();
+    }
+    if (showErrors) showNotice(error.message, "error");
+    return false;
   }
 }
 
@@ -419,7 +459,7 @@ async function actionForKey(keyId, action) {
       await api(`/admin/keys/${keyId}/${action}`, { method: "POST" });
     }
     showNotice(`金鑰操作完成：${actionText[action] || "已處理"}`);
-    await refresh();
+    await refresh({ showErrors: true });
   } catch (error) {
     showNotice(error.message, "error");
   }
@@ -439,14 +479,14 @@ function bindEvents() {
     event.preventDefault();
     state.token = $("adminToken").value.trim();
     localStorage.setItem("ollamaProxyAdminToken", state.token);
-    refresh();
+    refresh({ showErrors: true });
   });
-  $("refreshButton").addEventListener("click", refresh);
-  $("eventLevel").addEventListener("change", refresh);
-  $("eventType").addEventListener("change", refresh);
+  $("refreshButton").addEventListener("click", () => refresh({ showErrors: true }));
+  $("eventLevel").addEventListener("change", () => refresh({ showErrors: true }));
+  $("eventType").addEventListener("change", () => refresh({ showErrors: true }));
   $("addKeyButton").addEventListener("click", () => $("keyDialog").showModal());
-  $("cancelKeyButton").addEventListener("click", () => $("keyDialog").close());
-  $("closeKeyDialogButton").addEventListener("click", () => $("keyDialog").close());
+  $("cancelKeyButton").addEventListener("click", closeKeyDialog);
+  $("closeKeyDialogButton").addEventListener("click", closeKeyDialog);
   $("keyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (state.creatingKey) return;
@@ -462,14 +502,19 @@ function bindEvents() {
       notes: String(form.get("notes") || ""),
     };
     try {
-      await api("/admin/keys", {
+      const created = await api("/admin/keys", {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      if (created?.key) {
+        state.loaded = true;
+        state.keys = [...state.keys.filter((key) => key.id !== created.key.id), created.key];
+        renderKeys();
+      }
       event.currentTarget.reset();
-      $("keyDialog").close();
+      closeKeyDialog();
       showNotice("金鑰已建立。");
-      await refresh();
+      refresh({ showErrors: false, preserveOnError: true });
     } catch (error) {
       showNotice(error.message, "error");
     } finally {
@@ -489,4 +534,4 @@ function bindEvents() {
 
 bindEvents();
 renderAll();
-if (state.token) refresh();
+if (state.token) refresh({ showErrors: false });
