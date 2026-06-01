@@ -178,11 +178,13 @@ describe("proxy integration", () => {
     expect(body.model).toBe("actual-model");
   });
 
-  test("Ollama /api/tags maps OpenAI models response", async () => {
+  test("Ollama /api/tags passes through native upstream response", async () => {
     const upstreamBaseUrl = createMockUpstream((req) => {
-      expect(new URL(req.url).pathname).toBe("/v1/models");
+      expect(new URL(req.url).pathname).toBe("/api/tags");
       expect(req.headers.get("authorization")).toBe("Bearer good-key");
-      return Response.json({ object: "list", data: [{ id: "minimax-m2.5", object: "model" }] });
+      return Response.json({
+        models: [{ name: "minimax-m2.5", model: "minimax-m2.5", details: { family: "llama" } }],
+      });
     });
     const app = createApp(config({ upstreamBaseUrl }));
     app.keyPool.create({ name: "good", apiKey: "good-key" });
@@ -195,22 +197,24 @@ describe("proxy integration", () => {
     expect(response.status).toBe(200);
     expect(body.models[0].name).toBe("minimax-m2.5");
     expect(body.models[0].model).toBe("minimax-m2.5");
+    expect(body.models[0].details.family).toBe("llama");
   });
 
-  test("Ollama /api/chat non-stream maps to OpenAI chat completions", async () => {
+  test("Ollama /api/chat non-stream passes native body through unchanged", async () => {
     const upstreamBaseUrl = createMockUpstream(async (req) => {
-      expect(new URL(req.url).pathname).toBe("/v1/chat/completions");
+      expect(new URL(req.url).pathname).toBe("/api/chat");
       const body = await req.json();
-      expect(body.model).toBe("actual-model");
+      expect(body.model).toBe("minimax-m2.5");
       expect(body.stream).toBe(false);
+      expect(body.tools[0].function.name).toBe("read");
       return Response.json({
         model: body.model,
-        choices: [{ message: { role: "assistant", content: "OK" } }],
+        created_at: "2026-06-02T00:00:00.000Z",
+        message: { role: "assistant", content: "OK" },
+        done: true,
       });
     });
-    const app = createApp(
-      config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } })
-    );
+    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } }));
     app.keyPool.create({ name: "good", apiKey: "good-key" });
 
     const response = await fetch(`${app.baseUrl}/api/chat`, {
@@ -222,6 +226,7 @@ describe("proxy integration", () => {
       body: JSON.stringify({
         model: "minimax-m2.5",
         messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "read", parameters: {} } }],
         stream: false,
       }),
     });
@@ -232,22 +237,29 @@ describe("proxy integration", () => {
     expect(body.done).toBe(true);
   });
 
-  test("Ollama /api/chat stream includes message on final done chunk", async () => {
-    const upstreamBaseUrl = createMockUpstream(() => {
+  test("Ollama /api/chat stream passes native chunks through unchanged", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/chat");
+      const body = await req.json();
+      expect(body.model).toBe("minimax-m2.5");
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
           controller.enqueue(
             encoder.encode(
-              'data: {"choices":[{"delta":{"role":"assistant","content":"OK"}}]}\n\n'
+              '{"model":"minimax-m2.5","message":{"role":"assistant","content":"OK"},"done":false}\n'
             )
           );
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.enqueue(
+            encoder.encode(
+              '{"model":"minimax-m2.5","message":{"role":"assistant","content":""},"done":true}\n'
+            )
+          );
           controller.close();
         },
       });
       return new Response(stream, {
-        headers: { "content-type": "text/event-stream" },
+        headers: { "content-type": "application/x-ndjson" },
       });
     });
     const app = createApp(config({ upstreamBaseUrl }));
@@ -273,27 +285,29 @@ describe("proxy integration", () => {
     expect(lines[1].message.content).toBe("");
   });
 
-  test("Ollama /api/chat stream maps OpenAI tool calls", async () => {
-    const upstreamBaseUrl = createMockUpstream(() => {
+  test("Ollama /api/chat preserves native tool call streams", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/chat");
+      const body = await req.json();
+      expect(body.tools[0].function.name).toBe("read");
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
           controller.enqueue(
             encoder.encode(
-              'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\\"path\\":"}}]}}]}\n\n'
+              '{"model":"minimax-m2.5","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"read","arguments":{"path":"BOOT.md"}}}]},"done":false}\n'
             )
           );
           controller.enqueue(
             encoder.encode(
-              'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"BOOT.md\\"}"}}]}}]}\n\n'
+              '{"model":"minimax-m2.5","message":{"role":"assistant","content":""},"done":true}\n'
             )
           );
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         },
       });
       return new Response(stream, {
-        headers: { "content-type": "text/event-stream" },
+        headers: { "content-type": "application/x-ndjson" },
       });
     });
     const app = createApp(config({ upstreamBaseUrl }));

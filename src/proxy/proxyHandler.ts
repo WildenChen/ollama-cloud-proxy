@@ -12,7 +12,7 @@ import { getNextFixedWeeklyResetAt } from "../utils/time";
 import { readBodyWithLimit } from "./body";
 import { proxyReadableStream } from "./stream";
 
-type ResponseFormat = "openai" | "ollama_tags" | "ollama_chat" | "ollama_chat_stream";
+type ResponseFormat = "openai" | "passthrough";
 
 export class ProxyHandler {
   constructor(
@@ -38,24 +38,18 @@ export class ProxyHandler {
     }
 
     if (path === "/api/tags" && req.method === "GET") {
-      const cached = this.models.getCachedModels();
-      if (cached) return Response.json(this.toOllamaTags(cached));
       return this.forwardWithQueue(req, requestId, client, null, null, undefined, startedAt, {
-        upstreamPath: "/v1/models",
-        responseFormat: "ollama_tags",
+        upstreamPath: "/api/tags",
+        responseFormat: "passthrough",
       });
     }
 
     if (path === "/api/chat" && req.method === "POST") {
-      let mappedBody: {
-        body: string;
-        originalModel: string | null;
-        upstreamModel: string | null;
-        stream: boolean;
-      };
+      let rawBody: string;
+      let model: string | null;
       try {
-        const rawBody = await readBodyWithLimit(req, this.config.maxRequestBodySizeBytes);
-        mappedBody = this.ollamaChatToOpenAiBody(rawBody);
+        rawBody = await readBodyWithLimit(req, this.config.maxRequestBodySizeBytes);
+        model = this.modelFromBody(rawBody);
       } catch (error) {
         const type = (error as Error).message === "request_body_too_large" ? "request_body_too_large" : "invalid_request";
         return openAiError(type === "request_body_too_large" ? 413 : 400, type, (error as Error).message);
@@ -65,13 +59,13 @@ export class ProxyHandler {
         req,
         requestId,
         client,
-        mappedBody.originalModel,
-        mappedBody.upstreamModel,
-        mappedBody.body,
+        model,
+        model,
+        rawBody,
         startedAt,
         {
-          upstreamPath: "/v1/chat/completions",
-          responseFormat: mappedBody.stream ? "ollama_chat_stream" : "ollama_chat",
+          upstreamPath: "/api/chat",
+          responseFormat: "passthrough",
         }
       );
     }
@@ -290,6 +284,24 @@ export class ProxyHandler {
 
       if (!upstream.ok) {
         const errorBody = await upstream.text();
+        if (
+          options.responseFormat === "passthrough" &&
+          upstream.status >= 400 &&
+          upstream.status < 500 &&
+          upstream.status !== 401 &&
+          upstream.status !== 429
+        ) {
+          const headers = this.responseHeaders(upstream.headers);
+          finalize(false, `upstream_${upstream.status}`);
+          return {
+            retry: false,
+            response: new Response(errorBody, {
+              status: upstream.status,
+              statusText: upstream.statusText,
+              headers,
+            }),
+          };
+        }
         const classification = await classifyUpstreamResponse(
           upstream.status,
           errorBody,
@@ -317,26 +329,11 @@ export class ProxyHandler {
       }
 
       const headers = this.responseHeaders(upstream.headers);
-      if (options.upstreamPath === "/v1/models") {
+      if (options.responseFormat === "openai" && options.upstreamPath === "/v1/models") {
         const modelResponse = await upstream.json();
         this.models.setCachedModels(modelResponse);
         finalize(true);
-        const merged = this.models.mergeAliases(modelResponse);
-        const responseBody =
-          options.responseFormat === "ollama_tags" ? this.toOllamaTags(merged) : merged;
-        return { retry: false, response: Response.json(responseBody, { headers }) };
-      }
-
-      if (options.responseFormat === "ollama_chat") {
-        const openAiResponse = await upstream.json();
-        finalize(true);
-        return {
-          retry: false,
-          response: Response.json(
-            this.toOllamaChatResponse(openAiResponse, originalModel || upstreamModel || "unknown"),
-            { headers }
-          ),
-        };
+        return { retry: false, response: Response.json(this.models.mergeAliases(modelResponse), { headers }) };
       }
 
       const proxiedBody = proxyReadableStream(
@@ -356,17 +353,9 @@ export class ProxyHandler {
           }
         }
       );
-      const responseBody =
-        options.responseFormat === "ollama_chat_stream"
-          ? this.toOllamaChatStream(proxiedBody, originalModel || upstreamModel || "unknown")
-          : proxiedBody;
-      if (options.responseFormat === "ollama_chat_stream") {
-        headers.set("content-type", "application/x-ndjson; charset=utf-8");
-      }
-
       return {
         retry: false,
-        response: new Response(responseBody, {
+        response: new Response(proxiedBody, {
           status: upstream.status,
           statusText: upstream.statusText,
           headers,
@@ -441,241 +430,12 @@ export class ProxyHandler {
     this.store.recordModelRequest(model, success);
   }
 
-  private ollamaChatToOpenAiBody(rawBody: string): {
-    body: string;
-    originalModel: string | null;
-    upstreamModel: string | null;
-    stream: boolean;
-  } {
-    const parsed = JSON.parse(rawBody || "{}") as Record<string, unknown>;
-    const model = typeof parsed.model === "string" ? parsed.model : null;
-    const mapped = this.models.mapModel(model);
-    const stream = parsed.stream !== false;
-    const body = JSON.stringify({
-      model: mapped.upstreamModel,
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-      stream,
-      tools: parsed.tools,
-    });
-
-    return { body, ...mapped, stream };
-  }
-
-  private toOllamaTags(response: unknown) {
-    const data =
-      response && typeof response === "object" && Array.isArray((response as { data?: unknown }).data)
-        ? ((response as { data: Array<{ id?: unknown }> }).data)
-        : [];
-    return {
-      models: data
-        .map((item) => (typeof item.id === "string" ? item.id : null))
-        .filter((name): name is string => Boolean(name))
-        .map((name) => ({
-          name,
-          model: name,
-          modified_at: new Date(0).toISOString(),
-          size: 0,
-          digest: "",
-          details: {
-            parent_model: "",
-            format: "",
-            family: "",
-            families: [],
-            parameter_size: "",
-            quantization_level: "",
-          },
-        })),
-    };
-  }
-
-  private toOllamaChatResponse(response: unknown, model: string) {
-    const choice =
-      response && typeof response === "object" && Array.isArray((response as { choices?: unknown }).choices)
-        ? (
-            response as {
-              choices: Array<{
-                message?: {
-                  role?: string;
-                  content?: unknown;
-                  tool_calls?: Array<{
-                    id?: string;
-                    function?: { name?: string; arguments?: unknown };
-                  }>;
-                };
-              }>;
-            }
-          ).choices[0]
-        : undefined;
-    const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
-    const toolCalls = this.toOllamaToolCalls(choice?.message?.tool_calls);
-    const message: { role: string; content: string; tool_calls?: unknown[] } = {
-      role: choice?.message?.role || "assistant",
-      content,
-    };
-    if (toolCalls.length > 0) {
-      message.tool_calls = toolCalls;
-    }
-    return {
-      model,
-      created_at: new Date().toISOString(),
-      message,
-      done: true,
-    };
-  }
-
-  private toOllamaChatStream(stream: ReadableStream<Uint8Array> | null, model: string) {
-    if (!stream) return stream;
-
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    let buffer = "";
-    const toolCallParts = new Map<
-      number,
-      { id?: string; name?: string; arguments: string }
-    >();
-
-    const emitToolCalls = (controller: TransformStreamDefaultController<Uint8Array>) => {
-      const toolCalls = this.toOllamaToolCalls(
-        Array.from(toolCallParts.values()).map((toolCall) => ({
-          id: toolCall.id,
-          function: {
-            name: toolCall.name,
-            arguments: toolCall.arguments,
-          },
-        }))
-      );
-      if (toolCalls.length === 0) return;
-      controller.enqueue(
-        encoder.encode(
-          JSON.stringify({
-            model,
-            created_at: new Date().toISOString(),
-            message: { role: "assistant", content: "", tool_calls: toolCalls },
-            done: false,
-          }) + "\n"
-        )
-      );
-      toolCallParts.clear();
-    };
-
-    return stream.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          buffer += decoder.decode(chunk, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data:")) continue;
-            const data = line.slice(5).trim();
-            if (!data) continue;
-            if (data === "[DONE]") {
-              emitToolCalls(controller);
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({
-                    model,
-                    created_at: new Date().toISOString(),
-                    message: { role: "assistant", content: "" },
-                    done: true,
-                  }) + "\n"
-                )
-              );
-              continue;
-            }
-
-            try {
-              const parsed = JSON.parse(data) as {
-                choices?: Array<{
-                  delta?: {
-                    role?: string;
-                    content?: string;
-                    tool_calls?: Array<{
-                      index?: number;
-                      id?: string;
-                      function?: { name?: string; arguments?: string };
-                    }>;
-                  };
-                }>;
-              };
-              const delta = parsed.choices?.[0]?.delta;
-              for (const toolCall of delta?.tool_calls || []) {
-                const index = typeof toolCall.index === "number" ? toolCall.index : toolCallParts.size;
-                const existing = toolCallParts.get(index) || { arguments: "" };
-                if (toolCall.id) existing.id = toolCall.id;
-                if (toolCall.function?.name) existing.name = toolCall.function.name;
-                if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
-                toolCallParts.set(index, existing);
-              }
-              const content = delta?.content || "";
-              if (!content) continue;
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({
-                    model,
-                    created_at: new Date().toISOString(),
-                    message: { role: delta?.role || "assistant", content },
-                    done: false,
-                  }) + "\n"
-                )
-              );
-            } catch {
-              // Ignore malformed upstream chunks; the stream finalizer handles transport errors.
-            }
-          }
-        },
-        flush(controller) {
-          buffer += decoder.decode();
-          if (buffer.trim() === "data: [DONE]") {
-            emitToolCalls(controller);
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({
-                  model,
-                  created_at: new Date().toISOString(),
-                  message: { role: "assistant", content: "" },
-                  done: true,
-                }) + "\n"
-              )
-            );
-          }
-        },
-      })
-    );
-  }
-
-  private toOllamaToolCalls(
-    toolCalls:
-      | Array<{
-          id?: string;
-          function?: { name?: string; arguments?: unknown };
-        }>
-      | undefined
-  ) {
-    if (!Array.isArray(toolCalls)) return [];
-    return toolCalls
-      .map((toolCall) => {
-        const name = toolCall.function?.name;
-        if (!name) return null;
-        return {
-          function: {
-            name,
-            arguments: this.parseToolArguments(toolCall.function?.arguments),
-          },
-        };
-      })
-      .filter((toolCall): toolCall is { function: { name: string; arguments: unknown } } =>
-        Boolean(toolCall)
-      );
-  }
-
-  private parseToolArguments(args: unknown) {
-    if (args && typeof args === "object") return args;
-    if (typeof args !== "string" || args.trim() === "") return {};
+  private modelFromBody(rawBody: string): string | null {
     try {
-      return JSON.parse(args);
+      const parsed = JSON.parse(rawBody || "{}") as Record<string, unknown>;
+      return typeof parsed.model === "string" ? parsed.model : null;
     } catch {
-      return { arguments: args };
+      return null;
     }
   }
 }
