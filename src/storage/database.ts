@@ -1,0 +1,466 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { Database } from "bun:sqlite";
+import type {
+  BlockReason,
+  EventLevel,
+  KeyRecord,
+  KeyStatus,
+  ProxyEventType,
+  ResetSource,
+  UsageSource,
+} from "../types/domain";
+import { isoNow } from "../utils/time";
+
+type Row = Record<string, unknown>;
+
+export type EventInput = {
+  level: EventLevel;
+  type: ProxyEventType;
+  message: string;
+  clientName?: string | null;
+  requestId?: string | null;
+  keyId?: string | null;
+  keyName?: string | null;
+  model?: string | null;
+  originalModel?: string | null;
+  upstreamModel?: string | null;
+  statusCode?: number | null;
+  durationMs?: number | null;
+  details?: Record<string, unknown> | null;
+};
+
+export type KeyCreateInput = {
+  name: string;
+  accountLabel?: string | null;
+  notes?: string | null;
+  apiKeyPreview: string;
+  encryptedApiKey: string;
+};
+
+export type KeyMutationPatch = Partial<{
+  name: string;
+  accountLabel: string | null;
+  notes: string | null;
+  apiKeyPreview: string;
+  encryptedApiKey: string;
+  enabled: boolean;
+  status: KeyStatus;
+  blockReason: BlockReason;
+  activeRequests: number;
+  lastUsedAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  cooldownUntil: string | null;
+  nextEligibleAt: string | null;
+  usageSource: UsageSource;
+  resetSource: ResetSource;
+  estimatedSessionRequests: number;
+  estimatedWeeklyRequests: number;
+  estimatedSessionDurationMs: number;
+  estimatedWeeklyDurationMs: number;
+  sessionWindowStartedAt: string | null;
+  weeklyWindowStartedAt: string | null;
+  totalRequests: number;
+  totalSuccesses: number;
+  totalFailures: number;
+  consecutiveFailures: number;
+  deletedAt: string | null;
+}>;
+
+function asString(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function asNumber(value: unknown): number {
+  return Number(value ?? 0);
+}
+
+function asBool(value: unknown): boolean {
+  return Number(value ?? 0) === 1;
+}
+
+function keyFromRow(row: Row): KeyRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    accountLabel: asString(row.accountLabel),
+    notes: asString(row.notes),
+    apiKeyPreview: String(row.apiKeyPreview),
+    encryptedApiKey: String(row.encryptedApiKey),
+    enabled: asBool(row.enabled),
+    status: String(row.status) as KeyStatus,
+    blockReason: String(row.blockReason) as BlockReason,
+    activeRequests: asNumber(row.activeRequests),
+    lastUsedAt: asString(row.lastUsedAt),
+    lastSuccessAt: asString(row.lastSuccessAt),
+    lastFailureAt: asString(row.lastFailureAt),
+    cooldownUntil: asString(row.cooldownUntil),
+    nextEligibleAt: asString(row.nextEligibleAt),
+    usageSource: String(row.usageSource) as UsageSource,
+    resetSource: String(row.resetSource) as ResetSource,
+    estimatedSessionRequests: asNumber(row.estimatedSessionRequests),
+    estimatedWeeklyRequests: asNumber(row.estimatedWeeklyRequests),
+    estimatedSessionDurationMs: asNumber(row.estimatedSessionDurationMs),
+    estimatedWeeklyDurationMs: asNumber(row.estimatedWeeklyDurationMs),
+    sessionWindowStartedAt: asString(row.sessionWindowStartedAt),
+    weeklyWindowStartedAt: asString(row.weeklyWindowStartedAt),
+    totalRequests: asNumber(row.totalRequests),
+    totalSuccesses: asNumber(row.totalSuccesses),
+    totalFailures: asNumber(row.totalFailures),
+    consecutiveFailures: asNumber(row.consecutiveFailures),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    deletedAt: asString(row.deletedAt),
+  };
+}
+
+export class DatabaseStore {
+  readonly db: Database;
+
+  constructor(path: string) {
+    mkdirSync(dirname(path), { recursive: true });
+    this.db = new Database(path);
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA foreign_keys = ON;");
+    this.migrate();
+    this.resetStaleActiveRequests();
+  }
+
+  private migrate() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        accountLabel TEXT,
+        notes TEXT,
+        apiKeyPreview TEXT NOT NULL,
+        encryptedApiKey TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'unknown',
+        blockReason TEXT NOT NULL DEFAULT 'none',
+        activeRequests INTEGER NOT NULL DEFAULT 0,
+        lastUsedAt TEXT,
+        lastSuccessAt TEXT,
+        lastFailureAt TEXT,
+        cooldownUntil TEXT,
+        nextEligibleAt TEXT,
+        usageSource TEXT NOT NULL DEFAULT 'not_available',
+        resetSource TEXT NOT NULL DEFAULT 'fallback',
+        estimatedSessionRequests INTEGER NOT NULL DEFAULT 0,
+        estimatedWeeklyRequests INTEGER NOT NULL DEFAULT 0,
+        estimatedSessionDurationMs INTEGER NOT NULL DEFAULT 0,
+        estimatedWeeklyDurationMs INTEGER NOT NULL DEFAULT 0,
+        sessionWindowStartedAt TEXT,
+        weeklyWindowStartedAt TEXT,
+        totalRequests INTEGER NOT NULL DEFAULT 0,
+        totalSuccesses INTEGER NOT NULL DEFAULT 0,
+        totalFailures INTEGER NOT NULL DEFAULT 0,
+        consecutiveFailures INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        deletedAt TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_keys_status ON keys(status);
+      CREATE INDEX IF NOT EXISTS idx_keys_deleted ON keys(deletedAt);
+
+      CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY,
+        createdAt TEXT NOT NULL,
+        level TEXT NOT NULL,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        clientName TEXT,
+        requestId TEXT,
+        keyId TEXT,
+        keyName TEXT,
+        model TEXT,
+        originalModel TEXT,
+        upstreamModel TEXT,
+        statusCode INTEGER,
+        durationMs INTEGER,
+        detailsJson TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_events_created ON events(createdAt);
+      CREATE INDEX IF NOT EXISTS idx_events_key ON events(keyId);
+      CREATE INDEX IF NOT EXISTS idx_events_client ON events(clientName);
+      CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+      CREATE INDEX IF NOT EXISTS idx_events_level ON events(level);
+
+      CREATE TABLE IF NOT EXISTS client_stats (
+        clientName TEXT NOT NULL,
+        day TEXT NOT NULL,
+        totalRequests INTEGER NOT NULL DEFAULT 0,
+        totalSuccesses INTEGER NOT NULL DEFAULT 0,
+        totalFailures INTEGER NOT NULL DEFAULT 0,
+        lastRequestAt TEXT,
+        errorTypesJson TEXT NOT NULL DEFAULT '{}',
+        PRIMARY KEY (clientName, day)
+      );
+
+      CREATE TABLE IF NOT EXISTS model_stats (
+        model TEXT NOT NULL,
+        day TEXT NOT NULL,
+        totalRequests INTEGER NOT NULL DEFAULT 0,
+        totalSuccesses INTEGER NOT NULL DEFAULT 0,
+        totalFailures INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (model, day)
+      );
+
+      CREATE TABLE IF NOT EXISTS models_cache (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        fetchedAt TEXT NOT NULL,
+        responseJson TEXT NOT NULL
+      );
+    `);
+  }
+
+  private resetStaleActiveRequests() {
+    this.db.query("UPDATE keys SET activeRequests = 0").run();
+  }
+
+  createKey(input: KeyCreateInput): KeyRecord {
+    const now = isoNow();
+    const id = crypto.randomUUID();
+    this.db
+      .query(
+        `INSERT INTO keys (
+          id, name, accountLabel, notes, apiKeyPreview, encryptedApiKey,
+          enabled, status, blockReason, activeRequests, usageSource, resetSource,
+          createdAt, updatedAt
+        ) VALUES (
+          $id, $name, $accountLabel, $notes, $apiKeyPreview, $encryptedApiKey,
+          1, 'unknown', 'none', 0, 'not_available', 'fallback',
+          $createdAt, $updatedAt
+        )`
+      )
+      .run({
+        $id: id,
+        $name: input.name,
+        $accountLabel: input.accountLabel ?? null,
+        $notes: input.notes ?? null,
+        $apiKeyPreview: input.apiKeyPreview,
+        $encryptedApiKey: input.encryptedApiKey,
+        $createdAt: now,
+        $updatedAt: now,
+      });
+    return this.getKeyOrThrow(id, true);
+  }
+
+  getKey(id: string, includeDeleted = false): KeyRecord | null {
+    const row = this.db
+      .query(
+        `SELECT * FROM keys WHERE id = $id ${includeDeleted ? "" : "AND deletedAt IS NULL"}`
+      )
+      .get({ $id: id }) as Row | null;
+    return row ? keyFromRow(row) : null;
+  }
+
+  getKeyOrThrow(id: string, includeDeleted = false): KeyRecord {
+    const key = this.getKey(id, includeDeleted);
+    if (!key) throw new Error("Key not found");
+    return key;
+  }
+
+  listKeys(includeDeleted = false): KeyRecord[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM keys ${includeDeleted ? "" : "WHERE deletedAt IS NULL"} ORDER BY createdAt ASC`
+      )
+      .all() as Row[];
+    return rows.map(keyFromRow);
+  }
+
+  patchKey(id: string, patch: KeyMutationPatch): KeyRecord {
+    const entries = Object.entries(patch);
+    if (entries.length === 0) return this.getKeyOrThrow(id, true);
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { $id: id, $updatedAt: isoNow() };
+    for (const [key, value] of entries) {
+      sets.push(`${key} = $${key}`);
+      params[`$${key}`] = typeof value === "boolean" ? (value ? 1 : 0) : value;
+    }
+    sets.push("updatedAt = $updatedAt");
+    this.db.query(`UPDATE keys SET ${sets.join(", ")} WHERE id = $id`).run(params);
+    return this.getKeyOrThrow(id, true);
+  }
+
+  incrementKeyActive(id: string): KeyRecord {
+    this.db
+      .query("UPDATE keys SET activeRequests = activeRequests + 1, lastUsedAt = $now WHERE id = $id")
+      .run({ $id: id, $now: isoNow() });
+    return this.getKeyOrThrow(id, true);
+  }
+
+  decrementKeyActive(id: string): KeyRecord {
+    this.db
+      .query(
+        "UPDATE keys SET activeRequests = CASE WHEN activeRequests > 0 THEN activeRequests - 1 ELSE 0 END WHERE id = $id"
+      )
+      .run({ $id: id });
+    return this.getKeyOrThrow(id, true);
+  }
+
+  addEvent(input: EventInput): void {
+    this.db
+      .query(
+        `INSERT INTO events (
+          id, createdAt, level, type, message, clientName, requestId, keyId,
+          keyName, model, originalModel, upstreamModel, statusCode, durationMs, detailsJson
+        ) VALUES (
+          $id, $createdAt, $level, $type, $message, $clientName, $requestId, $keyId,
+          $keyName, $model, $originalModel, $upstreamModel, $statusCode, $durationMs, $detailsJson
+        )`
+      )
+      .run({
+        $id: crypto.randomUUID(),
+        $createdAt: isoNow(),
+        $level: input.level,
+        $type: input.type,
+        $message: input.message,
+        $clientName: input.clientName ?? null,
+        $requestId: input.requestId ?? null,
+        $keyId: input.keyId ?? null,
+        $keyName: input.keyName ?? null,
+        $model: input.model ?? input.upstreamModel ?? input.originalModel ?? null,
+        $originalModel: input.originalModel ?? null,
+        $upstreamModel: input.upstreamModel ?? null,
+        $statusCode: input.statusCode ?? null,
+        $durationMs: input.durationMs ?? null,
+        $detailsJson: input.details ? JSON.stringify(input.details) : null,
+      });
+  }
+
+  listEvents(filters: {
+    limit: number;
+    keyId?: string;
+    clientName?: string;
+    type?: string;
+    level?: string;
+    since?: string;
+  }): Row[] {
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = { $limit: Math.min(Math.max(filters.limit, 1), 1000) };
+    if (filters.keyId) {
+      clauses.push("keyId = $keyId");
+      params.$keyId = filters.keyId;
+    }
+    if (filters.clientName) {
+      clauses.push("clientName = $clientName");
+      params.$clientName = filters.clientName;
+    }
+    if (filters.type) {
+      clauses.push("type = $type");
+      params.$type = filters.type;
+    }
+    if (filters.level) {
+      clauses.push("level = $level");
+      params.$level = filters.level;
+    }
+    if (filters.since) {
+      clauses.push("createdAt >= $since");
+      params.$since = filters.since;
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .query(`SELECT * FROM events ${where} ORDER BY createdAt DESC LIMIT $limit`)
+      .all(params) as Row[];
+  }
+
+  cleanupEvents(retentionDays: number, maxEvents: number): void {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    this.db.query("DELETE FROM events WHERE createdAt < $cutoff").run({ $cutoff: cutoff });
+    this.db
+      .query(
+        `DELETE FROM events WHERE id IN (
+          SELECT id FROM events ORDER BY createdAt DESC LIMIT -1 OFFSET $maxEvents
+        )`
+      )
+      .run({ $maxEvents: maxEvents });
+  }
+
+  recordClientRequest(clientName: string, success: boolean, errorType?: string): void {
+    const now = isoNow();
+    const day = now.slice(0, 10);
+    const existing = this.db
+      .query("SELECT errorTypesJson FROM client_stats WHERE clientName = $clientName AND day = $day")
+      .get({ $clientName: clientName, $day: day }) as Row | null;
+    const errors = existing?.errorTypesJson
+      ? (JSON.parse(String(existing.errorTypesJson)) as Record<string, number>)
+      : {};
+    if (!success && errorType) errors[errorType] = (errors[errorType] || 0) + 1;
+    this.db
+      .query(
+        `INSERT INTO client_stats (
+          clientName, day, totalRequests, totalSuccesses, totalFailures, lastRequestAt, errorTypesJson
+        ) VALUES (
+          $clientName, $day, 1, $successes, $failures, $lastRequestAt, $errorTypesJson
+        )
+        ON CONFLICT(clientName, day) DO UPDATE SET
+          totalRequests = totalRequests + 1,
+          totalSuccesses = totalSuccesses + $successes,
+          totalFailures = totalFailures + $failures,
+          lastRequestAt = $lastRequestAt,
+          errorTypesJson = $errorTypesJson`
+      )
+      .run({
+        $clientName: clientName,
+        $day: day,
+        $successes: success ? 1 : 0,
+        $failures: success ? 0 : 1,
+        $lastRequestAt: now,
+        $errorTypesJson: JSON.stringify(errors),
+      });
+  }
+
+  recordModelRequest(model: string, success: boolean): void {
+    const day = isoNow().slice(0, 10);
+    this.db
+      .query(
+        `INSERT INTO model_stats (model, day, totalRequests, totalSuccesses, totalFailures)
+        VALUES ($model, $day, 1, $successes, $failures)
+        ON CONFLICT(model, day) DO UPDATE SET
+          totalRequests = totalRequests + 1,
+          totalSuccesses = totalSuccesses + $successes,
+          totalFailures = totalFailures + $failures`
+      )
+      .run({
+        $model: model,
+        $day: day,
+        $successes: success ? 1 : 0,
+        $failures: success ? 0 : 1,
+      });
+  }
+
+  getTodayClientStats(): Row[] {
+    const day = isoNow().slice(0, 10);
+    return this.db
+      .query("SELECT * FROM client_stats WHERE day = $day ORDER BY clientName ASC")
+      .all({ $day: day }) as Row[];
+  }
+
+  getTodayModelStats(): Row[] {
+    const day = isoNow().slice(0, 10);
+    return this.db
+      .query("SELECT * FROM model_stats WHERE day = $day ORDER BY totalRequests DESC")
+      .all({ $day: day }) as Row[];
+  }
+
+  getModelsCache(): { fetchedAt: string; responseJson: string } | null {
+    return this.db
+      .query("SELECT fetchedAt, responseJson FROM models_cache WHERE id = 1")
+      .get() as { fetchedAt: string; responseJson: string } | null;
+  }
+
+  setModelsCache(responseJson: string): void {
+    this.db
+      .query(
+        `INSERT INTO models_cache (id, fetchedAt, responseJson)
+        VALUES (1, $fetchedAt, $responseJson)
+        ON CONFLICT(id) DO UPDATE SET fetchedAt = $fetchedAt, responseJson = $responseJson`
+      )
+      .run({ $fetchedAt: isoNow(), $responseJson: responseJson });
+  }
+}

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ollama Cloud Proxy Admin</title>
+    <link rel="stylesheet" href="/admin/app.css" />
+  </head>
+  <body>
+    <div class="backdrop" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Ollama Cloud Proxy</h1>
+          <p id="summaryLine">Admin dashboard</p>
+        </div>
+        <form id="tokenForm" class="tokenBar">
+          <label for="adminToken">Admin Token</label>
+          <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="Bearer token" />
+          <button type="submit" class="button primary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+            Save
+          </button>
+          <button id="refreshButton" type="button" class="iconButton" title="Refresh">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4M3 12A9 9 0 0 1 18.3 5.6M3 4v6h6M21 20v-6h-6" /></svg>
+          </button>
+        </form>
+      </header>
+
+      <section id="notice" class="notice hidden" role="status"></section>
+
+      <section class="metricGrid" aria-label="System metrics">
+        <article class="metric">
+          <span>Active</span>
+          <strong id="activeRequests">-</strong>
+          <small>upstream requests</small>
+        </article>
+        <article class="metric">
+          <span>Queued</span>
+          <strong id="queuedRequests">-</strong>
+          <small id="queueLimit">queue</small>
+        </article>
+        <article class="metric good">
+          <span>Available Keys</span>
+          <strong id="availableKeys">-</strong>
+          <small id="totalKeys">pool total</small>
+        </article>
+        <article class="metric warn">
+          <span>Weekly Reset</span>
+          <strong id="weeklyReset">-</strong>
+          <small id="weeklyBlocked">blocked keys</small>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <section class="panel keyPanel">
+          <div class="panelHeader">
+            <div>
+              <h2>Key Pool</h2>
+              <p>Manage encrypted Ollama Cloud keys and cooldown state.</p>
+            </div>
+            <button id="addKeyButton" class="button primary" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Add Key
+            </button>
+          </div>
+          <div id="keyList" class="keyList"></div>
+        </section>
+
+        <aside class="panel eventPanel">
+          <div class="panelHeader compact">
+            <div>
+              <h2>Events</h2>
+              <p>Recent proxy and key activity.</p>
+            </div>
+          </div>
+          <div class="filters">
+            <select id="eventLevel" aria-label="Event level">
+              <option value="">All levels</option>
+              <option value="debug">Debug</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+            <select id="eventType" aria-label="Event type">
+              <option value="">All types</option>
+            </select>
+          </div>
+          <div id="eventList" class="eventList"></div>
+        </aside>
+      </section>
+
+      <section class="lowerGrid">
+        <section class="panel">
+          <div class="panelHeader compact">
+            <div>
+              <h2>Clients</h2>
+              <p>Today by token identity.</p>
+            </div>
+          </div>
+          <div id="clientList" class="miniTable"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panelHeader compact">
+            <div>
+              <h2>Models</h2>
+              <p>Aliases and request counts.</p>
+            </div>
+          </div>
+          <div id="modelList" class="miniTable"></div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="keyDialog">
+      <form id="keyForm" method="dialog" class="dialogCard">
+        <header>
+          <h2>Add Ollama Key</h2>
+          <button class="iconButton ghost" value="cancel" type="submit" title="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </header>
+        <label>
+          Name
+          <input name="name" required placeholder="free-13" />
+        </label>
+        <label>
+          Account Label
+          <input name="accountLabel" placeholder="account-m" />
+        </label>
+        <label>
+          API Key
+          <input name="apiKey" required type="password" autocomplete="off" placeholder="ollama_xxxxxxxxx" />
+        </label>
+        <label>
+          Notes
+          <textarea name="notes" rows="3" placeholder="optional"></textarea>
+        </label>
+        <footer>
+          <button class="button" type="button" id="cancelKeyButton">Cancel</button>
+          <button class="button primary" type="submit">Create Key</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/admin/app.js" type="module"></script>
+  </body>
+</html>
