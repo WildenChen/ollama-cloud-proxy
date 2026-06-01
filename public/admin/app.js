@@ -3,6 +3,7 @@ const state = {
   stats: null,
   keys: [],
   events: [],
+  creatingKey: false,
 };
 
 const eventTypes = [
@@ -258,7 +259,7 @@ function renderKeys() {
         <article class="keyCard" data-key-id="${key.id}">
           <div class="keyTitle">
             <strong>${escapeHtml(key.name)}</strong>
-            <small>${escapeHtml(key.accountLabel || "未設定帳號標籤")} · ${escapeHtml(key.apiKeyPreview)}</small>
+            <small>${escapeHtml(key.apiKeyPreview)}</small>
           </div>
           <div class="cell"><span>狀態</span><strong>${statusLabel(key)}</strong><small>${escapeHtml(key.blockReason || "無封鎖原因")}</small></div>
           <div class="cell"><span>處理中</span><strong>${formatNumber(key.activeRequests)}</strong><small>每把金鑰上限 1 個</small></div>
@@ -445,13 +446,25 @@ function bindEvents() {
   $("eventType").addEventListener("change", refresh);
   $("addKeyButton").addEventListener("click", () => $("keyDialog").showModal());
   $("cancelKeyButton").addEventListener("click", () => $("keyDialog").close());
+  $("closeKeyDialogButton").addEventListener("click", () => $("keyDialog").close());
   $("keyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (state.creatingKey) return;
+    state.creatingKey = true;
+    const submitButton = $("createKeyButton");
+    const originalLabel = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = "建立中";
     const form = new FormData(event.currentTarget);
+    const payload = {
+      name: String(form.get("name") || ""),
+      apiKey: String(form.get("apiKey") || ""),
+      notes: String(form.get("notes") || ""),
+    };
     try {
       await api("/admin/keys", {
         method: "POST",
-        body: JSON.stringify(Object.fromEntries(form.entries())),
+        body: JSON.stringify(payload),
       });
       event.currentTarget.reset();
       $("keyDialog").close();
@@ -459,6 +472,10 @@ function bindEvents() {
       await refresh();
     } catch (error) {
       showNotice(error.message, "error");
+    } finally {
+      state.creatingKey = false;
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
     }
   });
   $("keyList").addEventListener("click", (event) => {

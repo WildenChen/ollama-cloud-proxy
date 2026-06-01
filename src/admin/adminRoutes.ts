@@ -32,7 +32,7 @@ export class AdminRoutes {
   async handle(req: Request, path: string): Promise<Response> {
     if (path === "/admin/stats" && req.method === "GET") return json(this.stats());
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
-    if (path === "/admin/keys" && req.method === "GET") return json({ keys: this.keyPool.listPublic(true) });
+    if (path === "/admin/keys" && req.method === "GET") return json({ keys: this.keyPool.listPublic(false) });
     if (path === "/admin/keys" && req.method === "POST") return this.createKey(req);
 
     const match = path.match(/^\/admin\/keys\/([^/]+)(?:\/([^/]+))?$/);

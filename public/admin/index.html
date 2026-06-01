@@ -114,20 +114,16 @@
     </main>
 
     <dialog id="keyDialog">
-      <form id="keyForm" method="dialog" class="dialogCard">
+      <form id="keyForm" class="dialogCard">
         <header>
           <h2>新增 Ollama 金鑰</h2>
-          <button class="iconButton ghost" value="cancel" type="submit" title="關閉">
+          <button id="closeKeyDialogButton" class="iconButton ghost" value="cancel" type="button" title="關閉">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </header>
         <label>
           名稱
           <input name="name" required placeholder="free-13" />
-        </label>
-        <label>
-          帳號標籤
-          <input name="accountLabel" placeholder="account-m" />
         </label>
         <label>
           API 金鑰
@@ -139,7 +135,7 @@
         </label>
         <footer>
           <button class="button" type="button" id="cancelKeyButton">取消</button>
-          <button class="button primary" type="submit">建立金鑰</button>
+          <button class="button primary" type="submit" id="createKeyButton">建立金鑰</button>
         </footer>
       </form>
     </dialog>

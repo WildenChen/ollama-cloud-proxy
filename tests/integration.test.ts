@@ -84,6 +84,30 @@ describe("proxy integration", () => {
     expect(body.key.apiKeyPreview).toBe("ollama_sec...cdef");
   });
 
+  test("Admin delete key hides it from the active key list", async () => {
+    const app = createApp(config());
+    const createResponse = await fetch(`${app.baseUrl}/admin/keys`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ name: "free-01", apiKey: "ollama_secret_abcdef" }),
+    });
+    const created = await createResponse.json();
+
+    const deleteResponse = await fetch(`${app.baseUrl}/admin/keys/${created.key.id}`, {
+      method: "DELETE",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const listResponse = await fetch(`${app.baseUrl}/admin/keys`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const listed = await listResponse.json();
+
+    expect(deleteResponse.status).toBe(200);
+    expect(listResponse.status).toBe(200);
+    expect(listed.keys).toHaveLength(0);
+    expect(app.store.getKey(created.key.id, true)?.deletedAt).toBeTruthy();
+  });
+
   test("client token is required when CLIENT_API_KEYS is configured", async () => {
     const app = createApp(config());
     const response = await fetch(`${app.baseUrl}/v1/models`);
