@@ -105,6 +105,47 @@ public/admin/                  # 簡易 HTML Admin UI
 tests/                         # Bun tests
 ```
 
+## Prebuilt Docker Image
+
+This project publishes prebuilt Docker images to GitHub Container Registry:
+
+```text
+ghcr.io/wildenchen/ollama-cloud-proxy
+```
+
+Available tags:
+
+- `latest`：latest build from the `main` branch
+- `main`：latest build from the `main` branch
+- `1.0.0` or other version tags：release builds
+- `sha-<commit>`：commit-specific builds
+
+Version tags are published when the matching Git tag is pushed after the Docker publish workflow is available.
+
+For normal deployment, you can use the prebuilt image without cloning or building the source code:
+
+```bash
+docker pull ghcr.io/wildenchen/ollama-cloud-proxy:latest
+```
+
+Or run it with the release compose file:
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml logs -f
+```
+
+The release compose file uses:
+
+```yaml
+image: ghcr.io/wildenchen/ollama-cloud-proxy:latest
+```
+
+If you want to build from local source instead, use the default `docker-compose.yml`, which keeps `build: .`.
+
+After the first GitHub Actions publish, make sure the package visibility in GitHub Packages is set to public if you want unauthenticated users to pull the image.
+
 ## 快速啟動
 
 先建立設定檔：
