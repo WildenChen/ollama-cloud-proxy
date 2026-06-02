@@ -1,12 +1,18 @@
 # Ollama Cloud Proxy
 
-Ollama Cloud Proxy 是一個給 OpenClaw、Kilo Code 或其他 OpenAI-compatible 工具使用的 Ollama Cloud 代理服務。
+Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key pool gateway。它可以集中管理多把 Ollama Cloud API key，並讓 OpenClaw、Kilo Code、自製腳本或其他 AI 工具共用同一個入口。
 
-它做的事情可以簡單理解成：
+這個專案最重要的三個用途：
 
-1. 客戶端只連到這個 proxy，不直接拿 Ollama Cloud key。
-2. proxy 從本機 SQLite 裡的 key pool 挑一把可用 key。
-3. 請求被轉送到 Ollama Cloud。
+- **可使用多把 Ollama Cloud key**：proxy 會從 key pool 挑選目前可用的 key，避開 invalid、cooldown、session blocked、weekly blocked 的 key。
+- **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/chat`、`/api/tags`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
+- **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
+
+可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
+
+1. client 只連到這個 proxy。
+2. proxy 從 SQLite 保存的 key pool 挑一把可用 key。
+3. proxy 依 client 使用的 API 格式，轉送到 Ollama Cloud。
 4. 如果某把 key 失效、冷卻、達到 session limit 或 weekly limit，proxy 會暫時避開它。
 5. Admin UI/API 可以管理 key、查看佇列、事件、client 統計與 model 統計。
 
@@ -14,9 +20,9 @@ Ollama Cloud Proxy 是一個給 OpenClaw、Kilo Code 或其他 OpenAI-compatible
 
 ## 主要功能
 
+- 多把 Ollama Cloud key：加密保存、健康狀態輪替、per-key concurrency、cooldown、block state
 - OpenAI-compatible gateway：`/v1/models`、`/v1/chat/completions`、`/v1/completions`
 - Ollama native pass-through：`/api/tags`、`/api/chat`
-- Key pool：加密保存 key、健康狀態輪替、per-key concurrency、cooldown、block state
 - Concurrency queue：全域 upstream request 數量限制，超過時排隊
 - Client token：支援多個 client token，統計會依 clientName 分開記錄
 - Model alias：讓 client 使用短名稱，proxy 轉成真正 upstream model name
@@ -209,13 +215,90 @@ curl http://localhost:11435/api/tags \
 
 ## OpenClaw 設定
 
-Base URL：
+OpenClaw 可以用兩種方式接這個 proxy。
+
+### OpenClaw 使用 Ollama 格式
+
+如果 OpenClaw 設定裡使用 `api: "ollama"`，請把 `baseUrl` 指到 proxy root，不要加 `/api`。OpenClaw 會自己呼叫 Ollama native endpoint，例如 `/api/chat`、`/api/tags`。
+
+```json
+{
+  "olla": {
+    "api": "ollama",
+    "apiKey": "openclaw-token",
+    "baseUrl": "http://<proxy-host>:11435",
+    "models": [
+      {
+        "name": "minimax-m2.5",
+        "id": "minimax-m2.5",
+        "contextWindow": 196608,
+        "maxTokens": 8192,
+        "input": ["text"],
+        "reasoning": true,
+        "compat": {
+          "requiresStringContent": true,
+          "strictMessageKeys": true,
+          "supportsTools": true,
+          "supportsUsageInStreaming": true
+        },
+        "params": {
+          "num_ctx": 196608
+        }
+      },
+      {
+        "name": "gemma4:31b",
+        "id": "gemma4:31b",
+        "contextWindow": 262144,
+        "maxTokens": 16384,
+        "input": ["text", "image"],
+        "reasoning": true,
+        "compat": {
+          "requiresStringContent": true,
+          "strictMessageKeys": true,
+          "supportsTools": true,
+          "supportsUsageInStreaming": true
+        },
+        "params": {
+          "num_ctx": 262144
+        }
+      },
+      {
+        "name": "minimax-m3",
+        "id": "minimax-m3",
+        "contextWindow": 1048576,
+        "maxTokens": 32768,
+        "input": ["text", "image"],
+        "reasoning": true,
+        "compat": {
+          "requiresStringContent": true,
+          "strictMessageKeys": true,
+          "supportsTools": true,
+          "supportsUsageInStreaming": true
+        },
+        "params": {
+          "num_ctx": 1048576
+        }
+      }
+    ]
+  }
+}
+```
+
+上面的 `apiKey` 要填 `CLIENT_API_KEYS` 裡對應 OpenClaw 的 client token，例如：
+
+```env
+CLIENT_API_KEYS=openclaw:openclaw-token
+```
+
+### OpenClaw 使用 OpenAI-compatible 格式
+
+如果 OpenClaw 使用 OpenAI-compatible provider，Base URL 請填：
 
 ```text
 http://<proxy-host>:11435/v1
 ```
 
-API Key 填 `CLIENT_API_KEYS` 裡對應的 token，例如：
+API Key 一樣填 `CLIENT_API_KEYS` 裡對應的 token，例如：
 
 ```text
 openclaw-token
