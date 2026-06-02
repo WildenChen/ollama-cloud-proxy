@@ -8,6 +8,7 @@ import { publicKey } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore } from "../storage/database";
 import { getNextFixedWeeklyResetAt } from "../utils/time";
+import { APP_VERSION } from "../config/version";
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {
   const text = await req.text();
@@ -196,6 +197,7 @@ export class AdminRoutes {
 
     return {
       status: "ok",
+      version: APP_VERSION,
       concurrency: this.concurrency.stats(),
       keys: keySummary,
       usage: {

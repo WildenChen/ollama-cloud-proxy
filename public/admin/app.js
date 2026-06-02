@@ -251,6 +251,7 @@ function translateEventMessage(event) {
 function renderStats() {
   const stats = state.stats;
   if (!stats) return;
+  $("appVersion").textContent = `v${stats.version || "1.0.0"}`;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
   $("queueLimit").textContent = `上限 ${stats.concurrency.requestQueueMax}，逾時 ${stats.concurrency.requestQueueTimeoutMs} 毫秒`;

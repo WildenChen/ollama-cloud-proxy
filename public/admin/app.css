@@ -85,6 +85,21 @@ h1 {
   line-height: 1.2;
   font-weight: 720;
   letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.versionBadge {
+  border: 1px solid rgba(76, 201, 240, 0.3);
+  border-radius: 999px;
+  background: rgba(76, 201, 240, 0.1);
+  color: #c9f3ff;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 760;
 }
 
 h2 {

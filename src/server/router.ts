@@ -5,6 +5,7 @@ import { json, notFound, openAiError } from "../errors/responses";
 import { authenticateClient, requireAdmin } from "../security/auth";
 import type { ConcurrencyManager } from "../concurrency/concurrencyManager";
 import type { KeyPoolManager } from "../keyPool/keyPoolManager";
+import { APP_VERSION } from "../config/version";
 
 export class Router {
   constructor(
@@ -21,6 +22,7 @@ export class Router {
     if (path === "/health" && req.method === "GET") {
       return json({
         status: "ok",
+        version: APP_VERSION,
         concurrency: this.concurrency.stats(),
         keys: this.keyPool.summary(),
       });
