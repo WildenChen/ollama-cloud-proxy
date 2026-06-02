@@ -56,6 +56,8 @@ const dictionaries = {
     refreshTitle: "重新向後端載入最新狀態",
     refreshAria: "重新整理後台狀態",
     systemMetrics: "系統指標",
+    versionMetric: "版本",
+    versionSource: "目前部署",
     activeRequestsMetric: "處理中",
     queuedRequestsMetric: "排隊中",
     availableKeysMetric: "可用金鑰",
@@ -225,6 +227,8 @@ const dictionaries = {
     refreshTitle: "Reload latest backend status",
     refreshAria: "Refresh admin status",
     systemMetrics: "System metrics",
+    versionMetric: "Version",
+    versionSource: "Current deployment",
     activeRequestsMetric: "Active",
     queuedRequestsMetric: "Queued",
     availableKeysMetric: "Available keys",
@@ -527,7 +531,9 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  $("appVersion").textContent = `v${stats.version || "1.1.0"}`;
+  const version = `v${stats.version || "1.1.0"}`;
+  $("appVersion").textContent = version;
+  $("versionMetric").textContent = version;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
   $("queueLimit").textContent = t("queueLimit")(

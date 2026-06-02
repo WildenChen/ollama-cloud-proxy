@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=20260602-i18n" />
+    <link rel="stylesheet" href="/admin/app.css?v=20260603-version" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -35,6 +35,11 @@
       <section id="notice" class="notice hidden" role="status"></section>
 
       <section class="metricGrid" aria-label="系統指標" data-i18n-aria-label="systemMetrics">
+        <article class="metric versionMetric">
+          <span data-i18n="versionMetric">版本</span>
+          <strong id="versionMetric">v1.1.0</strong>
+          <small data-i18n="versionSource">目前部署</small>
+        </article>
         <article class="metric">
           <span data-i18n="activeRequestsMetric">處理中</span>
           <strong id="activeRequests">-</strong>
@@ -145,6 +150,6 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=20260602-i18n" type="module"></script>
+    <script src="/admin/app.js?v=20260603-version" type="module"></script>
   </body>
 </html>
