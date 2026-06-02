@@ -527,7 +527,7 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  $("appVersion").textContent = `v${stats.version || "1.0.0"}`;
+  $("appVersion").textContent = `v${stats.version || "1.1.0"}`;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
   $("queueLimit").textContent = t("queueLimit")(
