@@ -1,5 +1,7 @@
 FROM oven/bun:1.1.42-slim
 
+LABEL org.opencontainers.image.source="https://github.com/WildenChen/ollama-cloud-proxy"
+
 WORKDIR /app
 
 COPY package.json tsconfig.json ./
