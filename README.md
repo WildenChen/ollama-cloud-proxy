@@ -146,6 +146,52 @@ If you want to build from local source instead, use the default `docker-compose.
 
 After the first GitHub Actions publish, make sure the package visibility in GitHub Packages is set to public if you want unauthenticated users to pull the image.
 
+## 更新方式
+
+如果你是用 `docker-compose.release.yml` 和 GHCR prebuilt image 部署，更新時通常不需要重新 build，只要在專案目錄執行：
+
+```bash
+git pull
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml logs -f
+```
+
+這會拉下最新的 README / compose 設定，再拉取 `ghcr.io/wildenchen/ollama-cloud-proxy:latest`，最後用新的 image 重新啟動服務。`./data` volume 和 `.env` 會保留，不會因為 container 重建而消失。
+
+如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
+
+```yaml
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.0
+```
+
+固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。
+
+如果 GHCR package 尚未公開，或你使用 private package，請先登入：
+
+```bash
+echo "$CR_PAT" | docker login ghcr.io -u WildenChen --password-stdin
+```
+
+`CR_PAT` 請只放在 shell 環境變數或機器 secret，不要寫進 repo、README、Dockerfile 或 compose file。權限至少需要 `read:packages`；如果要從本機 push image，還需要 `write:packages`。
+
+如果你是用預設 `docker-compose.yml` 從本機 source build，更新方式是：
+
+```bash
+git pull
+docker compose up -d --build
+docker compose logs -f
+```
+
+更新後可以確認服務版本和健康狀態：
+
+```bash
+curl http://localhost:11435/health
+docker ps --filter name=ollama-cloud-proxy
+```
+
+建議更新前備份 `.env` 和 `data/`。尤其 `KEY_ENCRYPTION_SECRET` 必須保存好；如果遺失，SQLite 裡既有的 encrypted key 將無法解密。
+
 ## 快速啟動
 
 先建立設定檔：
