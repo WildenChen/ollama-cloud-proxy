@@ -11,6 +11,31 @@ export function publicKey(key: KeyRecord): PublicKeyRecord {
   return safe;
 }
 
+function isCooldownActive(key: KeyRecord, now: number): boolean {
+  const cooldownUntil = parseIso(key.cooldownUntil);
+  return Boolean(cooldownUntil && cooldownUntil > now);
+}
+
+function publicKeyWithEffectiveStatus(key: KeyRecord, now = Date.now()): PublicKeyRecord {
+  const safe = publicKey(key);
+  if (
+    safe.enabled &&
+    safe.deletedAt === null &&
+    safe.status !== "invalid" &&
+    safe.status !== "disabled" &&
+    !isCooldownActive(key, now)
+  ) {
+    return {
+      ...safe,
+      status: "available",
+      blockReason: "none",
+      cooldownUntil: null,
+      nextEligibleAt: null,
+    };
+  }
+  return safe;
+}
+
 export class KeyPoolManager {
   constructor(
     private readonly config: AppConfig,
@@ -20,12 +45,13 @@ export class KeyPoolManager {
   ) {}
 
   listPublic(includeDeleted = false) {
-    return this.store.listKeys(includeDeleted).map(publicKey);
+    const now = Date.now();
+    return this.store.listKeys(includeDeleted).map((key) => publicKeyWithEffectiveStatus(key, now));
   }
 
   getPublic(id: string) {
     const key = this.store.getKey(id, true);
-    return key ? publicKey(key) : null;
+    return key ? publicKeyWithEffectiveStatus(key) : null;
   }
 
   decryptKey(key: KeyRecord): string {
@@ -246,9 +272,9 @@ export class KeyPoolManager {
     return {
       totalKeys: keys.length,
       availableKeys: count((key) => this.isSelectable(key, now)),
-      coolingDownKeys: count((key) => key.status === "cooling_down" || Boolean(parseIso(key.cooldownUntil) && parseIso(key.cooldownUntil)! > now)),
-      weeklyBlockedKeys: count((key) => key.status === "weekly_blocked"),
-      sessionBlockedKeys: count((key) => key.status === "session_blocked"),
+      coolingDownKeys: count((key) => isCooldownActive(key, now)),
+      weeklyBlockedKeys: count((key) => key.status === "weekly_blocked" && isCooldownActive(key, now)),
+      sessionBlockedKeys: count((key) => key.status === "session_blocked" && isCooldownActive(key, now)),
       invalidKeys: count((key) => key.status === "invalid"),
       disabledKeys: count((key) => !key.enabled || key.status === "disabled"),
     };

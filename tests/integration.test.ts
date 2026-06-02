@@ -108,6 +108,61 @@ describe("proxy integration", () => {
     expect(app.store.getKey(created.key.id, true)?.deletedAt).toBeTruthy();
   });
 
+  test("Admin key list treats expired cooldown as available", async () => {
+    const app = createApp(config());
+    const key = app.keyPool.create({ name: "cooldown-expired", apiKey: "good-key" });
+    app.store.patchKey(key.id, {
+      status: "cooling_down",
+      blockReason: "provider_error",
+      cooldownUntil: new Date(Date.now() - 60_000).toISOString(),
+      nextEligibleAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    const keysResponse = await fetch(`${app.baseUrl}/admin/keys`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const statsResponse = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const keysBody = await keysResponse.json();
+    const statsBody = await statsResponse.json();
+
+    expect(keysResponse.status).toBe(200);
+    expect(keysBody.keys[0].status).toBe("available");
+    expect(keysBody.keys[0].blockReason).toBe("none");
+    expect(keysBody.keys[0].cooldownUntil).toBeNull();
+    expect(statsBody.keys.availableKeys).toBe(1);
+    expect(statsBody.keys.coolingDownKeys).toBe(0);
+  });
+
+  test("Admin key list keeps active cooldown visible", async () => {
+    const app = createApp(config());
+    const key = app.keyPool.create({ name: "cooldown-active", apiKey: "good-key" });
+    const cooldownUntil = new Date(Date.now() + 60_000).toISOString();
+    app.store.patchKey(key.id, {
+      status: "cooling_down",
+      blockReason: "provider_error",
+      cooldownUntil,
+      nextEligibleAt: cooldownUntil,
+    });
+
+    const keysResponse = await fetch(`${app.baseUrl}/admin/keys`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const statsResponse = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const keysBody = await keysResponse.json();
+    const statsBody = await statsResponse.json();
+
+    expect(keysResponse.status).toBe(200);
+    expect(keysBody.keys[0].status).toBe("cooling_down");
+    expect(keysBody.keys[0].blockReason).toBe("provider_error");
+    expect(keysBody.keys[0].cooldownUntil).toBe(cooldownUntil);
+    expect(statsBody.keys.availableKeys).toBe(0);
+    expect(statsBody.keys.coolingDownKeys).toBe(1);
+  });
+
   test("client token is required when CLIENT_API_KEYS is configured", async () => {
     const app = createApp(config());
     const response = await fetch(`${app.baseUrl}/v1/models`);
