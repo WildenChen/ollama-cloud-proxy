@@ -33,6 +33,60 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - SQLite：保存 keys、events、client stats、model stats、models cache
 - 事件紀錄會過濾敏感資訊，不保存完整 prompt、response 或完整 API key
 
+## Project Status
+
+This is an early-stage open-source project extracted from a real personal AI coding workflow. It is actively maintained and currently focuses on reliability, compatibility, observability, and safe deployment practices for local/self-hosted AI agent tooling.
+
+The README is primarily written in Traditional Chinese because the initial workflow and deployment notes are local-first. The project also includes English sections for open-source users who need a quick overview of purpose, safety boundaries, and future direction.
+
+## Use Cases
+
+`ollama-cloud-proxy` is designed for developers who use multiple AI coding or agent tools and want a stable, observable, and maintainable gateway in front of Ollama Cloud.
+
+Typical use cases include:
+
+- Sharing one stable endpoint across AI coding tools such as OpenClaw, Kilo Code, Codex-compatible clients, and custom scripts.
+- Using an OpenAI-compatible `/v1/chat/completions` endpoint while still supporting Ollama-native APIs.
+- Managing multiple upstream keys through a key pool instead of hardcoding credentials in every local tool.
+- Isolating different clients with separate client API keys.
+- Observing request status, key health, queue behavior, streaming behavior, and basic usage statistics.
+- Running a personal or small-team AI coding gateway on a private server, NAS, or internal network.
+
+This project is especially useful for local-first or self-hosted AI agent workflows where several tools need to access the same model service safely and consistently.
+
+## Security Notes
+
+This project handles API keys and routing for AI coding tools, so it should be deployed carefully.
+
+Recommended practices:
+
+- Do not commit `.env`, API keys, admin tokens, client tokens, or SQLite runtime data to Git.
+- Use strong and different values for `ADMIN_TOKEN` and client API keys.
+- Back up `KEY_ENCRYPTION_SECRET`; encrypted upstream keys cannot be recovered without it.
+- Do not expose the admin interface directly to the public internet.
+- If deploying behind a reverse proxy, always use HTTPS.
+- Prefer private network access, VPN, Tailscale, Cloudflare Access, or another access-control layer for remote usage.
+- Rotate keys immediately if they may have been exposed.
+- Avoid logging full request bodies when they may contain secrets, source code, credentials, or private data.
+- Treat this proxy as infrastructure: back up configuration, monitor failures, and review updates before deploying.
+
+This project is intended to improve maintainability, observability, and safer routing for AI development workflows. It is not intended to bypass provider limits, access controls, or terms of service.
+
+## Roadmap
+
+Planned improvements:
+
+- Add automated tests for OpenAI-compatible and Ollama-native endpoints.
+- Improve streaming compatibility and error handling for AI coding clients.
+- Add safer default configuration examples for reverse proxy deployments.
+- Improve key health checks, cooldown behavior, and queue diagnostics.
+- Add clearer admin dashboard indicators for active requests, failed requests, and key status.
+- Add structured error classification for upstream failures, authentication failures, and client-side request issues.
+- Provide example configurations for common tools such as OpenClaw, Kilo Code, and custom OpenAI-compatible clients.
+- Improve documentation for Docker, Synology NAS, and private-network deployment.
+- Add CI checks for linting, tests, and accidental secret detection.
+- Consider Admin UI localization if the project gains users who need languages beyond Traditional Chinese.
+
 ## 專案結構
 
 ```text
