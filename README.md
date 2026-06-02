@@ -1,32 +1,56 @@
 # Ollama Cloud Proxy
 
-這是一個給 OpenClaw / Kilo Code 使用的 Ollama Cloud Proxy + Key Pool Manager + Admin Backend。它提供 OpenAI-compatible `/v1/*` gateway，並用 SQLite 保存 key 狀態、cooldown、usage estimate、client stats 與 events。
+Ollama Cloud Proxy 是一個給 OpenClaw、Kilo Code 或其他 OpenAI-compatible 工具使用的 Ollama Cloud 代理服務。
 
-目前已完成後端穩定版與簡單 HTML Admin UI。Admin UI 走既有 Admin JSON API，不會回傳完整 API key。
+它做的事情可以簡單理解成：
 
-## 架構
+1. 客戶端只連到這個 proxy，不直接拿 Ollama Cloud key。
+2. proxy 從本機 SQLite 裡的 key pool 挑一把可用 key。
+3. 請求被轉送到 Ollama Cloud。
+4. 如果某把 key 失效、冷卻、達到 session limit 或 weekly limit，proxy 會暫時避開它。
+5. Admin UI/API 可以管理 key、查看佇列、事件、client 統計與 model 統計。
 
-- `/v1/models`
-- `/v1/chat/completions`
-- `/v1/completions`
-- `/api/tags`
-- `/api/chat`
-- `/api/*` 採 Ollama native pass-through，不轉成 OpenAI 格式，避免工具呼叫 payload 被改寫。
-- `Key Pool Manager`：weighted healthy rotation、per-key concurrency、cooldown/block state
-- `Concurrency Manager`：全域最多 5 個 upstream request，第 6 個進 queue
-- `Client Token`：多 client token，events/stats 會記錄 clientName
-- `Admin JSON API`：keys、stats、events、test、rotate、enable/disable
-- `SQLite`：預設 `/data/ollama-cloud-proxy.sqlite`
-- `Events`：不記完整 prompt、response、完整 API key
-- `HTML Admin UI`：`GET /admin`
+本專案的目標是穩定管理多把 Ollama Cloud key，避免 client 一直打到已失效或正在冷卻的 key。它不是用來無限制繞過 Ollama Cloud 的服務限制。
 
-## 建立 .env
+## 主要功能
+
+- OpenAI-compatible gateway：`/v1/models`、`/v1/chat/completions`、`/v1/completions`
+- Ollama native pass-through：`/api/tags`、`/api/chat`
+- Key pool：加密保存 key、健康狀態輪替、per-key concurrency、cooldown、block state
+- Concurrency queue：全域 upstream request 數量限制，超過時排隊
+- Client token：支援多個 client token，統計會依 clientName 分開記錄
+- Model alias：讓 client 使用短名稱，proxy 轉成真正 upstream model name
+- Admin UI：`GET /admin`
+- Admin JSON API：keys、stats、events、test、rotate、enable/disable
+- SQLite：保存 keys、events、client stats、model stats、models cache
+- 事件紀錄會過濾敏感資訊，不保存完整 prompt、response 或完整 API key
+
+## 專案結構
+
+```text
+src/
+  index.ts                    # Bun server 入口
+  server/router.ts             # /health、/admin、/v1/*、/api/* 路由
+  proxy/                       # 請求轉送、body limit、streaming
+  keyPool/                     # key 選擇、狀態更新、錯誤分類
+  concurrency/                 # 全域併發與等待佇列
+  admin/                       # Admin JSON API
+  storage/database.ts          # SQLite schema 與資料操作
+  models/modelManager.ts       # model alias 與 /v1/models cache
+  security/                    # client/admin auth 與 key 加密
+public/admin/                  # 簡易 HTML Admin UI
+tests/                         # Bun tests
+```
+
+## 快速啟動
+
+先建立設定檔：
 
 ```bash
 cp .env.example .env
 ```
 
-請至少修改：
+至少要修改這三個值：
 
 ```env
 ADMIN_TOKEN=請換成很長的管理 token
@@ -34,30 +58,60 @@ KEY_ENCRYPTION_SECRET=請換成很長的隨機 secret
 CLIENT_API_KEYS=openclaw:openclaw-token,kilo-company:kilo-token
 ```
 
-`KEY_ENCRYPTION_SECRET` 必須備份。若遺失，SQLite 裡的 encrypted key 將無法解密。
-
-## 啟動 Docker
+接著用 Docker 啟動：
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Health check：
+確認服務狀態：
 
 ```bash
 curl http://localhost:11435/health
 ```
 
-Admin UI：
+打開 Admin UI：
 
 ```text
 http://localhost:11435/admin
 ```
 
-打開後輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 localStorage，所有資料操作仍會帶 Bearer token 呼叫 `/admin/*` JSON API。
+Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 localStorage，後續操作會用 Bearer token 呼叫 `/admin/*` API。
 
-## 新增第一把 Ollama key
+## 重要設定
+
+`KEY_ENCRYPTION_SECRET` 必須備份。SQLite 裡保存的是加密後的 key；如果這個 secret 遺失，既有 encrypted key 將無法解密，只能重新新增或 rotate。
+
+| 變數 | 預設值 | 說明 |
+| --- | --- | --- |
+| `PORT` | `11435` | proxy 監聽 port |
+| `ADMIN_TOKEN` | 必填 | 管理台與 `/admin/*` API 的 Bearer token |
+| `KEY_ENCRYPTION_SECRET` | 必填 | 加密 Ollama Cloud API key 的 secret |
+| `CLIENT_API_KEYS` | 空 | client token 清單，格式是 `clientName:token,client2:token2` |
+| `OLLAMA_UPSTREAM_BASE_URL` | `https://ollama.com` | 上游 Ollama Cloud base URL |
+| `MAX_CONCURRENT_REQUESTS` | `5` | 全域同時送往上游的 request 數量 |
+| `MAX_CONCURRENT_REQUESTS_PER_KEY` | `1` | 單把 key 同時處理的 request 數量 |
+| `REQUEST_QUEUE_MAX` | `30` | 全域額度滿時最多排隊 request 數 |
+| `REQUEST_QUEUE_TIMEOUT_MS` | `120000` | request 在 queue 裡最多等待多久 |
+| `UPSTREAM_TOTAL_TIMEOUT_MS` | `900000` | 單次上游請求總逾時 |
+| `UPSTREAM_IDLE_TIMEOUT_MS` | `180000` | streaming 沒有新資料時的 idle 逾時 |
+| `MAX_REQUEST_BODY_SIZE_MB` | `20` | request body 大小上限 |
+| `MAX_UPSTREAM_RETRIES_PER_REQUEST` | `1` | retryable 錯誤最多改用其他 key 重試幾次 |
+| `MODELS_CACHE_TTL_SECONDS` | `3600` | `/v1/models` cache 時間 |
+| `MODEL_ALIASES_JSON` | `{}` | model alias JSON，例如 `{"kilo-default":"actual-model"}` |
+| `USAGE_TIMEZONE` | `Asia/Taipei` | weekly reset 顯示與推算時區 |
+| `WEEKLY_RESET_DAY_OF_WEEK` | `1` | weekly reset 星期，`1` 是星期一 |
+| `WEEKLY_RESET_TIME` | `08:30` | weekly reset 時間 |
+| `EVENT_RETENTION_DAYS` | `14` | event 保留天數 |
+| `MAX_EVENTS` | `100000` | event 最大保留筆數 |
+| `DB_PATH` | `/data/ollama-cloud-proxy.sqlite` | SQLite DB 路徑 |
+
+如果 `CLIENT_API_KEYS` 有設定，所有 `/v1/*` 與 `/api/*` proxy 請求都必須帶合法 Bearer token。若沒有設定，proxy 會允許未驗證請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
+
+## 新增第一把 Ollama Cloud key
+
+可以在 Admin UI 新增，也可以用 Admin API：
 
 ```bash
 curl -X POST http://localhost:11435/admin/keys \
@@ -71,16 +125,170 @@ curl -X POST http://localhost:11435/admin/keys \
   }'
 ```
 
-Admin API 永遠不會回傳完整 `apiKey`，只會回 `apiKeyPreview`。
+API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
+
+## Proxy 路徑怎麼選
+
+這個服務同時支援 OpenAI-compatible 與 Ollama native 兩種路徑，差別很重要。
+
+| Client 需要 | 使用路徑 | 行為 |
+| --- | --- | --- |
+| OpenAI-compatible chat | `/v1/chat/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
+| OpenAI-compatible completion | `/v1/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
+| OpenAI-compatible model list | `/v1/models` | 會 cache 上游 model list，並把 alias 加進列表 |
+| Ollama native model list | `/api/tags` | 原樣 pass-through，不改 payload |
+| Ollama native chat | `/api/chat` | 原樣 pass-through，不套用 alias，不改 tool call payload |
+
+`/api/chat` 是刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫。如果你的 client 走 Ollama native protocol，請設定到 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
+
+## 應用範例：同時支援兩種 client 格式
+
+同一個 Ollama Cloud Proxy 可以同時被不同工具使用。有些工具只認 OpenAI-compatible API，有些工具則使用 Ollama native API；它們可以共用同一組 proxy、同一個 key pool、同一套佇列與狀態管理。
+
+例如：
+
+| 使用者或工具 | API 格式 | Base URL / endpoint | 說明 |
+| --- | --- | --- | --- |
+| Kilo Code | OpenAI-compatible | `http://<proxy-host>:11435/v1` | 走 `/v1/chat/completions`，可以使用 model alias |
+| OpenClaw | OpenAI-compatible | `http://<proxy-host>:11435/v1` | 走 OpenAI 格式，適合 OpenAI-compatible provider 設定 |
+| Ollama native client | Ollama native | `http://<proxy-host>:11435/api` | 走 `/api/chat`、`/api/tags`，payload 原樣轉送 |
+| 自製工具或腳本 | 任一種 | `/v1/*` 或 `/api/*` | 依工具需要選擇格式 |
+
+### OpenAI-compatible 請求範例
+
+適合 Kilo Code、OpenClaw 或其他 OpenAI-compatible SDK：
+
+```bash
+curl http://localhost:11435/v1/chat/completions \
+  -H "Authorization: Bearer openclaw-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kilo-default",
+    "messages": [
+      { "role": "user", "content": "請用三句話說明這個 proxy 的用途" }
+    ],
+    "stream": false
+  }'
+```
+
+如果 `MODEL_ALIASES_JSON={"kilo-default":"actual-upstream-model"}`，proxy 會把 `kilo-default` 改成真正的 upstream model name 再送出。
+
+### Ollama native 請求範例
+
+適合使用 Ollama 原生 `/api/chat` 格式的工具：
+
+```bash
+curl http://localhost:11435/api/chat \
+  -H "Authorization: Bearer openclaw-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "actual-upstream-model",
+    "messages": [
+      { "role": "user", "content": "請用三句話說明這個 proxy 的用途" }
+    ],
+    "stream": false
+  }'
+```
+
+這條路徑不會套用 model alias，也不會改寫 tools、tool calls 或 streaming chunks。也就是說，client 送什麼 Ollama native payload，proxy 就盡量原樣轉給 Ollama Cloud。
+
+查詢 Ollama native model list：
+
+```bash
+curl http://localhost:11435/api/tags \
+  -H "Authorization: Bearer openclaw-token"
+```
+
+### 同時混用時的注意事項
+
+- `/v1/*` 和 `/api/*` 會共用同一個 key pool，所以任一格式造成 key 冷卻或封鎖，都會影響另一種格式的可用 key 數。
+- `/v1/*` 會套用 model alias；`/api/chat` 不套用 alias。
+- 兩種格式都會受到 `MAX_CONCURRENT_REQUESTS`、`REQUEST_QUEUE_MAX` 與 per-key concurrency 限制。
+- 兩種格式都會記錄 client stats、model stats 與 events。
+- 如果設定了 `CLIENT_API_KEYS`，兩種格式都必須帶合法 Bearer token。
+
+## OpenClaw 設定
+
+Base URL：
+
+```text
+http://<proxy-host>:11435/v1
+```
+
+API Key 填 `CLIENT_API_KEYS` 裡對應的 token，例如：
+
+```text
+openclaw-token
+```
+
+建議內網使用固定 LAN IP，不要只依賴 `.local`。
+
+## Kilo Code 設定
+
+- Provider: OpenAI Compatible
+- Base URL: `http://<proxy-host>:11435/v1` 或你的 HTTPS domain `/v1`
+- API Key: `CLIENT_API_KEYS` 裡對應 `kilo-company` 的 token
+- Model: 真實 model name，或 `MODEL_ALIASES_JSON` 裡設定的 alias
+
+Base URL 請填到 `/v1`，不要填成 `/v1/chat/completions`。
+
+## Model alias
+
+如果 client 端不好填長 model name，可以在 `.env` 設定 alias：
+
+```env
+MODEL_ALIASES_JSON={"kilo-default":"actual-upstream-model","fast":"another-model"}
+```
+
+效果：
+
+- client 對 `/v1/chat/completions` 或 `/v1/completions` 送 `model: "kilo-default"`
+- proxy 轉送上游時改成 `model: "actual-upstream-model"`
+- `/v1/models` 會額外列出 `kilo-default`
+- `/api/chat` 不套用 alias，因為它是 Ollama native pass-through
+
+也可以不設環境變數，改在專案根目錄放 `model-aliases.json`：
+
+```json
+{
+  "kilo-default": "actual-upstream-model"
+}
+```
 
 ## 常用 Admin API
 
 ```bash
-curl -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:11435/admin/keys
-curl -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:11435/admin/stats
-curl -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:11435/admin/events?limit=100"
-curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:11435/admin/keys/<id>/test
-curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:11435/admin/keys/<id>/reset-cooldown
+# key list
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys
+
+# stats
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/stats
+
+# recent events
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://localhost:11435/admin/events?limit=100"
+```
+
+管理單一 key：
+
+```bash
+# test key against upstream /v1/models
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>/test
+
+# temporarily disable key
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>/disable
+
+# enable key
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>/enable
+
+# clear cooldown
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>/reset-cooldown
 ```
 
 Rotate key：
@@ -92,70 +300,112 @@ curl -X POST http://localhost:11435/admin/keys/<id>/rotate \
   -d '{"apiKey":"ollama_new_xxxxx"}'
 ```
 
-## OpenClaw 設定
+更新 metadata：
 
-Base URL：
-
-```text
-http://<mac-mini-lan-ip>:11435/v1
+```bash
+curl -X PATCH http://localhost:11435/admin/keys/<id> \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"free-01-renamed","notes":"new note","enabled":true}'
 ```
 
-若有設定 `CLIENT_API_KEYS`，OpenClaw 的 API Key 請填對應的 client token，例如 `openclaw-token`。
+刪除 key 是 soft delete：列表不再顯示，但資料庫仍保留事件紀錄。
 
-建議內網使用固定 LAN IP，不要只依賴 `.local`。
+```bash
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>
+```
 
-## Kilo Code 設定
+## Key 狀態與錯誤判斷
 
-- Provider: OpenAI Compatible
-- Base URL: `https://your-domain.example.com/v1`
-- API Key: `CLIENT_API_KEYS` 裡對應 `kilo-company` 的 token
-- Model: 真實 model name 或 alias，例如 `kilo-default`
+proxy 會根據上游回應更新 key 狀態：
 
-不要把 Base URL 填成 `/v1/chat/completions`。
+| 上游狀況 | proxy 判斷 | 後續行為 |
+| --- | --- | --- |
+| `401` | `invalid` / `auth_failed` | key 不再自動使用，需要 rotate 或手動處理 |
+| `403` | `invalid` / `invalid_api_key` | key 不再自動使用，需要 rotate 或手動處理 |
+| `429` 且內容像 session limit | `session_blocked` | 預設冷卻約 5 小時 |
+| `429` 且內容像 weekly limit | `weekly_blocked` | 等到推算的 weekly reset 後再嘗試 |
+| 其他 `429` | `cooling_down` / `rate_limited` | 指數退避，約 15 分鐘到 1 小時 |
+| `500` / `502` / `503` | `cooling_down` / `provider_error` | 短暫冷卻，約 1 到 5 分鐘 |
+| network / timeout | `cooling_down` / `network_error` | 短暫冷卻，可 retry |
 
-## 外網反向代理注意事項
+session 與 weekly usage 沒有官方 usage API 可查時，只能靠 proxy 估算或從錯誤文字推斷。Admin UI/API 裡的 `usageSource` 與 `resetSource` 會標示來源。
 
-- 不要直接把 Docker port `11435` 裸露到 Internet。
-- 外網使用必須放在 HTTPS 反向代理後面。
-- 反向代理到外網時，必須設定 `CLIENT_API_KEYS`。
-- `/admin/*` 不建議暴露到外網；若要暴露，必須設定 `ADMIN_TOKEN`，並建議再加 VPN / Tailscale / IP allowlist / Cloudflare Access。
-- streaming/SSE 需要關閉 response buffering、延長 read timeout、支援長連線。
-- client abort 時，本服務會釋放 activeRequests。
+## 外網與反向代理
 
-## Session / Weekly Usage 限制
+不建議直接把 Docker port `11435` 裸露到 Internet。外網使用時建議：
 
-Ollama Cloud usage 有 session limit 與 weekly limit。session limit 約每 5 小時重置，weekly limit 約每 7 天重置。
+- 放在 HTTPS 反向代理後面
+- 一定要設定 `CLIENT_API_KEYS`
+- `/admin/*` 儘量只允許內網、VPN、Tailscale、IP allowlist 或 Cloudflare Access 存取
+- 設定足夠長的 read timeout
+- streaming/SSE 或 NDJSON 場景要關閉 response buffering
+- 不要把 `ADMIN_TOKEN` 和 client token 寫進公開文件或前端程式碼
 
-本專案依使用者觀察，預設 weekly reset 為 `Asia/Taipei` 每週一 `08:30`。若 Ollama 官方未提供 usage API，後台顯示的 session/weekly usage 只能是 `estimated` 或 `inferred`，不是官方精準數值；請看 `usageSource` 與 `resetSource`。
-
-本專案用途是穩定管理 key 狀態，避免 OpenClaw/Kilo Code 持續打到 invalid、cooldown、session_blocked、weekly_blocked 的 key，不是用於無限制繞過服務限制。
+如果 client 中止請求，proxy 會中止上游 request，並釋放全域 concurrency slot 與 key active count。
 
 ## 常見錯誤
 
-- `no_available_key`：所有 key 都 disabled、invalid、cooldown、session/weekly blocked，或達到 per-key concurrency。
-- `queue_full`：全域 active 已滿且 queue 已達 `REQUEST_QUEUE_MAX`。
+- `unauthorized`：缺少合法 Bearer token。`/admin/*` 要用 `ADMIN_TOKEN`，proxy 路徑要用 `CLIENT_API_KEYS` 裡的 client token。
+- `no_available_key`：所有 key 都 disabled、invalid、cooldown、session blocked、weekly blocked，或已達 per-key concurrency。
+- `queue_full`：全域 active request 已滿，且等待佇列達到 `REQUEST_QUEUE_MAX`。
 - `queue_timeout`：request 在 queue 等超過 `REQUEST_QUEUE_TIMEOUT_MS`。
-- `weekly_blocked`：推斷 weekly usage limit，預設等到下一個台灣時間週一 08:30 加 grace/jitter。
-- `session_blocked`：推斷 session usage limit，預設 cooldown 5 小時。
-- `invalid key`：401/403，需 rotate 或手動處理，不會自動恢復。
+- `request_body_too_large`：request body 超過 `MAX_REQUEST_BODY_SIZE_MB`。
+- `weekly_blocked`：推斷達到 weekly usage limit，預設等到下一個台灣時間星期一 08:30，加上 grace/jitter 後再嘗試。
+- `session_blocked`：推斷達到 session usage limit，預設冷卻約 5 小時。
+- `invalid`：上游回 `401` 或 `403`，通常要 rotate key。
 - Kilo Code 連不上：確認 Base URL 是 `/v1`，不是 `/v1/chat/completions`。
-- streaming 斷線：檢查反向代理 buffering/read timeout/長連線設定。
+- streaming 斷線：檢查反向代理 buffering、read timeout 與長連線設定。
 
-## 測試
+## 本機開發
+
+需要 Bun。
+
+```bash
+bun run dev
+```
+
+測試：
 
 ```bash
 bun test
 ```
 
-若主機沒有安裝 Bun，可用 Docker 跑：
+如果主機沒有 Bun，可用 Docker 跑測試：
 
 ```bash
 docker build -t ollama-cloud-proxy:test .
 docker run --rm -v "$PWD:/work" -w /work ollama-cloud-proxy:test bun test
 ```
 
-目前包含 weekly reset function、Admin key 建立、client token、mock upstream 轉送、401 invalid key、model alias rewrite、OpenAI `/v1/*` 與 Ollama native `/api/tags` / `/api/chat` pass-through 相容測試。
+目前測試涵蓋：
 
-## 不要 commit secrets
+- weekly reset 時間推算
+- Admin key 建立與 API key 不外洩
+- soft delete
+- client token 驗證
+- mock upstream 轉送
+- upstream `401` 使 key 變成 invalid
+- model alias rewrite
+- `/v1/*` OpenAI-compatible 路徑
+- `/api/tags` 與 `/api/chat` Ollama native pass-through
+- native streaming 與 tool call payload 保持不變
 
-`.env`、SQLite DB、任何含完整 API key 的檔案都不可 commit。本 repo 已加入 `.gitignore` / `.dockerignore`。
+## 資料與 secret
+
+不要 commit 這些內容：
+
+- `.env`
+- `data/`
+- SQLite DB
+- 任何完整 Ollama Cloud API key
+- `ADMIN_TOKEN`
+- client token
+- `KEY_ENCRYPTION_SECRET`
+
+Docker compose 預設把 SQLite 放在本機 `./data`，容器內路徑是 `/data/ollama-cloud-proxy.sqlite`。備份 DB 時也要一起保存 `KEY_ENCRYPTION_SECRET`，否則備份回來的 encrypted key 無法使用。
+
+## License
+
+MIT License. See [LICENSE](./LICENSE).
