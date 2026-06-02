@@ -270,11 +270,6 @@ svg {
   color: var(--amber);
 }
 
-.versionMetric strong {
-  color: var(--blue);
-  font-size: 26px;
-}
-
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;

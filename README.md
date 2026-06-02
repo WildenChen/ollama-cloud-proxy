@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/chat`、`/api/tags`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.0`
+目前版本：`1.1.1`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -117,7 +117,7 @@ Available tags:
 
 - `latest`：latest build from the `main` branch
 - `main`：latest build from the `main` branch
-- `1.1.0` or other version tags：release builds
+- `1.1.1` or other version tags：release builds
 - `sha-<commit>`：commit-specific builds
 
 Version tags are published when the matching Git tag is pushed after the Docker publish workflow is available.
@@ -162,7 +162,7 @@ docker compose -f docker-compose.release.yml logs -f
 如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
 
 ```yaml
-image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.0
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.1
 ```
 
 固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。
