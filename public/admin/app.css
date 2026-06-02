@@ -129,7 +129,7 @@ button {
 
 .tokenBar {
   display: grid;
-  grid-template-columns: auto minmax(220px, 320px) auto auto;
+  grid-template-columns: auto minmax(120px, 160px) auto minmax(220px, 320px) auto auto;
   align-items: center;
   gap: 10px;
 }
@@ -542,6 +542,15 @@ dialog::backdrop {
 }
 
 @media (max-width: 1180px) {
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tokenBar {
+    grid-template-columns: auto minmax(140px, 1fr) auto minmax(220px, 2fr) auto auto;
+  }
+
   .workspace,
   .lowerGrid {
     grid-template-columns: 1fr;

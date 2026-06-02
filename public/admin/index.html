@@ -4,24 +4,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=20260602-version" />
+    <link rel="stylesheet" href="/admin/app.css?v=20260602-i18n" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>Ollama 雲端代理 <span id="appVersion" class="versionBadge">v1.0.0</span></h1>
-          <p id="summaryLine">管理總覽</p>
+          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.0.0</span></h1>
+          <p id="summaryLine" data-i18n="summaryDefault">管理總覽</p>
         </div>
         <form id="tokenForm" class="tokenBar">
-          <label for="adminToken">管理權杖</label>
-          <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="輸入管理權杖" />
-          <button type="submit" class="button primary" title="儲存管理權杖並載入後台資料" aria-label="儲存管理權杖並載入後台資料">
+          <label for="localeSelect" data-i18n="languageLabel">語言</label>
+          <select id="localeSelect" name="localeSelect" aria-label="語言">
+            <option value="zh-Hant">繁中</option>
+            <option value="en">English</option>
+          </select>
+          <label for="adminToken" data-i18n="adminTokenLabel">管理權杖</label>
+          <input id="adminToken" name="adminToken" type="password" autocomplete="off" placeholder="輸入管理權杖" data-i18n-placeholder="adminTokenPlaceholder" />
+          <button type="submit" class="button primary" title="儲存管理權杖並載入後台資料" aria-label="儲存管理權杖並載入後台資料" data-i18n-title="saveTitle" data-i18n-aria-label="saveTitle">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-            儲存
+            <span data-i18n="save">儲存</span>
           </button>
-          <button id="refreshButton" type="button" class="iconButton" title="重新向後端載入最新狀態" aria-label="重新整理後台狀態">
+          <button id="refreshButton" type="button" class="iconButton" title="重新向後端載入最新狀態" aria-label="重新整理後台狀態" data-i18n-title="refreshTitle" data-i18n-aria-label="refreshAria">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4M3 12A9 9 0 0 1 18.3 5.6M3 4v6h6M21 20v-6h-6" /></svg>
           </button>
         </form>
@@ -29,24 +34,24 @@
 
       <section id="notice" class="notice hidden" role="status"></section>
 
-      <section class="metricGrid" aria-label="系統指標">
+      <section class="metricGrid" aria-label="系統指標" data-i18n-aria-label="systemMetrics">
         <article class="metric">
-          <span>處理中</span>
+          <span data-i18n="activeRequestsMetric">處理中</span>
           <strong id="activeRequests">-</strong>
-          <small>上游請求</small>
+          <small data-i18n="upstreamRequests">上游請求</small>
         </article>
         <article class="metric">
-          <span>排隊中</span>
+          <span data-i18n="queuedRequestsMetric">排隊中</span>
           <strong id="queuedRequests">-</strong>
           <small id="queueLimit">佇列</small>
         </article>
         <article class="metric good">
-          <span>可用金鑰</span>
+          <span data-i18n="availableKeysMetric">可用金鑰</span>
           <strong id="availableKeys">-</strong>
           <small id="totalKeys">金鑰池總數</small>
         </article>
         <article class="metric warn">
-          <span>每週重置</span>
+          <span data-i18n="weeklyResetMetric">每週重置</span>
           <strong id="weeklyReset">-</strong>
           <small id="weeklyBlocked">受限金鑰</small>
         </article>
@@ -56,12 +61,12 @@
         <section class="panel keyPanel">
           <div class="panelHeader">
             <div>
-              <h2>金鑰池</h2>
-              <p>管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
+              <h2 data-i18n="keyPoolTitle">金鑰池</h2>
+              <p data-i18n="keyPoolDescription">管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
             </div>
-            <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰">
+            <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰" data-i18n-title="addKeyTitle" data-i18n-aria-label="addKeyAria">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              新增金鑰
+              <span data-i18n="addKey">新增金鑰</span>
             </button>
           </div>
           <div id="keyList" class="keyList"></div>
@@ -70,20 +75,20 @@
         <aside class="panel eventPanel">
           <div class="panelHeader compact">
             <div>
-              <h2>事件</h2>
-              <p>近期代理與金鑰活動。</p>
+              <h2 data-i18n="eventsTitle">事件</h2>
+              <p data-i18n="eventsDescription">近期代理與金鑰活動。</p>
             </div>
           </div>
           <div class="filters">
-            <select id="eventLevel" aria-label="事件層級">
-              <option value="">所有層級</option>
-              <option value="debug">除錯</option>
-              <option value="info">資訊</option>
-              <option value="warn">警告</option>
-              <option value="error">錯誤</option>
+            <select id="eventLevel" aria-label="事件層級" data-i18n-aria-label="eventLevelLabel">
+              <option value="" data-i18n="allLevels">所有層級</option>
+              <option value="debug" data-i18n="levelDebug">除錯</option>
+              <option value="info" data-i18n="levelInfo">資訊</option>
+              <option value="warn" data-i18n="levelWarn">警告</option>
+              <option value="error" data-i18n="levelError">錯誤</option>
             </select>
-            <select id="eventType" aria-label="事件類型">
-              <option value="">所有類型</option>
+            <select id="eventType" aria-label="事件類型" data-i18n-aria-label="eventTypeLabel">
+              <option value="" data-i18n="allTypes">所有類型</option>
             </select>
           </div>
           <div id="eventList" class="eventList"></div>
@@ -94,8 +99,8 @@
         <section class="panel">
           <div class="panelHeader compact">
             <div>
-              <h2>客戶端</h2>
-              <p>依今日權杖身分統計。</p>
+              <h2 data-i18n="clientsTitle">客戶端</h2>
+              <p data-i18n="clientsDescription">依今日權杖身分統計。</p>
             </div>
           </div>
           <div id="clientList" class="miniTable"></div>
@@ -104,8 +109,8 @@
         <section class="panel">
           <div class="panelHeader compact">
             <div>
-              <h2>模型</h2>
-              <p>別名與請求次數。</p>
+              <h2 data-i18n="modelsTitle">模型</h2>
+              <p data-i18n="modelsDescription">別名與請求次數。</p>
             </div>
           </div>
           <div id="modelList" class="miniTable"></div>
@@ -116,30 +121,30 @@
     <dialog id="keyDialog">
       <form id="keyForm" class="dialogCard">
         <header>
-          <h2>新增 Ollama 金鑰</h2>
-          <button id="closeKeyDialogButton" class="iconButton ghost" value="cancel" type="button" title="關閉新增金鑰視窗" aria-label="關閉新增金鑰視窗">
+          <h2 data-i18n="dialogTitle">新增 Ollama 金鑰</h2>
+          <button id="closeKeyDialogButton" class="iconButton ghost" value="cancel" type="button" title="關閉新增金鑰視窗" aria-label="關閉新增金鑰視窗" data-i18n-title="closeDialogTitle" data-i18n-aria-label="closeDialogTitle">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </header>
         <label>
-          名稱
+          <span data-i18n="nameLabel">名稱</span>
           <input name="name" required placeholder="free-13" />
         </label>
         <label>
-          API 金鑰
+          <span data-i18n="apiKeyLabel">API 金鑰</span>
           <input name="apiKey" required type="password" autocomplete="off" placeholder="ollama_xxxxxxxxx" />
         </label>
         <label>
-          備註
-          <textarea name="notes" rows="3" placeholder="可留空"></textarea>
+          <span data-i18n="notesLabel">備註</span>
+          <textarea name="notes" rows="3" placeholder="可留空" data-i18n-placeholder="notesPlaceholder"></textarea>
         </label>
         <footer>
-          <button class="button" type="button" id="cancelKeyButton" title="放棄輸入並關閉視窗">取消</button>
-          <button class="button primary" type="submit" id="createKeyButton" title="加密保存這把金鑰並加入輪替池">建立金鑰</button>
+          <button class="button" type="button" id="cancelKeyButton" title="放棄輸入並關閉視窗" data-i18n-title="cancelTitle" data-i18n="cancel">取消</button>
+          <button class="button primary" type="submit" id="createKeyButton" title="加密保存這把金鑰並加入輪替池" data-i18n-title="createKeyTitle" data-i18n="createKey">建立金鑰</button>
         </footer>
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=20260602-version" type="module"></script>
+    <script src="/admin/app.js?v=20260602-i18n" type="module"></script>
   </body>
 </html>

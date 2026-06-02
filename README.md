@@ -29,6 +29,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - Client token：支援多個 client token，統計會依 clientName 分開記錄
 - Model alias：讓 client 使用短名稱，proxy 轉成真正 upstream model name
 - Admin UI：`GET /admin`
+- Admin UI i18n：支援繁體中文與英文切換，語言偏好保存在瀏覽器 localStorage
 - Admin JSON API：keys、stats、events、test、rotate、enable/disable
 - SQLite：保存 keys、events、client stats、model stats、models cache
 - 事件紀錄會過濾敏感資訊，不保存完整 prompt、response 或完整 API key
@@ -85,7 +86,7 @@ Planned improvements:
 - Provide example configurations for common tools such as OpenClaw, Kilo Code, and custom OpenAI-compatible clients.
 - Improve documentation for Docker, Synology NAS, and private-network deployment.
 - Add CI checks for linting, tests, and accidental secret detection.
-- Consider Admin UI localization if the project gains users who need languages beyond Traditional Chinese.
+- Extend Admin UI localization if the project gains users who need languages beyond Traditional Chinese and English.
 
 ## 專案結構
 
