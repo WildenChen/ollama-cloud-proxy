@@ -33,6 +33,10 @@ export class AdminRoutes {
   async handle(req: Request, path: string): Promise<Response> {
     if (path === "/admin/stats" && req.method === "GET") return json(this.stats());
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
+    if (path === "/admin/models" && req.method === "GET") return json(this.modelsOverview());
+    if (path === "/admin/models/refresh" && req.method === "POST") return this.refreshModels();
+    const modelTestMatch = path.match(/^\/admin\/models\/(.+)\/test$/);
+    if (modelTestMatch && req.method === "POST") return this.testModel(decodeURIComponent(modelTestMatch[1]));
     if (path === "/admin/keys" && req.method === "GET") return json({ keys: this.keyPool.listPublic(false) });
     if (path === "/admin/keys" && req.method === "POST") return this.createKey(req);
 
@@ -156,6 +160,141 @@ export class AdminRoutes {
     }
   }
 
+  private modelsOverview() {
+    const tests = Object.fromEntries(
+      this.store.getModelTests().map((row) => [
+        String(row.model),
+        {
+          model: String(row.model),
+          upstreamModel: row.upstreamModel ? String(row.upstreamModel) : null,
+          ok: Number(row.ok || 0) === 1,
+          statusCode: row.statusCode === null || row.statusCode === undefined ? null : Number(row.statusCode),
+          responseTimeMs: row.responseTimeMs === null || row.responseTimeMs === undefined ? null : Number(row.responseTimeMs),
+          message: row.message ? String(row.message) : null,
+          testedAt: String(row.testedAt),
+        },
+      ])
+    );
+    return {
+      ...this.models.listModelsFromCache(),
+      cache: this.models.cacheStats(),
+      tests,
+    };
+  }
+
+  private async refreshModels() {
+    const requestId = crypto.randomUUID();
+    const key = this.keyPool.selectKey(requestId, "admin-model-refresh");
+    if (!key) return openAiError(503, "no_available_key", "No available Ollama Cloud key", this.keyPool.summary());
+    const started = Date.now();
+    try {
+      const response = await fetch(`${this.config.upstreamBaseUrl}/v1/models`, {
+        headers: { authorization: `Bearer ${this.keyPool.decryptKey(key)}` },
+        signal: AbortSignal.timeout(Math.min(this.config.upstreamTotalTimeoutMs, 30000)),
+      });
+      const durationMs = Date.now() - started;
+      if (response.ok) {
+        const body = await response.json();
+        this.models.setCachedModels(body);
+        this.keyPool.markSuccess(key.id, durationMs);
+        this.keyPool.releaseKey(key.id);
+        return json(this.modelsOverview());
+      }
+      const body = await response.text();
+      const classification = await classifyUpstreamResponse(response.status, body, key.consecutiveFailures, this.config);
+      this.keyPool.markFailure(key.id, classification, durationMs);
+      this.keyPool.releaseKey(key.id);
+      return openAiError(response.status, classification.blockReason, classification.message);
+    } catch (error) {
+      this.keyPool.releaseKey(key.id);
+      return openAiError(503, "model_refresh_failed", "Model list refresh failed", {
+        errorMessage: (error as Error).message,
+      });
+    }
+  }
+
+  private async testModel(model: string) {
+    const mapped = this.models.mapModel(model);
+    const upstreamModel = mapped.upstreamModel || model;
+    const requestId = crypto.randomUUID();
+    const key = this.keyPool.selectKey(requestId, "admin-model-test", model, upstreamModel);
+    if (!key) {
+      this.store.upsertModelTest({
+        model,
+        upstreamModel,
+        ok: false,
+        message: "No available key",
+      });
+      return openAiError(503, "no_available_key", "No available Ollama Cloud key", this.keyPool.summary());
+    }
+
+    const started = Date.now();
+    try {
+      const response = await fetch(`${this.config.upstreamBaseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.keyPool.decryptKey(key)}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: upstreamModel,
+          messages: [{ role: "user", content: "Reply with OK." }],
+          stream: false,
+          max_tokens: 16,
+        }),
+        signal: AbortSignal.timeout(Math.min(this.config.upstreamTotalTimeoutMs, 30000)),
+      });
+      const responseTimeMs = Date.now() - started;
+      const text = await response.text();
+      if (response.ok) {
+        this.keyPool.markSuccess(key.id, responseTimeMs);
+        this.keyPool.releaseKey(key.id);
+        this.store.upsertModelTest({
+          model,
+          upstreamModel,
+          ok: true,
+          statusCode: response.status,
+          responseTimeMs,
+          message: this.modelTestMessage(text),
+        });
+        return json({ ok: true, model, upstreamModel, statusCode: response.status, responseTimeMs, result: this.modelsOverview().tests[model] });
+      }
+
+      const classification = await classifyUpstreamResponse(response.status, text, key.consecutiveFailures, this.config);
+      this.keyPool.markFailure(key.id, classification, responseTimeMs);
+      this.keyPool.releaseKey(key.id);
+      this.store.upsertModelTest({
+        model,
+        upstreamModel,
+        ok: false,
+        statusCode: response.status,
+        responseTimeMs,
+        message: classification.message,
+      });
+      return json({ ok: false, model, upstreamModel, statusCode: response.status, responseTimeMs, result: this.modelsOverview().tests[model] }, 200);
+    } catch (error) {
+      const responseTimeMs = Date.now() - started;
+      this.keyPool.releaseKey(key.id);
+      this.store.upsertModelTest({
+        model,
+        upstreamModel,
+        ok: false,
+        responseTimeMs,
+        message: (error as Error).message,
+      });
+      return openAiError(503, "model_test_failed", "Model test failed", { errorMessage: (error as Error).message });
+    }
+  }
+
+  private modelTestMessage(text: string) {
+    try {
+      const parsed = JSON.parse(text) as { choices?: Array<{ message?: { content?: string }; text?: string }> };
+      return parsed.choices?.[0]?.message?.content || parsed.choices?.[0]?.text || "OK";
+    } catch {
+      return text.slice(0, 120) || "OK";
+    }
+  }
+
   private stats() {
     const nextWeeklyResetAt = getNextFixedWeeklyResetAt(
       new Date(),
@@ -218,6 +357,7 @@ export class AdminRoutes {
       models: {
         aliases: this.config.modelAliases,
         today: this.store.getTodayModelStats(),
+        cache: this.models.cacheStats(),
       },
       adminUi: "not_implemented_json_api_only",
     };

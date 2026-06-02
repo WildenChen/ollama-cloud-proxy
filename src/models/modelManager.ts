@@ -2,6 +2,9 @@ import type { AppConfig } from "../config/env";
 import type { DatabaseStore } from "../storage/database";
 
 export class ModelManager {
+  private cacheHits = 0;
+  private cacheMisses = 0;
+
   constructor(
     private readonly config: AppConfig,
     private readonly store: DatabaseStore
@@ -40,13 +43,21 @@ export class ModelManager {
 
   getCachedModels(): unknown | null {
     const cached = this.store.getModelsCache();
-    if (!cached) return null;
+    if (!cached) {
+      this.cacheMisses += 1;
+      return null;
+    }
     const ageSeconds = (Date.now() - Date.parse(cached.fetchedAt)) / 1000;
-    if (ageSeconds > this.config.modelsCacheTtlSeconds) return null;
+    if (ageSeconds > this.config.modelsCacheTtlSeconds) {
+      this.cacheMisses += 1;
+      return null;
+    }
     try {
       const parsed = JSON.parse(cached.responseJson);
+      this.cacheHits += 1;
       return this.mergeAliases(parsed);
     } catch {
+      this.cacheMisses += 1;
       return null;
     }
   }
@@ -62,5 +73,61 @@ export class ModelManager {
     const current = response as { data?: unknown };
     const data = Array.isArray(current.data) ? current.data : [];
     return { ...current, data: [...this.aliasesAsModels(), ...data] };
+  }
+
+  listModelsFromCache() {
+    const cached = this.store.getModelsCache();
+    let upstreamModels: Array<Record<string, unknown>> = [];
+    let source: "cache" | "aliases_only" | "cache_parse_error" = "aliases_only";
+    let fetchedAt: string | null = null;
+    if (cached) {
+      fetchedAt = cached.fetchedAt;
+      try {
+        const parsed = JSON.parse(cached.responseJson) as { data?: unknown };
+        upstreamModels = Array.isArray(parsed.data)
+          ? parsed.data.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+          : [];
+        source = "cache";
+      } catch {
+        source = "cache_parse_error";
+      }
+    }
+    const aliases = Object.entries(this.config.modelAliases).map(([id, upstreamModel]) => ({
+      id,
+      upstreamModel,
+      source: "alias",
+    }));
+    const models = [
+      ...aliases,
+      ...upstreamModels.map((model) => ({
+        id: String(model.id || model.name || model.model || "unknown"),
+        upstreamModel: String(model.id || model.name || model.model || "unknown"),
+        source: "upstream",
+      })),
+    ];
+    return {
+      models,
+      count: models.length,
+      source,
+      fetchedAt,
+      ttlSeconds: this.config.modelsCacheTtlSeconds,
+    };
+  }
+
+  cacheStats() {
+    const cached = this.store.getModelsCache();
+    const fetchedAt = cached?.fetchedAt || null;
+    const ageSeconds = fetchedAt ? Math.max(0, Math.floor((Date.now() - Date.parse(fetchedAt)) / 1000)) : null;
+    return {
+      hits: this.cacheHits,
+      misses: this.cacheMisses,
+      hitRate: this.cacheHits + this.cacheMisses > 0
+        ? this.cacheHits / (this.cacheHits + this.cacheMisses)
+        : null,
+      fetchedAt,
+      ageSeconds,
+      ttlSeconds: this.config.modelsCacheTtlSeconds,
+      valid: ageSeconds !== null && ageSeconds <= this.config.modelsCacheTtlSeconds,
+    };
   }
 }

@@ -68,6 +68,13 @@ export type KeyMutationPatch = Partial<{
   deletedAt: string | null;
 }>;
 
+export type TokenUsageInput = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+};
+
 function asString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
@@ -206,7 +213,21 @@ export class DatabaseStore {
         totalRequests INTEGER NOT NULL DEFAULT 0,
         totalSuccesses INTEGER NOT NULL DEFAULT 0,
         totalFailures INTEGER NOT NULL DEFAULT 0,
+        promptTokens INTEGER NOT NULL DEFAULT 0,
+        completionTokens INTEGER NOT NULL DEFAULT 0,
+        totalTokens INTEGER NOT NULL DEFAULT 0,
+        cachedTokens INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (model, day)
+      );
+
+      CREATE TABLE IF NOT EXISTS model_tests (
+        model TEXT PRIMARY KEY,
+        upstreamModel TEXT,
+        ok INTEGER NOT NULL DEFAULT 0,
+        statusCode INTEGER,
+        responseTimeMs INTEGER,
+        message TEXT,
+        testedAt TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS models_cache (
@@ -215,6 +236,16 @@ export class DatabaseStore {
         responseJson TEXT NOT NULL
       );
     `);
+    this.ensureColumn("model_stats", "promptTokens", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("model_stats", "completionTokens", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("model_stats", "totalTokens", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("model_stats", "cachedTokens", "INTEGER NOT NULL DEFAULT 0");
+  }
+
+  private ensureColumn(table: string, column: string, definition: string) {
+    const columns = this.db.query(`PRAGMA table_info(${table})`).all() as Row[];
+    if (columns.some((row) => String(row.name) === column)) return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   private resetStaleActiveRequests() {
@@ -415,22 +446,36 @@ export class DatabaseStore {
       });
   }
 
-  recordModelRequest(model: string, success: boolean): void {
+  recordModelRequest(model: string, success: boolean, usage?: TokenUsageInput): void {
     const day = isoNow().slice(0, 10);
     this.db
       .query(
-        `INSERT INTO model_stats (model, day, totalRequests, totalSuccesses, totalFailures)
-        VALUES ($model, $day, 1, $successes, $failures)
+        `INSERT INTO model_stats (
+          model, day, totalRequests, totalSuccesses, totalFailures,
+          promptTokens, completionTokens, totalTokens, cachedTokens
+        )
+        VALUES (
+          $model, $day, 1, $successes, $failures,
+          $promptTokens, $completionTokens, $totalTokens, $cachedTokens
+        )
         ON CONFLICT(model, day) DO UPDATE SET
           totalRequests = totalRequests + 1,
           totalSuccesses = totalSuccesses + $successes,
-          totalFailures = totalFailures + $failures`
+          totalFailures = totalFailures + $failures,
+          promptTokens = promptTokens + $promptTokens,
+          completionTokens = completionTokens + $completionTokens,
+          totalTokens = totalTokens + $totalTokens,
+          cachedTokens = cachedTokens + $cachedTokens`
       )
       .run({
         $model: model,
         $day: day,
         $successes: success ? 1 : 0,
         $failures: success ? 0 : 1,
+        $promptTokens: usage?.promptTokens ?? 0,
+        $completionTokens: usage?.completionTokens ?? 0,
+        $totalTokens: usage?.totalTokens ?? 0,
+        $cachedTokens: usage?.cachedTokens ?? 0,
       });
   }
 
@@ -462,5 +507,43 @@ export class DatabaseStore {
         ON CONFLICT(id) DO UPDATE SET fetchedAt = $fetchedAt, responseJson = $responseJson`
       )
       .run({ $fetchedAt: isoNow(), $responseJson: responseJson });
+  }
+
+  upsertModelTest(input: {
+    model: string;
+    upstreamModel?: string | null;
+    ok: boolean;
+    statusCode?: number | null;
+    responseTimeMs?: number | null;
+    message?: string | null;
+  }): void {
+    this.db
+      .query(
+        `INSERT INTO model_tests (
+          model, upstreamModel, ok, statusCode, responseTimeMs, message, testedAt
+        ) VALUES (
+          $model, $upstreamModel, $ok, $statusCode, $responseTimeMs, $message, $testedAt
+        )
+        ON CONFLICT(model) DO UPDATE SET
+          upstreamModel = $upstreamModel,
+          ok = $ok,
+          statusCode = $statusCode,
+          responseTimeMs = $responseTimeMs,
+          message = $message,
+          testedAt = $testedAt`
+      )
+      .run({
+        $model: input.model,
+        $upstreamModel: input.upstreamModel ?? null,
+        $ok: input.ok ? 1 : 0,
+        $statusCode: input.statusCode ?? null,
+        $responseTimeMs: input.responseTimeMs ?? null,
+        $message: input.message ?? null,
+        $testedAt: isoNow(),
+      });
+  }
+
+  getModelTests(): Row[] {
+    return this.db.query("SELECT * FROM model_tests ORDER BY model ASC").all() as Row[];
   }
 }

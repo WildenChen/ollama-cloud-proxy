@@ -6,6 +6,9 @@ const state = {
   stats: null,
   keys: [],
   events: [],
+  modelOverview: null,
+  page: "overview",
+  testingModels: new Set(),
   loaded: false,
   loading: false,
   loadNotice: null,
@@ -48,6 +51,10 @@ const dictionaries = {
     title: "Ollama 雲端代理管理台",
     appTitle: "Ollama 雲端代理",
     summaryDefault: "管理總覽",
+    adminPagesLabel: "管理頁面",
+    overviewTab: "總覽",
+    usageTab: "用量",
+    modelTestTab: "模型測試",
     languageLabel: "語言",
     adminTokenLabel: "管理權杖",
     adminTokenPlaceholder: "輸入管理權杖",
@@ -80,6 +87,39 @@ const dictionaries = {
     clientsDescription: "依今日權杖身分統計。",
     modelsTitle: "模型",
     modelsDescription: "別名與請求次數。",
+    usageTitle: "用量與快取",
+    usageDescription: "依目前可保存的資料顯示請求、token 與模型清單快取。",
+    cacheTitle: "模型清單快取",
+    cacheDescription: "顯示 /v1/models cache 狀態與命中率。",
+    modelTestTitle: "模型測試",
+    modelTestDescription: "顯示可用模型與上次測試結果。",
+    refreshModels: "刷新模型清單",
+    testModel: "測試",
+    testingModel: "測試中",
+    availableModelCount: (count, source) => `目前 ${count} 個模型，來源 ${source}`,
+    cacheMetric: (label, value) => `${label} ${value}`,
+    cacheValid: "有效",
+    cacheExpired: "過期",
+    cacheMissing: "尚無快取",
+    cacheSource: {
+      cache: "快取",
+      aliases_only: "僅別名",
+      cache_parse_error: "快取解析失敗",
+      alias: "別名",
+      upstream: "上游",
+    },
+    tokenMetrics: {
+      requests: "請求",
+      success: "成功",
+      failure: "失敗",
+      prompt: "輸入 token",
+      completion: "輸出 token",
+      total: "總 token",
+      cached: "快取命中 token",
+    },
+    lastTest: "上次測試",
+    neverTested: "尚未測試",
+    responseTime: (value) => `${value} 毫秒`,
     dialogTitle: "新增 Ollama 金鑰",
     closeDialogTitle: "關閉新增金鑰視窗",
     nameLabel: "名稱",
@@ -217,6 +257,10 @@ const dictionaries = {
     title: "Ollama Cloud Proxy Admin",
     appTitle: "Ollama Cloud Proxy",
     summaryDefault: "Admin overview",
+    adminPagesLabel: "Admin pages",
+    overviewTab: "Overview",
+    usageTab: "Usage",
+    modelTestTab: "Model Tests",
     languageLabel: "Language",
     adminTokenLabel: "Admin token",
     adminTokenPlaceholder: "Enter admin token",
@@ -249,6 +293,39 @@ const dictionaries = {
     clientsDescription: "Today by client token identity.",
     modelsTitle: "Models",
     modelsDescription: "Aliases and request counts.",
+    usageTitle: "Usage and Cache",
+    usageDescription: "Shows persisted requests, tokens, and model-list cache data.",
+    cacheTitle: "Model List Cache",
+    cacheDescription: "Shows /v1/models cache state and hit rate.",
+    modelTestTitle: "Model Tests",
+    modelTestDescription: "Shows available models and the latest test result.",
+    refreshModels: "Refresh Models",
+    testModel: "Test",
+    testingModel: "Testing",
+    availableModelCount: (count, source) => `${count} models, source ${source}`,
+    cacheMetric: (label, value) => `${label} ${value}`,
+    cacheValid: "Valid",
+    cacheExpired: "Expired",
+    cacheMissing: "No cache yet",
+    cacheSource: {
+      cache: "Cache",
+      aliases_only: "Aliases only",
+      cache_parse_error: "Cache parse error",
+      alias: "Alias",
+      upstream: "Upstream",
+    },
+    tokenMetrics: {
+      requests: "Requests",
+      success: "Success",
+      failure: "Failure",
+      prompt: "Prompt tokens",
+      completion: "Completion tokens",
+      total: "Total tokens",
+      cached: "Cached tokens",
+    },
+    lastTest: "Last test",
+    neverTested: "Never tested",
+    responseTime: (value) => `${value} ms`,
     dialogTitle: "Add Ollama Key",
     closeDialogTitle: "Close add-key dialog",
     nameLabel: "Name",
@@ -428,6 +505,11 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString();
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined) return "-";
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
 function formatDate(value) {
   if (!value) return "-";
   return new Intl.DateTimeFormat(state.locale === "en" ? "en-US" : "zh-TW", {
@@ -588,7 +670,10 @@ function renderKeys() {
             <button class="button" data-action="${key.enabled ? "disable" : "enable"}" title="${key.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}" aria-label="${key.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}">${key.enabled ? mapText("action", "disable") : mapText("action", "enable")}</button>
             <button class="button warn" data-action="reset-cooldown" title="${mapText("actionTitle", "reset-cooldown")}" aria-label="${mapText("actionTitle", "reset-cooldown")}">${mapText("action", "reset-cooldown")}</button>
             <button class="button" data-action="rotate" title="${mapText("actionTitle", "rotate")}" aria-label="${mapText("actionTitle", "rotate")}">${mapText("action", "rotate")}</button>
-            <button class="button danger" data-action="delete" title="${mapText("actionTitle", "delete")}" aria-label="${mapText("actionTitle", "delete")}">${mapText("action", "delete")}</button>
+            <button class="iconButton danger compactDanger" data-action="delete" title="${mapText("actionTitle", "delete")}" aria-label="${mapText("actionTitle", "delete")}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M10 11v6M14 11v6M6 6l1 14h10l1-14" /></svg>
+              <span class="srOnly">${mapText("action", "delete")}</span>
+            </button>
           </div>
         </article>
       `;
@@ -665,7 +750,7 @@ function renderModels() {
       a: t("todayRequests")(formatNumber(model.totalRequests)),
       b: t("successCount")(formatNumber(model.totalSuccesses)),
       c: t("failureCount")(formatNumber(model.totalFailures)),
-      d: "",
+      d: t("tokenMetrics").total + " " + formatNumber(model.totalTokens),
     })),
   ];
   if (rows.length === 0) {
@@ -687,13 +772,99 @@ function renderModels() {
     .join("");
 }
 
+function renderUsage() {
+  const root = $("usageList");
+  const today = state.stats?.models?.today || [];
+  if (today.length === 0) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("noModels"))}</div>`;
+    return;
+  }
+  root.innerHTML = today
+    .map((model) => `
+      <div class="usageRow">
+        <strong>${escapeHtml(model.model)}</strong>
+        <span>${escapeHtml(t("tokenMetrics").requests)} ${formatNumber(model.totalRequests)}</span>
+        <span>${escapeHtml(t("tokenMetrics").success)} ${formatNumber(model.totalSuccesses)}</span>
+        <span>${escapeHtml(t("tokenMetrics").failure)} ${formatNumber(model.totalFailures)}</span>
+        <span>${escapeHtml(t("tokenMetrics").prompt)} ${formatNumber(model.promptTokens)}</span>
+        <span>${escapeHtml(t("tokenMetrics").completion)} ${formatNumber(model.completionTokens)}</span>
+        <span>${escapeHtml(t("tokenMetrics").total)} ${formatNumber(model.totalTokens)}</span>
+        <span>${escapeHtml(t("tokenMetrics").cached)} ${formatNumber(model.cachedTokens)}</span>
+      </div>
+    `)
+    .join("");
+}
+
+function renderCache() {
+  const root = $("cacheList");
+  const cache = state.stats?.models?.cache || state.modelOverview?.cache;
+  if (!cache) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("cacheMissing"))}</div>`;
+    return;
+  }
+  const status = cache.fetchedAt ? (cache.valid ? t("cacheValid") : t("cacheExpired")) : t("cacheMissing");
+  root.innerHTML = `
+    <div class="miniRow"><strong>${escapeHtml(status)}</strong><span>${escapeHtml(t("lastTest"))}</span><span>${escapeHtml(cache.fetchedAt ? relativeDate(cache.fetchedAt) : "-")}</span><span>TTL ${formatNumber(cache.ttlSeconds)}s</span><span>${formatNumber(cache.ageSeconds || 0)}s</span></div>
+    <div class="miniRow"><strong>Cache</strong><span>hits ${formatNumber(cache.hits)}</span><span>misses ${formatNumber(cache.misses)}</span><span>hit rate ${formatPercent(cache.hitRate)}</span><span></span></div>
+  `;
+}
+
+function renderModelTests() {
+  const root = $("modelTestList");
+  const overview = state.modelOverview;
+  if (!overview) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("loadingKeys"))}</div>`;
+    return;
+  }
+  $("modelTestSummary").textContent = t("availableModelCount")(
+    formatNumber(overview.count),
+    mapText("cacheSource", overview.source)
+  );
+  if (!overview.models?.length) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("noModels"))}</div>`;
+    return;
+  }
+  root.innerHTML = overview.models
+    .map((model) => {
+      const test = overview.tests?.[model.id];
+      const testing = state.testingModels.has(model.id);
+      const result = test
+        ? `${test.ok ? "OK" : "FAIL"} · ${test.responseTimeMs === null ? "-" : t("responseTime")(test.responseTimeMs)} · ${relativeDate(test.testedAt)}`
+        : t("neverTested");
+      return `
+        <div class="modelTestRow" data-model-id="${escapeHtml(model.id)}">
+          <div>
+            <strong>${escapeHtml(model.id)}</strong>
+            <small>${escapeHtml(mapText("cacheSource", model.source))}${model.upstreamModel && model.upstreamModel !== model.id ? ` · ${escapeHtml(model.upstreamModel)}` : ""}</small>
+          </div>
+          <span class="${test?.ok ? "goodText" : test ? "badText" : ""}">${escapeHtml(result)}</span>
+          <button class="button" data-model-test="${escapeHtml(model.id)}" ${testing ? "disabled" : ""}>${escapeHtml(testing ? t("testingModel") : t("testModel"))}</button>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderPages() {
+  document.querySelectorAll(".tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.page === state.page);
+  });
+  document.querySelectorAll(".page").forEach((page) => {
+    page.classList.toggle("active", page.id === `${state.page}Page`);
+  });
+}
+
 function renderAll() {
   applyLocale();
+  renderPages();
   renderStats();
   renderKeys();
   renderEvents();
   renderClients();
   renderModels();
+  renderUsage();
+  renderCache();
+  renderModelTests();
 }
 
 async function refresh(options = {}) {
@@ -716,14 +887,16 @@ async function refresh(options = {}) {
     const eventQuery = new URLSearchParams({ limit: "80" });
     if (level) eventQuery.set("level", level);
     if (type) eventQuery.set("type", type);
-    const [stats, keys, events] = await Promise.all([
+    const [stats, keys, events, models] = await Promise.all([
       api("/admin/stats"),
       api("/admin/keys"),
       api(`/admin/events?${eventQuery.toString()}`),
+      api("/admin/models"),
     ]);
     state.stats = stats;
     state.keys = keys.keys || [];
     state.events = events.events || [];
+    state.modelOverview = models;
     state.loaded = true;
     state.loading = false;
     state.loadNotice = null;
@@ -760,6 +933,42 @@ async function actionForKey(keyId, action) {
     await refresh({ showErrors: true });
   } catch (error) {
     showNotice(error.message, "error");
+  }
+}
+
+async function refreshModels() {
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  try {
+    $("refreshModelsButton").disabled = true;
+    state.modelOverview = await api("/admin/models/refresh", { method: "POST" });
+    renderAll();
+    showNotice(t("refreshModels"));
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    $("refreshModelsButton").disabled = false;
+  }
+}
+
+async function testModel(modelId) {
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  try {
+    state.testingModels.add(modelId);
+    renderModelTests();
+    const result = await api(`/admin/models/${encodeURIComponent(modelId)}/test`, { method: "POST" });
+    state.modelOverview = await api("/admin/models");
+    showNotice(`${modelId}: ${result.ok ? "OK" : "FAIL"} ${t("responseTime")(result.responseTimeMs ?? 0)}`);
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    state.testingModels.delete(modelId);
+    renderAll();
   }
 }
 
@@ -824,6 +1033,12 @@ function bindEvents() {
     refresh({ showErrors: true });
   });
   $("refreshButton").addEventListener("click", () => refresh({ showErrors: true }));
+  document.querySelectorAll(".tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.page = button.dataset.page;
+      renderAll();
+    });
+  });
   $("eventLevel").addEventListener("change", () => refresh({ showErrors: true }));
   $("eventType").addEventListener("change", () => refresh({ showErrors: true }));
   $("addKeyButton").addEventListener("click", () => $("keyDialog").showModal());
@@ -870,6 +1085,12 @@ function bindEvents() {
     if (!button) return;
     const card = button.closest("[data-key-id]");
     actionForKey(card.dataset.keyId, button.dataset.action);
+  });
+  $("refreshModelsButton").addEventListener("click", refreshModels);
+  $("modelTestList").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-model-test]");
+    if (!button) return;
+    testModel(button.dataset.modelTest);
   });
 }
 

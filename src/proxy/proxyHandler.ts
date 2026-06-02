@@ -7,6 +7,7 @@ import { classifyNetworkError, classifyUpstreamResponse } from "../keyPool/error
 import type { KeyPoolManager } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore } from "../storage/database";
+import type { TokenUsageInput } from "../storage/database";
 import type { ClientIdentity, KeyRecord } from "../types/domain";
 import { getNextFixedWeeklyResetAt } from "../utils/time";
 import { readBodyWithLimit } from "./body";
@@ -231,7 +232,7 @@ export class ProxyHandler {
     const totalTimer = setTimeout(() => controller.abort(new Error("upstream_total_timeout")), this.config.upstreamTotalTimeoutMs);
 
     const finalized = { done: false };
-    const finalize = (ok: boolean, errorType?: string) => {
+    const finalize = (ok: boolean, errorType?: string, usage?: TokenUsageInput) => {
       if (finalized.done) return;
       finalized.done = true;
       clearTimeout(totalTimer);
@@ -241,7 +242,7 @@ export class ProxyHandler {
       const durationMs = Date.now() - startedAt;
       if (ok) {
         this.keyPool.markSuccess(key.id, durationMs);
-        this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", true);
+        this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", true, undefined, usage);
         this.events.emit({
           level: "info",
           type: "request_finished",
@@ -336,6 +337,23 @@ export class ProxyHandler {
         return { retry: false, response: Response.json(this.models.mergeAliases(modelResponse), { headers }) };
       }
 
+      const shouldBufferForUsage =
+        Boolean(upstream.body) &&
+        this.canBufferUsageResponse(options.upstreamPath, options.responseFormat, upstream.headers, body);
+      if (shouldBufferForUsage) {
+        const responseText = await upstream.text();
+        const usage = this.extractUsage(responseText, options.responseFormat);
+        finalize(true, undefined, usage);
+        return {
+          retry: false,
+          response: new Response(responseText, {
+            status: upstream.status,
+            statusText: upstream.statusText,
+            headers,
+          }),
+        };
+      }
+
       const proxiedBody = proxyReadableStream(
         upstream.body,
         req.signal,
@@ -425,9 +443,9 @@ export class ProxyHandler {
     };
   }
 
-  private recordResult(clientName: string, model: string, success: boolean, errorType?: string) {
+  private recordResult(clientName: string, model: string, success: boolean, errorType?: string, usage?: TokenUsageInput) {
     this.store.recordClientRequest(clientName, success, errorType);
-    this.store.recordModelRequest(model, success);
+    this.store.recordModelRequest(model, success, usage);
   }
 
   private modelFromBody(rawBody: string): string | null {
@@ -437,5 +455,46 @@ export class ProxyHandler {
     } catch {
       return null;
     }
+  }
+
+  private canBufferUsageResponse(
+    upstreamPath: string,
+    responseFormat: ResponseFormat,
+    headers: Headers,
+    requestBody: string | undefined
+  ) {
+    if (upstreamPath === "/v1/models") return false;
+    if (!headers.get("content-type")?.toLowerCase().includes("json")) return false;
+    if (!requestBody) return true;
+    try {
+      const parsed = JSON.parse(requestBody) as Record<string, unknown>;
+      return parsed.stream !== true;
+    } catch {
+      return responseFormat === "openai";
+    }
+  }
+
+  private extractUsage(responseText: string, responseFormat: ResponseFormat): TokenUsageInput | undefined {
+    try {
+      const parsed = JSON.parse(responseText) as Record<string, unknown>;
+      if (responseFormat === "openai" && parsed.usage && typeof parsed.usage === "object") {
+        const usage = parsed.usage as Record<string, unknown>;
+        const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+        const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+        const totalTokens = Number(usage.total_tokens ?? promptTokens + completionTokens);
+        const promptDetails = usage.prompt_tokens_details as Record<string, unknown> | undefined;
+        const inputDetails = usage.input_tokens_details as Record<string, unknown> | undefined;
+        const cachedTokens = Number(promptDetails?.cached_tokens ?? inputDetails?.cache_read ?? 0);
+        return { promptTokens, completionTokens, totalTokens, cachedTokens };
+      }
+      const promptTokens = Number(parsed.prompt_eval_count ?? 0);
+      const completionTokens = Number(parsed.eval_count ?? 0);
+      if (promptTokens || completionTokens) {
+        return { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cachedTokens: 0 };
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
   }
 }

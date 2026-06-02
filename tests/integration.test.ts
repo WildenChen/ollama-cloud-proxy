@@ -233,6 +233,85 @@ describe("proxy integration", () => {
     expect(body.model).toBe("actual-model");
   });
 
+  test("non-stream OpenAI responses record token usage by model", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const body = await req.json();
+      return Response.json({
+        model: body.model,
+        choices: [{ message: { role: "assistant", content: "OK" } }],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 3,
+          total_tokens: 14,
+          prompt_tokens_details: { cached_tokens: 5 },
+        },
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "minimax-m3", messages: [{ role: "user", content: "hi" }], stream: false }),
+    });
+    const statsResponse = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const stats = await statsResponse.json();
+
+    expect(response.status).toBe(200);
+    expect(stats.models.today[0].model).toBe("minimax-m3");
+    expect(Number(stats.models.today[0].promptTokens)).toBe(11);
+    expect(Number(stats.models.today[0].completionTokens)).toBe(3);
+    expect(Number(stats.models.today[0].totalTokens)).toBe(14);
+    expect(Number(stats.models.today[0].cachedTokens)).toBe(5);
+  });
+
+  test("Admin can refresh and test models", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const path = new URL(req.url).pathname;
+      if (path === "/v1/models") {
+        return Response.json({ object: "list", data: [{ id: "minimax-m3", object: "model" }] });
+      }
+      if (path === "/v1/chat/completions") {
+        const body = await req.json();
+        expect(body.model).toBe("minimax-m3");
+        return Response.json({ choices: [{ message: { role: "assistant", content: "OK" } }] });
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const refreshResponse = await fetch(`${app.baseUrl}/admin/models/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const refreshBody = await refreshResponse.json();
+    const testResponse = await fetch(`${app.baseUrl}/admin/models/${encodeURIComponent("minimax-m3")}/test`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const testBody = await testResponse.json();
+    const overviewResponse = await fetch(`${app.baseUrl}/admin/models`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const overview = await overviewResponse.json();
+
+    expect(refreshResponse.status).toBe(200);
+    expect(refreshBody.count).toBe(1);
+    expect(refreshBody.models[0].id).toBe("minimax-m3");
+    expect(testResponse.status).toBe(200);
+    expect(testBody.ok).toBe(true);
+    expect(testBody.responseTimeMs).toBeGreaterThanOrEqual(0);
+    expect(overview.tests["minimax-m3"].ok).toBe(true);
+    expect(overview.tests["minimax-m3"].message).toBe("OK");
+  });
+
   test("Ollama /api/tags passes through native upstream response", async () => {
     const upstreamBaseUrl = createMockUpstream((req) => {
       expect(new URL(req.url).pathname).toBe("/api/tags");

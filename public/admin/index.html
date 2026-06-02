@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=20260603-version" />
+    <link rel="stylesheet" href="/admin/app.css?v=20260603-admin-pages" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -34,86 +34,130 @@
 
       <section id="notice" class="notice hidden" role="status"></section>
 
-      <section class="metricGrid" aria-label="系統指標" data-i18n-aria-label="systemMetrics">
-        <article class="metric">
-          <span data-i18n="activeRequestsMetric">處理中</span>
-          <strong id="activeRequests">-</strong>
-          <small data-i18n="upstreamRequests">上游請求</small>
-        </article>
-        <article class="metric">
-          <span data-i18n="queuedRequestsMetric">排隊中</span>
-          <strong id="queuedRequests">-</strong>
-          <small id="queueLimit">佇列</small>
-        </article>
-        <article class="metric good">
-          <span data-i18n="availableKeysMetric">可用金鑰</span>
-          <strong id="availableKeys">-</strong>
-          <small id="totalKeys">金鑰池總數</small>
-        </article>
-        <article class="metric warn">
-          <span data-i18n="weeklyResetMetric">每週重置</span>
-          <strong id="weeklyReset">-</strong>
-          <small id="weeklyBlocked">受限金鑰</small>
-        </article>
+      <nav class="tabs" aria-label="管理頁面" data-i18n-aria-label="adminPagesLabel">
+        <button class="tab active" type="button" data-page="overview" data-i18n="overviewTab">總覽</button>
+        <button class="tab" type="button" data-page="usage" data-i18n="usageTab">用量</button>
+        <button class="tab" type="button" data-page="modelTest" data-i18n="modelTestTab">模型測試</button>
+      </nav>
+
+      <section id="overviewPage" class="page active">
+        <section class="metricGrid" aria-label="系統指標" data-i18n-aria-label="systemMetrics">
+          <article class="metric">
+            <span data-i18n="activeRequestsMetric">處理中</span>
+            <strong id="activeRequests">-</strong>
+            <small data-i18n="upstreamRequests">上游請求</small>
+          </article>
+          <article class="metric">
+            <span data-i18n="queuedRequestsMetric">排隊中</span>
+            <strong id="queuedRequests">-</strong>
+            <small id="queueLimit">佇列</small>
+          </article>
+          <article class="metric good">
+            <span data-i18n="availableKeysMetric">可用金鑰</span>
+            <strong id="availableKeys">-</strong>
+            <small id="totalKeys">金鑰池總數</small>
+          </article>
+          <article class="metric warn">
+            <span data-i18n="weeklyResetMetric">每週重置</span>
+            <strong id="weeklyReset">-</strong>
+            <small id="weeklyBlocked">受限金鑰</small>
+          </article>
+        </section>
+
+        <section class="workspace">
+          <section class="panel keyPanel">
+            <div class="panelHeader">
+              <div>
+                <h2 data-i18n="keyPoolTitle">金鑰池</h2>
+                <p data-i18n="keyPoolDescription">管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
+              </div>
+              <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰" data-i18n-title="addKeyTitle" data-i18n-aria-label="addKeyAria">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                <span data-i18n="addKey">新增金鑰</span>
+              </button>
+            </div>
+            <div id="keyList" class="keyList"></div>
+          </section>
+
+          <aside class="panel eventPanel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="eventsTitle">事件</h2>
+                <p data-i18n="eventsDescription">近期代理與金鑰活動。</p>
+              </div>
+            </div>
+            <div class="filters">
+              <select id="eventLevel" aria-label="事件層級" data-i18n-aria-label="eventLevelLabel">
+                <option value="" data-i18n="allLevels">所有層級</option>
+                <option value="debug" data-i18n="levelDebug">除錯</option>
+                <option value="info" data-i18n="levelInfo">資訊</option>
+                <option value="warn" data-i18n="levelWarn">警告</option>
+                <option value="error" data-i18n="levelError">錯誤</option>
+              </select>
+              <select id="eventType" aria-label="事件類型" data-i18n-aria-label="eventTypeLabel">
+                <option value="" data-i18n="allTypes">所有類型</option>
+              </select>
+            </div>
+            <div id="eventList" class="eventList"></div>
+          </aside>
+        </section>
+
+        <section class="lowerGrid">
+          <section class="panel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="clientsTitle">客戶端</h2>
+                <p data-i18n="clientsDescription">依今日權杖身分統計。</p>
+              </div>
+            </div>
+            <div id="clientList" class="miniTable"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="modelsTitle">模型</h2>
+                <p data-i18n="modelsDescription">別名與請求次數。</p>
+              </div>
+            </div>
+            <div id="modelList" class="miniTable"></div>
+          </section>
+        </section>
       </section>
 
-      <section class="workspace">
-        <section class="panel keyPanel">
+      <section id="usagePage" class="page">
+        <section class="lowerGrid">
+          <section class="panel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="usageTitle">用量與快取</h2>
+                <p data-i18n="usageDescription">依目前可保存的資料顯示請求、token 與模型清單快取。</p>
+              </div>
+            </div>
+            <div id="usageList" class="miniTable"></div>
+          </section>
+          <section class="panel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="cacheTitle">模型清單快取</h2>
+                <p data-i18n="cacheDescription">顯示 /v1/models cache 狀態與命中率。</p>
+              </div>
+            </div>
+            <div id="cacheList" class="miniTable"></div>
+          </section>
+        </section>
+      </section>
+
+      <section id="modelTestPage" class="page">
+        <section class="panel">
           <div class="panelHeader">
             <div>
-              <h2 data-i18n="keyPoolTitle">金鑰池</h2>
-              <p data-i18n="keyPoolDescription">管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
+              <h2 data-i18n="modelTestTitle">模型測試</h2>
+              <p id="modelTestSummary" data-i18n="modelTestDescription">顯示可用模型與上次測試結果。</p>
             </div>
-            <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰" data-i18n-title="addKeyTitle" data-i18n-aria-label="addKeyAria">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              <span data-i18n="addKey">新增金鑰</span>
-            </button>
+            <button id="refreshModelsButton" class="button primary" type="button" data-i18n="refreshModels">刷新模型清單</button>
           </div>
-          <div id="keyList" class="keyList"></div>
-        </section>
-
-        <aside class="panel eventPanel">
-          <div class="panelHeader compact">
-            <div>
-              <h2 data-i18n="eventsTitle">事件</h2>
-              <p data-i18n="eventsDescription">近期代理與金鑰活動。</p>
-            </div>
-          </div>
-          <div class="filters">
-            <select id="eventLevel" aria-label="事件層級" data-i18n-aria-label="eventLevelLabel">
-              <option value="" data-i18n="allLevels">所有層級</option>
-              <option value="debug" data-i18n="levelDebug">除錯</option>
-              <option value="info" data-i18n="levelInfo">資訊</option>
-              <option value="warn" data-i18n="levelWarn">警告</option>
-              <option value="error" data-i18n="levelError">錯誤</option>
-            </select>
-            <select id="eventType" aria-label="事件類型" data-i18n-aria-label="eventTypeLabel">
-              <option value="" data-i18n="allTypes">所有類型</option>
-            </select>
-          </div>
-          <div id="eventList" class="eventList"></div>
-        </aside>
-      </section>
-
-      <section class="lowerGrid">
-        <section class="panel">
-          <div class="panelHeader compact">
-            <div>
-              <h2 data-i18n="clientsTitle">客戶端</h2>
-              <p data-i18n="clientsDescription">依今日權杖身分統計。</p>
-            </div>
-          </div>
-          <div id="clientList" class="miniTable"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panelHeader compact">
-            <div>
-              <h2 data-i18n="modelsTitle">模型</h2>
-              <p data-i18n="modelsDescription">別名與請求次數。</p>
-            </div>
-          </div>
-          <div id="modelList" class="miniTable"></div>
+          <div id="modelTestList" class="miniTable"></div>
         </section>
       </section>
     </main>
@@ -145,6 +189,6 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=20260603-version" type="module"></script>
+    <script src="/admin/app.js?v=20260603-admin-pages" type="module"></script>
   </body>
 </html>
