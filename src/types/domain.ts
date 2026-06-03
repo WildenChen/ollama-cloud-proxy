@@ -63,7 +63,8 @@ export type ProxyEventType =
   | "upstream_timeout"
   | "client_aborted"
   | "retry_started"
-  | "retry_finished";
+  | "retry_finished"
+  | "key_attempt";
 
 export type KeyRecord = {
   id: string;
@@ -107,6 +108,7 @@ export type ClientIdentity = {
 
 export type ErrorClassification = {
   retryable: boolean;
+  category: "key" | "network" | "provider" | "request";
   status: KeyStatus;
   blockReason: BlockReason;
   cooldownMs: number | null;

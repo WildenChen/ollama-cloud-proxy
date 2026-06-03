@@ -340,6 +340,17 @@ export class AdminRoutes {
       concurrency: this.concurrency.stats(),
       keys: keySummary,
       usage: {
+        note: "Session and weekly usage are estimated by this proxy unless an official usage API is configured.",
+        windows: {
+          session: {
+            durationHours: 5,
+            estimatedFields: ["estimatedSessionRequests", "estimatedSessionDurationMs", "sessionWindowStartedAt"],
+          },
+          weekly: {
+            estimatedFields: ["estimatedWeeklyRequests", "estimatedWeeklyDurationMs", "weeklyWindowStartedAt"],
+          },
+          lifetimeFields: ["totalRequests", "totalSuccesses", "totalFailures"],
+        },
         weeklyResetMode: this.config.weeklyResetMode,
         weeklyResetDayOfWeek: this.config.weeklyResetDayOfWeek,
         weeklyResetTime: this.config.weeklyResetTime,
@@ -356,10 +367,14 @@ export class AdminRoutes {
       clients: persistedClients,
       models: {
         aliases: this.config.modelAliases,
+        ollamaNativeApplyAliases: this.config.ollamaNativeApplyAliases,
         today: this.store.getTodayModelStats(),
         cache: this.models.cacheStats(),
       },
-      adminUi: "not_implemented_json_api_only",
+      adminUi: {
+        enabled: true,
+        path: "/admin",
+      },
     };
   }
 

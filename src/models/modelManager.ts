@@ -75,7 +75,8 @@ export class ModelManager {
     return { ...current, data: [...this.aliasesAsModels(), ...data] };
   }
 
-  listModelsFromCache() {
+  listModelsFromCache(options: { includeAliases?: boolean } = {}) {
+    const includeAliases = options.includeAliases ?? true;
     const cached = this.store.getModelsCache();
     let upstreamModels: Array<Record<string, unknown>> = [];
     let source: "cache" | "aliases_only" | "cache_parse_error" = "aliases_only";
@@ -92,11 +93,13 @@ export class ModelManager {
         source = "cache_parse_error";
       }
     }
-    const aliases = Object.entries(this.config.modelAliases).map(([id, upstreamModel]) => ({
-      id,
-      upstreamModel,
-      source: "alias",
-    }));
+    const aliases = includeAliases
+      ? Object.entries(this.config.modelAliases).map(([id, upstreamModel]) => ({
+          id,
+          upstreamModel,
+          source: "alias",
+        }))
+      : [];
     const models = [
       ...aliases,
       ...upstreamModels.map((model) => ({
@@ -116,7 +119,7 @@ export class ModelManager {
 
   ollamaTags() {
     const seen = new Set<string>();
-    const models = this.listModelsFromCache().models
+    const models = this.listModelsFromCache({ includeAliases: this.config.ollamaNativeApplyAliases }).models
       .map((model) => String(model.id || "").trim())
       .filter((id) => {
         if (!id || seen.has(id)) return false;

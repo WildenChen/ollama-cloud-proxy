@@ -15,6 +15,21 @@ import { readBodyWithLimit } from "./body";
 import { proxyReadableStream } from "./stream";
 
 type ResponseFormat = "openai" | "passthrough";
+type AttemptStopReason =
+  | "success"
+  | "try_next_key"
+  | "request_error"
+  | "network_retry_limit"
+  | "key_attempt_limit"
+  | "no_selectable_key";
+
+type AttemptResult = {
+  response: Response;
+  retry: boolean;
+  classification?: ErrorClassification;
+  errorType?: string;
+  stopReason: AttemptStopReason;
+};
 
 export class ProxyHandler {
   constructor(
@@ -59,10 +74,16 @@ export class ProxyHandler {
 
     if ((path === "/api/chat" || path === "/api/generate") && req.method === "POST") {
       let rawBody: string;
-      let model: string | null;
+      let mappedBody: { body: string; originalModel: string | null; upstreamModel: string | null };
       try {
         rawBody = await readBodyWithLimit(req, this.config.maxRequestBodySizeBytes);
-        model = this.modelFromBody(rawBody);
+        mappedBody = this.config.ollamaNativeApplyAliases
+          ? this.models.applyAliasToBody(rawBody)
+          : {
+              body: rawBody,
+              originalModel: this.modelFromBody(rawBody),
+              upstreamModel: this.modelFromBody(rawBody),
+            };
       } catch (error) {
         const type = (error as Error).message === "request_body_too_large" ? "request_body_too_large" : "invalid_request";
         return openAiError(type === "request_body_too_large" ? 413 : 400, type, (error as Error).message);
@@ -72,9 +93,9 @@ export class ProxyHandler {
         req,
         requestId,
         client,
-        model,
-        model,
-        rawBody,
+        mappedBody.originalModel,
+        mappedBody.upstreamModel,
+        mappedBody.body,
         startedAt,
         {
           upstreamPath: path,
@@ -160,9 +181,12 @@ export class ProxyHandler {
     slot: ConcurrencySlot,
     options: { upstreamPath: string; responseFormat: ResponseFormat }
   ): Promise<Response> {
-    const attempts = Math.max(1, this.keyPool.selectableCount());
+    const selectableAtStart = this.keyPool.selectableCount();
+    const attempts = this.maxKeyAttempts(selectableAtStart);
     const triedKeyIds = new Set<string>();
-    let lastError: Response | null = null;
+    const attemptedKeys: Array<{ id: string; name: string }> = [];
+    let networkAttempts = 0;
+    let lastStopReason: AttemptStopReason = "no_selectable_key";
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       const selectedKey = this.keyPool.selectKey(
@@ -188,6 +212,7 @@ export class ProxyHandler {
         return openAiError(503, "no_available_key", "No available Ollama Cloud key", this.noAvailableKeyDetails());
       }
       triedKeyIds.add(selectedKey.id);
+      attemptedKeys.push({ id: selectedKey.id, name: selectedKey.name });
 
       const response = await this.tryUpstream(
         req,
@@ -203,9 +228,35 @@ export class ProxyHandler {
         attempts,
         options
       );
+      if (response.classification?.category === "network" || response.classification?.category === "provider") {
+        networkAttempts += 1;
+      }
+      const shouldTryNextKey =
+        response.retry &&
+        response.stopReason === "try_next_key" &&
+        (!response.classification || response.classification.category === "key" || networkAttempts < this.config.maxNetworkRetryAttempts);
+      this.events.emit({
+        level: response.retry ? "warn" : response.response.ok ? "info" : "warn",
+        type: "key_attempt",
+        message: `Key attempt ${attempt + 1} ${response.retry ? "will try next key" : "finished"}`,
+        clientName: client.clientName,
+        requestId,
+        keyId: selectedKey.id,
+        keyName: selectedKey.name,
+        originalModel,
+        upstreamModel,
+        details: {
+          attemptIndex: attempt,
+          attemptedKeysCount: attemptedKeys.length,
+          maxAttempts: attempts,
+          errorType: response.errorType || response.classification?.blockReason || null,
+          shouldTryNextKey,
+          stopReason: shouldTryNextKey ? "try_next_key" : response.stopReason,
+        },
+      });
 
-      if (response.retry) {
-        lastError = response.response;
+      if (shouldTryNextKey) {
+        lastStopReason = "try_next_key";
         this.events.emit({
           level: "warn",
           type: "retry_started",
@@ -221,12 +272,38 @@ export class ProxyHandler {
         continue;
       }
 
+      if (response.retry) {
+        lastStopReason =
+          response.classification?.category === "network" || response.classification?.category === "provider"
+            ? "network_retry_limit"
+            : response.classification?.category === "key"
+              ? "key_attempt_limit"
+              : response.stopReason;
+        break;
+      }
       return response.response;
     }
 
     slot.release();
-    this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, "upstream_error");
-    return lastError || openAiError(503, "upstream_error", "No available upstream");
+    const details = this.attemptExhaustedDetails(attemptedKeys.length, lastStopReason);
+    this.events.emit({
+      level: "error",
+      type: "no_available_key",
+      message: "No available key after attempts",
+      clientName: client.clientName,
+      requestId,
+      originalModel,
+      upstreamModel,
+      details,
+    });
+    this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, "no_available_key_after_attempts");
+    return openAiError(503, "no_available_key_after_attempts", "No available key after attempts", details);
+  }
+
+  private maxKeyAttempts(selectableAtStart: number): number {
+    const available = Math.max(1, selectableAtStart);
+    const configured = this.config.maxKeyAttemptsPerRequest;
+    return configured === "all" ? available : Math.min(available, configured);
   }
 
   private async tryUpstream(
@@ -242,7 +319,7 @@ export class ProxyHandler {
     attempt: number,
     maxAttempts: number,
     options: { upstreamPath: string; responseFormat: ResponseFormat }
-  ): Promise<{ response: Response; retry: boolean }> {
+  ): Promise<AttemptResult> {
     const controller = new AbortController();
     const abortOnClient = () => controller.abort(new Error("client_aborted"));
     req.signal.addEventListener("abort", abortOnClient, { once: true });
@@ -318,6 +395,8 @@ export class ProxyHandler {
               statusText: upstream.statusText,
               headers,
             }),
+            errorType: `upstream_${upstream.status}`,
+            stopReason: "request_error",
           };
         }
         const classification = await classifyUpstreamResponse(
@@ -326,12 +405,29 @@ export class ProxyHandler {
           key.consecutiveFailures,
           this.config
         );
-        this.keyPool.markFailure(key.id, classification, Date.now() - startedAt);
+        if (classification.category !== "request") {
+          this.keyPool.markFailure(key.id, classification, Date.now() - startedAt);
+        }
         this.keyPool.releaseKey(key.id);
         req.signal.removeEventListener("abort", abortOnClient);
         const shouldRetry = this.shouldTryAnotherKey(classification, attempt, maxAttempts);
         if (shouldRetry) {
-          return { response: openAiError(upstream.status, classification.blockReason, classification.message), retry: true };
+          return {
+            response: openAiError(upstream.status, classification.blockReason, classification.message),
+            retry: true,
+            classification,
+            errorType: classification.blockReason,
+            stopReason: "try_next_key",
+          };
+        }
+        if (classification.category === "key") {
+          return {
+            response: openAiError(upstream.status, classification.blockReason, classification.message),
+            retry: true,
+            classification,
+            errorType: classification.blockReason,
+            stopReason: "key_attempt_limit",
+          };
         }
         slot.release();
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, classification.blockReason);
@@ -342,6 +438,9 @@ export class ProxyHandler {
             keyId: key.id,
             keyName: key.name,
           }),
+          classification,
+          errorType: classification.blockReason,
+          stopReason: classification.category === "request" ? "request_error" : "key_attempt_limit",
         };
       }
 
@@ -350,7 +449,7 @@ export class ProxyHandler {
         const modelResponse = await upstream.json();
         this.models.setCachedModels(modelResponse);
         finalize(true);
-        return { retry: false, response: Response.json(this.models.mergeAliases(modelResponse), { headers }) };
+        return { retry: false, response: Response.json(this.models.mergeAliases(modelResponse), { headers }), stopReason: "success" };
       }
 
       const shouldBufferForUsage =
@@ -367,6 +466,7 @@ export class ProxyHandler {
             statusText: upstream.statusText,
             headers,
           }),
+          stopReason: "success",
         };
       }
 
@@ -394,6 +494,7 @@ export class ProxyHandler {
           statusText: upstream.statusText,
           headers,
         }),
+        stopReason: "success",
       };
     } catch (error) {
       clearTimeout(totalTimer);
@@ -404,13 +505,22 @@ export class ProxyHandler {
       req.signal.removeEventListener("abort", abortOnClient);
       const shouldRetry = this.shouldTryAnotherKey(classification, attempt, maxAttempts);
       if (shouldRetry) {
-        return { response: openAiError(503, classification.blockReason, classification.message), retry: true };
+        return {
+          response: openAiError(503, classification.blockReason, classification.message),
+          retry: true,
+          classification,
+          errorType: classification.blockReason,
+          stopReason: "try_next_key",
+        };
       }
       slot.release();
       this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, classification.blockReason);
       return {
         retry: false,
         response: openAiError(503, classification.blockReason, classification.message),
+        classification,
+        errorType: classification.blockReason,
+        stopReason: "network_retry_limit",
       };
     }
   }
@@ -421,6 +531,21 @@ export class ProxyHandler {
       classification.status === "session_blocked" ||
       classification.status === "weekly_blocked";
     return attempt < maxAttempts - 1 && (classification.retryable || keyCannotServeRequest);
+  }
+
+  private attemptExhaustedDetails(attemptedKeysCount: number, stopReason: AttemptStopReason) {
+    const summary = this.keyPool.summary();
+    return {
+      ...summary,
+      attemptedKeysCount,
+      sessionBlockedKeysCount: summary.sessionBlockedKeys,
+      weeklyBlockedKeysCount: summary.weeklyBlockedKeys,
+      coolingDownKeysCount: summary.coolingDownKeys,
+      invalidKeysCount: summary.invalidKeys,
+      nextSessionRecoveryAt: this.keyPool.nextRecoveryAt("session_blocked"),
+      nextWeeklyResetAt: this.keyPool.nextRecoveryAt("weekly_blocked"),
+      stopReason,
+    };
   }
 
   private upstreamHeaders(req: Request, key: KeyRecord): Headers {

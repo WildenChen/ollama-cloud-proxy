@@ -6,6 +6,7 @@ import { EventStore } from "../src/events/eventStore";
 import { KeyPoolManager } from "../src/keyPool/keyPoolManager";
 import { ModelManager } from "../src/models/modelManager";
 import { ProxyHandler } from "../src/proxy/proxyHandler";
+import { proxyReadableStream } from "../src/proxy/stream";
 import { Router } from "../src/server/router";
 import { KeyCipher } from "../src/security/encryption";
 import { DatabaseStore } from "../src/storage/database";
@@ -32,9 +33,13 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     upstreamTotalTimeoutMs: 30000,
     upstreamIdleTimeoutMs: 10000,
     maxRequestBodySizeBytes: 20 * 1024 * 1024,
+    keyRetryPolicy: "smart",
+    maxKeyAttemptsPerRequest: "all",
+    maxNetworkRetryAttempts: 3,
     modelsCacheTtlSeconds: 3600,
     modelAliases: {},
     ollamaCompatDiscoveryPublic: true,
+    ollamaNativeApplyAliases: true,
     usageTimezone: "Asia/Taipei",
     weeklyResetMode: "fixed_weekly",
     weeklyResetDayOfWeek: 1,
@@ -60,7 +65,7 @@ function createApp(appConfig: AppConfig) {
   const router = new Router(appConfig, admin, proxy, concurrency, keyPool);
   const server = Bun.serve({ port: 0, fetch: (req) => router.handle(req) });
   servers.push(server);
-  return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool };
+  return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool, concurrency, events };
 }
 
 function createMockUpstream(handler: (req: Request) => Response | Promise<Response>) {
@@ -163,6 +168,59 @@ describe("proxy integration", () => {
     expect(statsBody.keys.coolingDownKeys).toBe(1);
   });
 
+  test("Admin stats reports Admin UI as enabled", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.adminUi).toEqual({ enabled: true, path: "/admin" });
+    expect(body.usage.windows.lifetimeFields).toContain("totalRequests");
+  });
+
+  test("queue full returns queue_full", async () => {
+    const app = createApp(config({ maxConcurrentRequests: 0, requestQueueMax: 0 }));
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.type).toBe("queue_full");
+  });
+
+  test("queue timeout returns queue_timeout", async () => {
+    const app = createApp(config({
+      maxConcurrentRequests: 0,
+      requestQueueMax: 1,
+      requestQueueTimeoutMs: 10,
+    }));
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.type).toBe("queue_timeout");
+  });
+
+  test("database startup clears stale key active requests", () => {
+    const appConfig = config();
+    const firstStore = new DatabaseStore(appConfig.dbPath);
+    const keyPool = new KeyPoolManager(appConfig, firstStore, new EventStore(firstStore), new KeyCipher(appConfig.keyEncryptionSecret));
+    const key = keyPool.create({ name: "stale", apiKey: "good-key" });
+    firstStore.patchKey(key.id, { activeRequests: 7 });
+
+    const restartedStore = new DatabaseStore(appConfig.dbPath);
+
+    expect(restartedStore.getKey(key.id, true)?.activeRequests).toBe(0);
+  });
+
   test("client token is required when CLIENT_API_KEYS is configured", async () => {
     const app = createApp(config());
     const response = await fetch(`${app.baseUrl}/v1/models`);
@@ -203,7 +261,7 @@ describe("proxy integration", () => {
     const bodyText = await response.text();
     const updated = app.store.getKey(key.id, true)!;
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(503);
     expect(updated.status).toBe("invalid");
     expect(updated.activeRequests).toBe(0);
     expect(bodyText).not.toContain("bad-key-secret");
@@ -224,7 +282,7 @@ describe("proxy integration", () => {
       headers: { authorization: "Bearer client-token" },
     });
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(503);
     expect(seenAuthHeaders).toHaveLength(3);
     expect(new Set(seenAuthHeaders)).toEqual(new Set([
       "Bearer bad-key-1",
@@ -260,6 +318,150 @@ describe("proxy integration", () => {
     expect(body.data[0].id).toBe("llama");
     expect(seenAuthHeaders).toContain("Bearer good-key");
     expect(seenAuthHeaders.length).toBeLessThanOrEqual(3);
+  });
+
+  test("session-limited keys are tried until a later selectable key succeeds", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      const auth = req.headers.get("authorization") || "";
+      seenAuthHeaders.push(auth);
+      if (auth === "Bearer good-key") {
+        return Response.json({ object: "list", data: [{ id: "llama", object: "model" }] });
+      }
+      return Response.json({ error: "usage limit reached for this 5-hour session" }, { status: 429 });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    for (let index = 1; index <= 4; index++) {
+      app.keyPool.create({ name: `session-${index}`, apiKey: `session-key-${index}` });
+    }
+    const good = app.keyPool.create({ name: "good", apiKey: "good-key" });
+    app.store.patchKey(good.id, { estimatedSessionRequests: 1000, estimatedWeeklyRequests: 1000 });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data[0].id).toBe("llama");
+    expect(seenAuthHeaders).toContain("Bearer good-key");
+    expect(app.store.listKeys(false).filter((key) => key.status === "session_blocked").length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("all session-limited keys return no_available_key_after_attempts", async () => {
+    const upstreamBaseUrl = createMockUpstream(() =>
+      Response.json({ error: "usage limit reached for this 5-hour session" }, { status: 429 })
+    );
+    const app = createApp(config({ upstreamBaseUrl }));
+    for (let index = 1; index <= 5; index++) {
+      app.keyPool.create({ name: `session-${index}`, apiKey: `session-key-${index}` });
+    }
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.type).toBe("no_available_key_after_attempts");
+    expect(body.error.details.attemptedKeysCount).toBe(5);
+    expect(body.error.details.sessionBlockedKeysCount).toBe(5);
+  });
+
+  test("request errors do not try another key or mark keys unavailable", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      seenAuthHeaders.push(req.headers.get("authorization") || "");
+      return Response.json({ error: "bad request" }, { status: 400 });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "first", apiKey: "first-key" });
+    app.keyPool.create({ name: "second", apiKey: "second-key" });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(seenAuthHeaders).toHaveLength(1);
+    expect(app.store.listKeys(false).some((key) => key.status === "cooling_down")).toBe(false);
+    expect(app.store.listKeys(false).reduce((sum, key) => sum + key.totalRequests, 0)).toBe(0);
+  });
+
+  test("provider errors stop at MAX_NETWORK_RETRY_ATTEMPTS", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      seenAuthHeaders.push(req.headers.get("authorization") || "");
+      return Response.json({ error: "temporary unavailable" }, { status: 502 });
+    });
+    const app = createApp(config({ upstreamBaseUrl, maxNetworkRetryAttempts: 3 }));
+    for (let index = 1; index <= 5; index++) {
+      app.keyPool.create({ name: `key-${index}`, apiKey: `key-${index}` });
+    }
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+
+    expect(response.status).toBe(503);
+    expect(seenAuthHeaders).toHaveLength(3);
+  });
+
+  test("weekly-limited key is blocked and next selectable key can succeed", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      const auth = req.headers.get("authorization") || "";
+      seenAuthHeaders.push(auth);
+      if (auth === "Bearer good-key") {
+        return Response.json({ object: "list", data: [{ id: "llama", object: "model" }] });
+      }
+      return Response.json({ error: "weekly 7-day usage limit reached" }, { status: 429 });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    for (let index = 1; index <= 3; index++) {
+      app.keyPool.create({ name: `weekly-${index}`, apiKey: `weekly-key-${index}` });
+    }
+    const good = app.keyPool.create({ name: "good", apiKey: "good-key" });
+    app.store.patchKey(good.id, { estimatedSessionRequests: 1000, estimatedWeeklyRequests: 1000 });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(seenAuthHeaders).toContain("Bearer good-key");
+    expect(app.store.listKeys(false).some((key) => key.status === "weekly_blocked")).toBe(true);
+  });
+
+  test("estimated usage windows roll over while lifetime counters keep increasing", async () => {
+    const upstreamBaseUrl = createMockUpstream(() =>
+      Response.json({ object: "list", data: [{ id: "llama", object: "model" }] })
+    );
+    const app = createApp(config({ upstreamBaseUrl }));
+    const key = app.keyPool.create({ name: "old-window", apiKey: "good-key" });
+    app.store.patchKey(key.id, {
+      estimatedSessionRequests: 50,
+      estimatedSessionDurationMs: 5000,
+      sessionWindowStartedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+      estimatedWeeklyRequests: 500,
+      estimatedWeeklyDurationMs: 50000,
+      weeklyWindowStartedAt: "2026-05-01T00:00:00.000Z",
+      totalRequests: 10,
+      totalSuccesses: 8,
+      totalFailures: 2,
+    });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const updated = app.store.getKey(key.id, true)!;
+
+    expect(response.status).toBe(200);
+    expect(updated.estimatedSessionRequests).toBe(1);
+    expect(updated.estimatedWeeklyRequests).toBe(1);
+    expect(updated.totalRequests).toBe(11);
+    expect(updated.totalSuccesses).toBe(9);
+    expect(updated.totalFailures).toBe(2);
   });
 
   test("model alias rewrites chat completion request body", async () => {
@@ -397,6 +599,24 @@ describe("proxy integration", () => {
     expect(body.models[0].details.format).toBe("proxy");
   });
 
+  test("Ollama /api/tags omits aliases when native alias rewriting is disabled", async () => {
+    const app = createApp(config({
+      modelAliases: { "kilo-default": "actual-model" },
+      ollamaNativeApplyAliases: false,
+    }));
+    app.store.setModelsCache(JSON.stringify({
+      object: "list",
+      data: [{ id: "actual-model", object: "model" }],
+    }));
+
+    const response = await fetch(`${app.baseUrl}/api/tags`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.models.map((model: { name: string }) => model.name)).not.toContain("kilo-default");
+    expect(body.models.map((model: { name: string }) => model.name)).toContain("actual-model");
+  });
+
   test("Ollama /api/tags can require client token when public discovery is disabled", async () => {
     const app = createApp(config({
       modelAliases: { "kilo-default": "actual-model" },
@@ -438,7 +658,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.5");
+    expect(body.proxy_version).toBe("1.1.6");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -483,7 +703,11 @@ describe("proxy integration", () => {
         done: true,
       });
     });
-    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } }));
+    const app = createApp(config({
+      upstreamBaseUrl,
+      modelAliases: { "minimax-m2.5": "actual-model" },
+      ollamaNativeApplyAliases: false,
+    }));
     app.keyPool.create({ name: "good", apiKey: "good-key" });
 
     const response = await fetch(`${app.baseUrl}/api/chat`, {
@@ -506,6 +730,64 @@ describe("proxy integration", () => {
     expect(body.done).toBe(true);
   });
 
+  test("Ollama /api/chat applies model aliases by default", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const body = await req.json();
+      expect(body.model).toBe("actual-model");
+      return Response.json({ model: body.model, message: { role: "assistant", content: "OK" }, done: true });
+    });
+    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "kilo-default": "actual-model" } }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "kilo-default",
+        messages: [{ role: "user", content: "hi" }],
+        stream: false,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.model).toBe("actual-model");
+  });
+
+  test("Ollama /api/generate leaves model unchanged when native aliases are disabled", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const body = await req.json();
+      expect(body.model).toBe("kilo-default");
+      return Response.json({ model: body.model, response: "OK", done: true });
+    });
+    const app = createApp(config({
+      upstreamBaseUrl,
+      modelAliases: { "kilo-default": "actual-model" },
+      ollamaNativeApplyAliases: false,
+    }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/generate`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "kilo-default",
+        prompt: "hi",
+        stream: false,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.model).toBe("kilo-default");
+  });
+
   test("Ollama /api/generate non-stream passes native body through unchanged", async () => {
     const upstreamBaseUrl = createMockUpstream(async (req) => {
       expect(new URL(req.url).pathname).toBe("/api/generate");
@@ -520,7 +802,11 @@ describe("proxy integration", () => {
         done: true,
       });
     });
-    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } }));
+    const app = createApp(config({
+      upstreamBaseUrl,
+      modelAliases: { "minimax-m2.5": "actual-model" },
+      ollamaNativeApplyAliases: false,
+    }));
     app.keyPool.create({ name: "good", apiKey: "good-key" });
 
     const response = await fetch(`${app.baseUrl}/api/generate`, {
@@ -588,6 +874,8 @@ describe("proxy integration", () => {
     expect(lines[0].message.content).toBe("OK");
     expect(lines[1].done).toBe(true);
     expect(lines[1].message.content).toBe("");
+    expect(app.concurrency.stats().activeRequests).toBe(0);
+    expect(app.store.listKeys(false)[0].activeRequests).toBe(0);
   });
 
   test("Ollama /api/chat preserves native tool call streams", async () => {
@@ -637,5 +925,58 @@ describe("proxy integration", () => {
     expect(lines[0].message.tool_calls[0].function.arguments.path).toBe("BOOT.md");
     expect(lines[0].done).toBe(false);
     expect(lines[1].done).toBe(true);
+  });
+});
+
+describe("proxy stream helper", () => {
+  test("idle timeout finalizes as upstream timeout", async () => {
+    let finalized: { ok: boolean; aborted: boolean; errorType?: string } | null = null;
+    let abortedUpstream = false;
+    const stream = proxyReadableStream(
+      new ReadableStream({ start() {} }),
+      new AbortController().signal,
+      10,
+      100,
+      () => {
+        abortedUpstream = true;
+      },
+      (input) => {
+        finalized = input;
+      }
+    );
+
+    await new Response(stream).text().catch(() => "");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(abortedUpstream).toBe(true);
+    expect(finalized).toEqual({ ok: false, aborted: false, errorType: "upstream_timeout" });
+  });
+
+  test("cancel finalizes as client abort", async () => {
+    let finalized: { ok: boolean; aborted: boolean; errorType?: string } | null = null;
+    let abortedUpstream = false;
+    const stream = proxyReadableStream(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+        },
+      }),
+      new AbortController().signal,
+      1000,
+      1000,
+      () => {
+        abortedUpstream = true;
+      },
+      (input) => {
+        finalized = input;
+      }
+    );
+
+    const reader = stream!.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(abortedUpstream).toBe(true);
+    expect(finalized).toEqual({ ok: false, aborted: true, errorType: "client_aborted" });
   });
 });

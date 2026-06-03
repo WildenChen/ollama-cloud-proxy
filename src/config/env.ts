@@ -13,9 +13,13 @@ export type AppConfig = {
   upstreamTotalTimeoutMs: number;
   upstreamIdleTimeoutMs: number;
   maxRequestBodySizeBytes: number;
+  keyRetryPolicy: "smart";
+  maxKeyAttemptsPerRequest: "all" | number;
+  maxNetworkRetryAttempts: number;
   modelsCacheTtlSeconds: number;
   modelAliases: Record<string, string>;
   ollamaCompatDiscoveryPublic: boolean;
+  ollamaNativeApplyAliases: boolean;
   usageTimezone: string;
   weeklyResetMode: string;
   weeklyResetDayOfWeek: number;
@@ -64,6 +68,15 @@ function booleanEnv(name: string, fallback: boolean): boolean {
   throw new Error(`${name} must be a boolean`);
 }
 
+function keyAttemptsEnv(name: string, fallback: "all" | number): "all" | number {
+  const raw = process.env[name];
+  if (!raw?.trim()) return fallback;
+  if (raw.trim().toLowerCase() === "all") return "all";
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be "all" or a positive integer`);
+  return parsed;
+}
+
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
@@ -104,6 +117,8 @@ function parseModelAliases(): Record<string, string> {
 
 export function loadConfig(): AppConfig {
   maybeLoadDotEnv();
+  const keyRetryPolicy = process.env.KEY_RETRY_POLICY || "smart";
+  if (keyRetryPolicy !== "smart") throw new Error("KEY_RETRY_POLICY currently supports only smart");
 
   return {
     port: numberEnv("PORT", 11435),
@@ -118,9 +133,13 @@ export function loadConfig(): AppConfig {
     upstreamTotalTimeoutMs: numberEnv("UPSTREAM_TOTAL_TIMEOUT_MS", 900000),
     upstreamIdleTimeoutMs: numberEnv("UPSTREAM_IDLE_TIMEOUT_MS", 180000),
     maxRequestBodySizeBytes: numberEnv("MAX_REQUEST_BODY_SIZE_MB", 20) * 1024 * 1024,
+    keyRetryPolicy,
+    maxKeyAttemptsPerRequest: keyAttemptsEnv("MAX_KEY_ATTEMPTS_PER_REQUEST", "all"),
+    maxNetworkRetryAttempts: numberEnv("MAX_NETWORK_RETRY_ATTEMPTS", 3),
     modelsCacheTtlSeconds: numberEnv("MODELS_CACHE_TTL_SECONDS", 3600),
     modelAliases: parseModelAliases(),
     ollamaCompatDiscoveryPublic: booleanEnv("OLLAMA_COMPAT_DISCOVERY_PUBLIC", true),
+    ollamaNativeApplyAliases: booleanEnv("OLLAMA_NATIVE_APPLY_ALIASES", true),
     usageTimezone: process.env.USAGE_TIMEZONE || "Asia/Taipei",
     weeklyResetMode: process.env.WEEKLY_RESET_MODE || "fixed_weekly",
     weeklyResetDayOfWeek: numberEnv("WEEKLY_RESET_DAY_OF_WEEK", 1),

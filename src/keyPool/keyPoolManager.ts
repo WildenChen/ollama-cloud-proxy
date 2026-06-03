@@ -4,7 +4,9 @@ import type { EventStore } from "../events/eventStore";
 import type { ErrorClassification, KeyRecord, PublicKeyRecord } from "../types/domain";
 import { apiKeyPreview, KeyCipher } from "../security/encryption";
 import { cooldownUntilFromClassification } from "./errorClassifier";
-import { isoNow, parseIso } from "../utils/time";
+import { getNextFixedWeeklyResetAt, isoNow, parseIso } from "../utils/time";
+
+const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000;
 
 export function publicKey(key: KeyRecord): PublicKeyRecord {
   const { encryptedApiKey: _encryptedApiKey, ...safe } = key;
@@ -203,20 +205,22 @@ export class KeyPoolManager {
   markSuccess(id: string, durationMs: number) {
     const current = this.store.getKeyOrThrow(id, true);
     const now = isoNow();
+    const usage = this.rolloverUsagePatch(current, new Date(now));
     const patch: KeyMutationPatch = {
+      ...usage,
       lastSuccessAt: now,
       status: current.enabled ? "available" : "disabled",
       blockReason: current.enabled ? "none" : current.blockReason,
       totalRequests: current.totalRequests + 1,
       totalSuccesses: current.totalSuccesses + 1,
       consecutiveFailures: Math.max(0, current.consecutiveFailures - 1),
-      estimatedSessionRequests: current.estimatedSessionRequests + 1,
-      estimatedWeeklyRequests: current.estimatedWeeklyRequests + 1,
-      estimatedSessionDurationMs: current.estimatedSessionDurationMs + durationMs,
-      estimatedWeeklyDurationMs: current.estimatedWeeklyDurationMs + durationMs,
+      estimatedSessionRequests: (usage.estimatedSessionRequests ?? current.estimatedSessionRequests) + 1,
+      estimatedWeeklyRequests: (usage.estimatedWeeklyRequests ?? current.estimatedWeeklyRequests) + 1,
+      estimatedSessionDurationMs: (usage.estimatedSessionDurationMs ?? current.estimatedSessionDurationMs) + durationMs,
+      estimatedWeeklyDurationMs: (usage.estimatedWeeklyDurationMs ?? current.estimatedWeeklyDurationMs) + durationMs,
       usageSource: "estimated_by_proxy",
-      sessionWindowStartedAt: current.sessionWindowStartedAt ?? now,
-      weeklyWindowStartedAt: current.weeklyWindowStartedAt ?? now,
+      sessionWindowStartedAt: usage.sessionWindowStartedAt ?? current.sessionWindowStartedAt ?? now,
+      weeklyWindowStartedAt: usage.weeklyWindowStartedAt ?? current.weeklyWindowStartedAt ?? now,
       cooldownUntil: null,
       nextEligibleAt: null,
     };
@@ -234,7 +238,9 @@ export class KeyPoolManager {
   markFailure(id: string, classification: ErrorClassification, durationMs?: number) {
     const current = this.store.getKeyOrThrow(id, true);
     const cooldownUntil = cooldownUntilFromClassification(classification);
+    const usage = this.rolloverUsagePatch(current);
     const key = this.store.patchKey(id, {
+      ...usage,
       lastFailureAt: isoNow(),
       status: classification.status,
       blockReason: classification.blockReason,
@@ -276,6 +282,38 @@ export class KeyPoolManager {
     }
   }
 
+  private rolloverUsagePatch(key: KeyRecord, now = new Date()): KeyMutationPatch {
+    const nowIso = now.toISOString();
+    const patch: KeyMutationPatch = {};
+    const sessionStartedAt = parseIso(key.sessionWindowStartedAt);
+    if (!sessionStartedAt || now.getTime() - sessionStartedAt >= SESSION_WINDOW_MS) {
+      patch.estimatedSessionRequests = 0;
+      patch.estimatedSessionDurationMs = 0;
+      patch.sessionWindowStartedAt = nowIso;
+    }
+
+    const weeklyStartedAt = parseIso(key.weeklyWindowStartedAt);
+    if (!weeklyStartedAt) {
+      patch.estimatedWeeklyRequests = 0;
+      patch.estimatedWeeklyDurationMs = 0;
+      patch.weeklyWindowStartedAt = nowIso;
+      return patch;
+    }
+
+    const nextResetAfterWindowStart = getNextFixedWeeklyResetAt(
+      new Date(weeklyStartedAt),
+      this.config.usageTimezone,
+      this.config.weeklyResetDayOfWeek,
+      this.config.weeklyResetTime
+    );
+    if (now.getTime() >= nextResetAfterWindowStart.getTime()) {
+      patch.estimatedWeeklyRequests = 0;
+      patch.estimatedWeeklyDurationMs = 0;
+      patch.weeklyWindowStartedAt = nowIso;
+    }
+    return patch;
+  }
+
   summary() {
     const keys = this.store.listKeys(false);
     const now = Date.now();
@@ -289,6 +327,16 @@ export class KeyPoolManager {
       invalidKeys: count((key) => key.status === "invalid"),
       disabledKeys: count((key) => !key.enabled || key.status === "disabled"),
     };
+  }
+
+  nextRecoveryAt(status: "session_blocked" | "weekly_blocked"): string | null {
+    const times = this.store
+      .listKeys(false)
+      .filter((key) => key.status === status && key.cooldownUntil)
+      .map((key) => Date.parse(key.cooldownUntil!))
+      .filter((time) => Number.isFinite(time))
+      .sort((a, b) => a - b);
+    return times.length > 0 ? new Date(times[0]).toISOString() : null;
   }
 
   private selectCandidate(excludedKeyIds: Set<string>): KeyRecord | null {

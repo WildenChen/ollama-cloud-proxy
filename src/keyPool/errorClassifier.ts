@@ -25,6 +25,7 @@ export async function classifyUpstreamResponse(
   if (statusCode === 401 || statusCode === 403) {
     return {
       retryable: false,
+      category: "key",
       status: "invalid",
       blockReason: statusCode === 401 ? "auth_failed" : "invalid_api_key",
       cooldownMs: null,
@@ -34,17 +35,6 @@ export async function classifyUpstreamResponse(
   }
 
   if (statusCode === 429) {
-    if (includesAny(body, ["session", "5 hour", "5-hour", "usage limit reached"])) {
-      return {
-        retryable: false,
-        status: "session_blocked",
-        blockReason: "session_usage_inferred",
-        cooldownMs: SESSION_COOLDOWN_MS,
-        eventType: "key_session_blocked",
-        message: "Session usage block inferred from upstream response",
-      };
-    }
-
     if (includesAny(body, ["weekly", "week", "7 day", "7-day"])) {
       const resetAt = getNextFixedWeeklyResetAt(
         new Date(),
@@ -56,6 +46,7 @@ export async function classifyUpstreamResponse(
       const jitterMs = randomInt(config.weeklyReactivationJitterSeconds * 1000);
       return {
         retryable: false,
+        category: "key",
         status: "weekly_blocked",
         blockReason: "weekly_usage_inferred",
         cooldownMs: resetAt.getTime() + graceMs + jitterMs - Date.now(),
@@ -64,8 +55,21 @@ export async function classifyUpstreamResponse(
       };
     }
 
+    if (includesAny(body, ["session", "5 hour", "5-hour", "usage limit reached"])) {
+      return {
+        retryable: false,
+        category: "key",
+        status: "session_blocked",
+        blockReason: "session_usage_inferred",
+        cooldownMs: SESSION_COOLDOWN_MS,
+        eventType: "key_session_blocked",
+        message: "Session usage block inferred from upstream response",
+      };
+    }
+
     return {
       retryable: true,
+      category: "key",
       status: "cooling_down",
       blockReason: "rate_limited",
       cooldownMs: backoffMs(consecutiveFailures, 15 * 60 * 1000, 60 * 60 * 1000),
@@ -77,6 +81,7 @@ export async function classifyUpstreamResponse(
   if (statusCode === 500 || statusCode === 502 || statusCode === 503) {
     return {
       retryable: true,
+      category: "provider",
       status: "cooling_down",
       blockReason: "provider_error",
       cooldownMs: backoffMs(consecutiveFailures, 60 * 1000, 5 * 60 * 1000),
@@ -87,6 +92,7 @@ export async function classifyUpstreamResponse(
 
   return {
     retryable: false,
+    category: "request",
     status: "cooling_down",
     blockReason: "provider_error",
     cooldownMs: 60 * 1000,
@@ -98,6 +104,7 @@ export async function classifyUpstreamResponse(
 export function classifyNetworkError(timeout: boolean): ErrorClassification {
   return {
     retryable: true,
+    category: "network",
     status: "cooling_down",
     blockReason: "network_error",
     cooldownMs: timeout ? 2 * 60 * 1000 : 60 * 1000,

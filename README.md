@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/ps`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.5`
+目前版本：`1.1.6`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -117,7 +117,7 @@ Available tags:
 
 - `latest`：latest build from the `main` branch
 - `main`：latest build from the `main` branch
-- `1.1.5` or other version tags：release builds
+- `1.1.6` or other version tags：release builds
 - `sha-<commit>`：commit-specific builds
 
 Version tags are published when the matching Git tag is pushed after the Docker publish workflow is available.
@@ -147,6 +147,17 @@ If you want to build from local source instead, use the default `docker-compose.
 After the first GitHub Actions publish, make sure the package visibility in GitHub Packages is set to public if you want unauthenticated users to pull the image.
 
 ## 版本更新紀錄
+
+### 1.1.6 - 2026-06-04
+
+- `/admin/stats` 的 `adminUi` 改成 `{ enabled: true, path: "/admin" }`，不再顯示未實作。
+- 新增 smart key retry 設定：`KEY_RETRY_POLICY=smart`、`MAX_KEY_ATTEMPTS_PER_REQUEST=all`、`MAX_NETWORK_RETRY_ATTEMPTS=3`。
+- quota/key-level 錯誤會繼續嘗試下一把 selectable key；network/provider 暫時錯誤最多嘗試 3 把；request/payload/model 類錯誤不換 key。
+- key attempt event 會記錄 attempt index、key、錯誤類型、是否繼續換 key 與停止原因；耗盡可嘗試 key 時回 `no_available_key_after_attempts`。
+- estimated session/weekly usage window 會 rollover，lifetime counters 不重置。
+- 新增 `OLLAMA_NATIVE_APPLY_ALIASES=true`，讓 `/api/chat`、`/api/generate` 預設也套用 model alias；關閉時 `/api/tags` 不列 proxy alias。
+- 補強 stream helper、queue、restart stale activeRequests、retry、native alias 與 usage rollover 測試。
+- GitHub Actions Docker publish 會先執行 `bun install` 與 `bun test`，測試通過才 build/push image。
 
 ### 1.1.5 - 2026-06-03
 
@@ -208,7 +219,7 @@ docker compose -f docker-compose.release.yml logs -f
 如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
 
 ```yaml
-image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.5
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.6
 ```
 
 固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。
@@ -293,9 +304,13 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `UPSTREAM_TOTAL_TIMEOUT_MS` | `900000` | 單次上游請求總逾時 |
 | `UPSTREAM_IDLE_TIMEOUT_MS` | `180000` | streaming 沒有新資料時的 idle 逾時 |
 | `MAX_REQUEST_BODY_SIZE_MB` | `20` | request body 大小上限 |
+| `KEY_RETRY_POLICY` | `smart` | key retry 策略；目前支援 smart |
+| `MAX_KEY_ATTEMPTS_PER_REQUEST` | `all` | quota/key-level 錯誤最多嘗試幾把 key；`all` 代表當下所有 selectable key |
+| `MAX_NETWORK_RETRY_ATTEMPTS` | `3` | network/provider 暫時錯誤最多嘗試幾把 key，避免掃完整個 key pool |
 | `MODELS_CACHE_TTL_SECONDS` | `3600` | `/v1/models` cache 時間 |
 | `MODEL_ALIASES_JSON` | `{}` | model alias JSON，例如 `{"kilo-default":"actual-model"}` |
 | `OLLAMA_COMPAT_DISCOVERY_PUBLIC` | `true` | 是否公開 `/api/tags` 供 Ollama provider 做 discovery |
+| `OLLAMA_NATIVE_APPLY_ALIASES` | `true` | 是否讓 `/api/chat`、`/api/generate` 套用 model alias |
 | `USAGE_TIMEZONE` | `Asia/Taipei` | weekly reset 顯示與推算時區 |
 | `WEEKLY_RESET_DAY_OF_WEEK` | `1` | weekly reset 星期，`1` 是星期一 |
 | `WEEKLY_RESET_TIME` | `08:30` | weekly reset 時間 |
@@ -305,7 +320,9 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 
 如果 `CLIENT_API_KEYS` 有設定，`/v1/*`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token。`GET /api/version` 與 `GET /api/ps` 會公開回應，供 Ollama-compatible client 驗證服務；`GET /api/tags` 預設也公開，可用 `OLLAMA_COMPAT_DISCOVERY_PUBLIC=false` 改成需要 client token。若沒有設定 `CLIENT_API_KEYS`，proxy 會允許未驗證推理請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
 
-每次請求的上游 key 嘗試上限會自動等於當下可用 key 數量。同一請求不會重複使用同一把 key；如果某把 key 回 `401`、`403`、session limit、weekly limit、generic rate limit、network error 或暫時性上游錯誤，proxy 會標記該 key 狀態並繼續嘗試下一把可用 key，直到成功或可用 key 都試完。client payload 類型的 native `4xx` 錯誤不會被當成 key 失效，也不會盲目 retry。
+smart retry 會依錯誤類型決定是否換 key。同一請求不會重複使用同一把 key；如果某把 key 回 `401`、`403`、session limit、weekly limit 或 key-specific rate limit，proxy 會標記該 key 狀態並繼續嘗試下一把 selectable key，直到成功或 key pool 都試完。network timeout、`502`、`503` 等 network/provider 暫時錯誤最多嘗試 `MAX_NETWORK_RETRY_ATTEMPTS` 把 key。client payload、model、tool schema 或 unsupported parameter 類型的 `4xx` 錯誤不會被當成 key 失效，也不會盲目 retry。
+
+若 Ollama 官方未提供 usage API，本專案的 session/weekly usage 只能是 proxy estimated 或從錯誤 inferred，不代表官方精準 quota。`estimatedSession*` 與 `estimatedWeekly*` 會依 session/weekly window 重置；`totalRequests`、`totalSuccesses`、`totalFailures` 是 lifetime counters，不會重置。
 
 ## 新增第一把 Ollama Cloud key
 
@@ -337,10 +354,10 @@ API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
 | Ollama native version | `/api/version` | 公開回傳 Ollama-compatible 版本，供 client 偵測服務 |
 | Ollama native running models | `/api/ps` | 公開回傳空執行中模型清單 |
 | Ollama native model list | `/api/tags` | 未帶 token 時可回 compatibility model list；帶合法 token 時原樣 pass-through 到上游 |
-| Ollama native chat | `/api/chat` | 原樣 pass-through，不套用 alias，不改 tool call payload |
-| Ollama native generate | `/api/generate` | 原樣 pass-through，不套用 alias，不改 payload |
+| Ollama native chat | `/api/chat` | 預設套用 model alias，其他 native 欄位與 tool call payload 不改 |
+| Ollama native generate | `/api/generate` | 預設套用 model alias，其他 native 欄位不改 |
 
-`/api/version`、`/api/ps` 與未帶 token 時預設公開的 `/api/tags` 是 discovery endpoint，不會消耗 Ollama Cloud key。若 `/api/tags` 帶合法 Bearer token，proxy 會改走上游 pass-through，保留 Ollama native model list 原樣回應。`/api/chat` 和 `/api/generate` 也刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫；它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
+`/api/version`、`/api/ps` 與未帶 token 時預設公開的 `/api/tags` 是 discovery endpoint，不會消耗 Ollama Cloud key。若 `/api/tags` 帶合法 Bearer token，proxy 會改走上游 pass-through，保留 Ollama native model list 原樣回應。`/api/chat` 和 `/api/generate` 會保持 Ollama native payload 結構；預設只改寫 `body.model` 的 alias，避免工具呼叫、streaming chunk 或其他 Ollama 原生欄位被改寫。它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
 
 ## 應用範例：同時支援兩種 client 格式
 
@@ -427,7 +444,7 @@ curl http://localhost:11435/api/ps
 ### 同時混用時的注意事項
 
 - `/v1/*` 和 `/api/*` 會共用同一個 key pool，所以任一格式造成 key 冷卻或封鎖，都會影響另一種格式的可用 key 數。
-- `/v1/*` 會套用 model alias；`/api/chat` 和 `/api/generate` 不套用 alias。
+- `/v1/*` 會套用 model alias；`/api/chat` 和 `/api/generate` 預設也會套用 `body.model` alias，可用 `OLLAMA_NATIVE_APPLY_ALIASES=false` 關閉。
 - 兩種格式都會受到 `MAX_CONCURRENT_REQUESTS`、`REQUEST_QUEUE_MAX` 與 per-key concurrency 限制。
 - 兩種格式都會記錄 client stats、model stats 與 events。
 - 如果設定了 `CLIENT_API_KEYS`，`/v1/*`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token；discovery endpoint 依上方規則處理。
@@ -575,7 +592,8 @@ MODEL_ALIASES_JSON={"kilo-default":"actual-upstream-model","fast":"another-model
 - client 對 `/v1/chat/completions` 或 `/v1/completions` 送 `model: "kilo-default"`
 - proxy 轉送上游時改成 `model: "actual-upstream-model"`
 - `/v1/models` 會額外列出 `kilo-default`
-- `/api/chat` 和 `/api/generate` 不套用 alias，因為它們是 Ollama native pass-through
+- `/api/chat` 和 `/api/generate` 預設也會把 `body.model` 改成 `actual-upstream-model`
+- 如果設定 `OLLAMA_NATIVE_APPLY_ALIASES=false`，`/api/chat` 和 `/api/generate` 不改寫 model，且公開 `/api/tags` 不列出 proxy alias，避免 Ollama native client 選到上游不認得的 model
 
 也可以不設環境變數，改在專案根目錄放 `model-aliases.json`：
 
