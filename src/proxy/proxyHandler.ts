@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/env";
+import { APP_VERSION } from "../config/version";
 import type { ConcurrencyManager, ConcurrencySlot } from "../concurrency/concurrencyManager";
 import { QueueError } from "../concurrency/concurrencyManager";
 import { openAiError } from "../errors/responses";
@@ -45,7 +46,11 @@ export class ProxyHandler {
       });
     }
 
-    if (path === "/api/chat" && req.method === "POST") {
+    if (path === "/api/version" && req.method === "GET") {
+      return Response.json({ version: APP_VERSION });
+    }
+
+    if ((path === "/api/chat" || path === "/api/generate") && req.method === "POST") {
       let rawBody: string;
       let model: string | null;
       try {
@@ -65,7 +70,7 @@ export class ProxyHandler {
         rawBody,
         startedAt,
         {
-          upstreamPath: "/api/chat",
+          upstreamPath: path,
           responseFormat: "passthrough",
         }
       );

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { AdminRoutes } from "../src/admin/adminRoutes";
 import type { AppConfig } from "../src/config/env";
+import { APP_VERSION } from "../src/config/version";
 import { ConcurrencyManager } from "../src/concurrency/concurrencyManager";
 import { EventStore } from "../src/events/eventStore";
 import { KeyPoolManager } from "../src/keyPool/keyPoolManager";
@@ -334,6 +335,18 @@ describe("proxy integration", () => {
     expect(body.models[0].details.family).toBe("llama");
   });
 
+  test("Ollama /api/version returns proxy version", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/api/version`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.version).toBe(APP_VERSION);
+  });
+
   test("Ollama /api/chat non-stream passes native body through unchanged", async () => {
     const upstreamBaseUrl = createMockUpstream(async (req) => {
       expect(new URL(req.url).pathname).toBe("/api/chat");
@@ -368,6 +381,42 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.message.content).toBe("OK");
+    expect(body.done).toBe(true);
+  });
+
+  test("Ollama /api/generate non-stream passes native body through unchanged", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/generate");
+      const body = await req.json();
+      expect(body.model).toBe("minimax-m2.5");
+      expect(body.prompt).toBe("hi");
+      expect(body.stream).toBe(false);
+      return Response.json({
+        model: body.model,
+        created_at: "2026-06-02T00:00:00.000Z",
+        response: "OK",
+        done: true,
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/generate`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "minimax-m2.5",
+        prompt: "hi",
+        stream: false,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.response).toBe("OK");
     expect(body.done).toBe(true);
   });
 

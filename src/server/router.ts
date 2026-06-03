@@ -48,8 +48,10 @@ export class Router {
 
     if (
       path.startsWith("/v1/") ||
+      path === "/api/version" ||
       path === "/api/tags" ||
-      path === "/api/chat"
+      path === "/api/chat" ||
+      path === "/api/generate"
     ) {
       const auth = authenticateClient(req, this.config);
       if ("response" in auth) return auth.response;

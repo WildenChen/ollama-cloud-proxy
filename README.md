@@ -5,7 +5,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 這個專案最重要的三個用途：
 
 - **可使用多把 Ollama Cloud key**：proxy 會從 key pool 挑選目前可用的 key，避開 invalid、cooldown、session blocked、weekly blocked 的 key。
-- **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/chat`、`/api/tags`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
+- **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
 目前版本：`1.1.2`
@@ -24,7 +24,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 
 - 多把 Ollama Cloud key：加密保存、健康狀態輪替、per-key concurrency、cooldown、block state
 - OpenAI-compatible gateway：`/v1/models`、`/v1/chat/completions`、`/v1/completions`
-- Ollama native pass-through：`/api/tags`、`/api/chat`
+- Ollama native support：`/api/version`，以及 pass-through 的 `/api/tags`、`/api/chat`、`/api/generate`
 - Concurrency queue：全域 upstream request 數量限制，超過時排隊
 - Client token：支援多個 client token，統計會依 clientName 分開記錄
 - Model alias：讓 client 使用短名稱，proxy 轉成真正 upstream model name
@@ -286,10 +286,12 @@ API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
 | OpenAI-compatible chat | `/v1/chat/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
 | OpenAI-compatible completion | `/v1/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
 | OpenAI-compatible model list | `/v1/models` | 會 cache 上游 model list，並把 alias 加進列表 |
+| Ollama native version | `/api/version` | 回傳 proxy 版本，供 Ollama native client 偵測服務 |
 | Ollama native model list | `/api/tags` | 原樣 pass-through，不改 payload |
 | Ollama native chat | `/api/chat` | 原樣 pass-through，不套用 alias，不改 tool call payload |
+| Ollama native generate | `/api/generate` | 原樣 pass-through，不套用 alias，不改 payload |
 
-`/api/chat` 是刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫。如果你的 client 走 Ollama native protocol，請設定到 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
+`/api/chat` 和 `/api/generate` 是刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫。如果你的 client 走 Ollama native protocol，請設定到 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
 
 ## 應用範例：同時支援兩種 client 格式
 
@@ -301,7 +303,7 @@ API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
 | --- | --- | --- | --- |
 | Kilo Code | OpenAI-compatible | `http://<proxy-host>:11435/v1` | 走 `/v1/chat/completions`，可以使用 model alias |
 | OpenClaw | OpenAI-compatible | `http://<proxy-host>:11435/v1` | 走 OpenAI 格式，適合 OpenAI-compatible provider 設定 |
-| Ollama native client | Ollama native | `http://<proxy-host>:11435/api` | 走 `/api/chat`、`/api/tags`，payload 原樣轉送 |
+| Ollama native client | Ollama native | `http://<proxy-host>:11435/api` | 走 `/api/version`、`/api/tags`、`/api/chat`、`/api/generate`，payload 原樣轉送 |
 | 自製工具或腳本 | 任一種 | `/v1/*` 或 `/api/*` | 依工具需要選擇格式 |
 
 ### OpenAI-compatible 請求範例
@@ -342,6 +344,19 @@ curl http://localhost:11435/api/chat \
 
 這條路徑不會套用 model alias，也不會改寫 tools、tool calls 或 streaming chunks。也就是說，client 送什麼 Ollama native payload，proxy 就盡量原樣轉給 Ollama Cloud。
 
+使用 Ollama native `/api/generate`：
+
+```bash
+curl http://localhost:11435/api/generate \
+  -H "Authorization: Bearer openclaw-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "actual-upstream-model",
+    "prompt": "請用三句話說明這個 proxy 的用途",
+    "stream": false
+  }'
+```
+
 查詢 Ollama native model list：
 
 ```bash
@@ -349,10 +364,17 @@ curl http://localhost:11435/api/tags \
   -H "Authorization: Bearer openclaw-token"
 ```
 
+查詢 Ollama native version：
+
+```bash
+curl http://localhost:11435/api/version \
+  -H "Authorization: Bearer openclaw-token"
+```
+
 ### 同時混用時的注意事項
 
 - `/v1/*` 和 `/api/*` 會共用同一個 key pool，所以任一格式造成 key 冷卻或封鎖，都會影響另一種格式的可用 key 數。
-- `/v1/*` 會套用 model alias；`/api/chat` 不套用 alias。
+- `/v1/*` 會套用 model alias；`/api/chat` 和 `/api/generate` 不套用 alias。
 - 兩種格式都會受到 `MAX_CONCURRENT_REQUESTS`、`REQUEST_QUEUE_MAX` 與 per-key concurrency 限制。
 - 兩種格式都會記錄 client stats、model stats 與 events。
 - 如果設定了 `CLIENT_API_KEYS`，兩種格式都必須帶合法 Bearer token。
@@ -363,7 +385,7 @@ OpenClaw 可以用兩種方式接這個 proxy。
 
 ### OpenClaw 使用 Ollama 格式
 
-如果 OpenClaw 設定裡使用 `api: "ollama"`，請把 `baseUrl` 指到 proxy root，不要加 `/api`。OpenClaw 會自己呼叫 Ollama native endpoint，例如 `/api/chat`、`/api/tags`。
+如果 OpenClaw 設定裡使用 `api: "ollama"`，請把 `baseUrl` 指到 proxy root，不要加 `/api`。OpenClaw 會自己呼叫 Ollama native endpoint，例如 `/api/version`、`/api/chat`、`/api/tags`。
 
 ```json
 {
@@ -472,7 +494,7 @@ MODEL_ALIASES_JSON={"kilo-default":"actual-upstream-model","fast":"another-model
 - client 對 `/v1/chat/completions` 或 `/v1/completions` 送 `model: "kilo-default"`
 - proxy 轉送上游時改成 `model: "actual-upstream-model"`
 - `/v1/models` 會額外列出 `kilo-default`
-- `/api/chat` 不套用 alias，因為它是 Ollama native pass-through
+- `/api/chat` 和 `/api/generate` 不套用 alias，因為它們是 Ollama native pass-through
 
 也可以不設環境變數，改在專案根目錄放 `model-aliases.json`：
 
@@ -616,7 +638,7 @@ docker run --rm -v "$PWD:/work" -w /work ollama-cloud-proxy:test bun test
 - upstream `401` 使 key 變成 invalid
 - model alias rewrite
 - `/v1/*` OpenAI-compatible 路徑
-- `/api/tags` 與 `/api/chat` Ollama native pass-through
+- `/api/version`、`/api/tags`、`/api/chat`、`/api/generate` Ollama native support
 - native streaming 與 tool call payload 保持不變
 
 ## 資料與 secret
