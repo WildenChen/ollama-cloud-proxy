@@ -32,7 +32,6 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     upstreamTotalTimeoutMs: 30000,
     upstreamIdleTimeoutMs: 10000,
     maxRequestBodySizeBytes: 20 * 1024 * 1024,
-    maxUpstreamRetriesPerRequest: 1,
     modelsCacheTtlSeconds: 3600,
     modelAliases: {},
     ollamaCompatDiscoveryPublic: true,
@@ -208,6 +207,59 @@ describe("proxy integration", () => {
     expect(updated.status).toBe("invalid");
     expect(updated.activeRequests).toBe(0);
     expect(bodyText).not.toContain("bad-key-secret");
+  });
+
+  test("upstream key failures try every selectable key before failing", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      seenAuthHeaders.push(req.headers.get("authorization") || "");
+      return Response.json({ error: "bad key" }, { status: 401 });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    const first = app.keyPool.create({ name: "bad-1", apiKey: "bad-key-1" });
+    const second = app.keyPool.create({ name: "bad-2", apiKey: "bad-key-2" });
+    const third = app.keyPool.create({ name: "bad-3", apiKey: "bad-key-3" });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(seenAuthHeaders).toHaveLength(3);
+    expect(new Set(seenAuthHeaders)).toEqual(new Set([
+      "Bearer bad-key-1",
+      "Bearer bad-key-2",
+      "Bearer bad-key-3",
+    ]));
+    expect(app.store.getKey(first.id, true)?.status).toBe("invalid");
+    expect(app.store.getKey(second.id, true)?.status).toBe("invalid");
+    expect(app.store.getKey(third.id, true)?.status).toBe("invalid");
+  });
+
+  test("upstream key failures continue until a later selectable key succeeds", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      const auth = req.headers.get("authorization") || "";
+      seenAuthHeaders.push(auth);
+      if (auth !== "Bearer good-key") {
+        return Response.json({ error: "bad key" }, { status: 401 });
+      }
+      return Response.json({ object: "list", data: [{ id: "llama", object: "model" }] });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "bad-1", apiKey: "bad-key-1" });
+    app.keyPool.create({ name: "bad-2", apiKey: "bad-key-2" });
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data[0].id).toBe("llama");
+    expect(seenAuthHeaders).toContain("Bearer good-key");
+    expect(seenAuthHeaders.length).toBeLessThanOrEqual(3);
   });
 
   test("model alias rewrites chat completion request body", async () => {
@@ -386,7 +438,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.4");
+    expect(body.proxy_version).toBe("1.1.5");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/ps`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.4`
+目前版本：`1.1.5`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -117,7 +117,7 @@ Available tags:
 
 - `latest`：latest build from the `main` branch
 - `main`：latest build from the `main` branch
-- `1.1.4` or other version tags：release builds
+- `1.1.5` or other version tags：release builds
 - `sha-<commit>`：commit-specific builds
 
 Version tags are published when the matching Git tag is pushed after the Docker publish workflow is available.
@@ -162,7 +162,7 @@ docker compose -f docker-compose.release.yml logs -f
 如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
 
 ```yaml
-image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.4
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.5
 ```
 
 固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。
@@ -247,7 +247,6 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `UPSTREAM_TOTAL_TIMEOUT_MS` | `900000` | 單次上游請求總逾時 |
 | `UPSTREAM_IDLE_TIMEOUT_MS` | `180000` | streaming 沒有新資料時的 idle 逾時 |
 | `MAX_REQUEST_BODY_SIZE_MB` | `20` | request body 大小上限 |
-| `MAX_UPSTREAM_RETRIES_PER_REQUEST` | `1` | retryable 錯誤最多改用其他 key 重試幾次 |
 | `MODELS_CACHE_TTL_SECONDS` | `3600` | `/v1/models` cache 時間 |
 | `MODEL_ALIASES_JSON` | `{}` | model alias JSON，例如 `{"kilo-default":"actual-model"}` |
 | `OLLAMA_COMPAT_DISCOVERY_PUBLIC` | `true` | 是否公開 `/api/tags` 供 Ollama provider 做 discovery |
@@ -259,6 +258,8 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `DB_PATH` | `/data/ollama-cloud-proxy.sqlite` | SQLite DB 路徑 |
 
 如果 `CLIENT_API_KEYS` 有設定，`/v1/*`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token。`GET /api/version` 與 `GET /api/ps` 會公開回應，供 Ollama-compatible client 驗證服務；`GET /api/tags` 預設也公開，可用 `OLLAMA_COMPAT_DISCOVERY_PUBLIC=false` 改成需要 client token。若沒有設定 `CLIENT_API_KEYS`，proxy 會允許未驗證推理請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
+
+每次請求的上游 key 嘗試上限會自動等於當下可用 key 數量。同一請求不會重複使用同一把 key；如果某把 key 回 `401`、`403`、session limit、weekly limit、generic rate limit、network error 或暫時性上游錯誤，proxy 會標記該 key 狀態並繼續嘗試下一把可用 key，直到成功或可用 key 都試完。client payload 類型的 native `4xx` 錯誤不會被當成 key 失效，也不會盲目 retry。
 
 ## 新增第一把 Ollama Cloud key
 

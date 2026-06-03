@@ -167,8 +167,14 @@ export class KeyPoolManager {
     return publicKey(key);
   }
 
-  selectKey(requestId: string, clientName: string, originalModel?: string, upstreamModel?: string): KeyRecord | null {
-    const selected = this.selectCandidate();
+  selectKey(
+    requestId: string,
+    clientName: string,
+    originalModel?: string,
+    upstreamModel?: string,
+    excludedKeyIds: Set<string> = new Set()
+  ): KeyRecord | null {
+    const selected = this.selectCandidate(excludedKeyIds);
     if (!selected) return null;
     const key = this.store.incrementKeyActive(selected.id);
     this.events.emit({
@@ -183,6 +189,11 @@ export class KeyPoolManager {
       upstreamModel,
     });
     return key;
+  }
+
+  selectableCount(): number {
+    const now = Date.now();
+    return this.store.listKeys(false).filter((key) => this.isSelectable(key, now)).length;
   }
 
   releaseKey(id: string) {
@@ -280,9 +291,11 @@ export class KeyPoolManager {
     };
   }
 
-  private selectCandidate(): KeyRecord | null {
+  private selectCandidate(excludedKeyIds: Set<string>): KeyRecord | null {
     const now = Date.now();
-    const candidates = this.store.listKeys(false).filter((key) => this.isSelectable(key, now));
+    const candidates = this.store
+      .listKeys(false)
+      .filter((key) => !excludedKeyIds.has(key.id) && this.isSelectable(key, now));
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => this.score(a, now) - this.score(b, now));
     const top = candidates.slice(0, Math.min(3, candidates.length));

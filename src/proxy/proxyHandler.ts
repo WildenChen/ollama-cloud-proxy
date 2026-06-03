@@ -9,7 +9,7 @@ import type { KeyPoolManager } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore } from "../storage/database";
 import type { TokenUsageInput } from "../storage/database";
-import type { ClientIdentity, KeyRecord } from "../types/domain";
+import type { ClientIdentity, ErrorClassification, KeyRecord } from "../types/domain";
 import { getNextFixedWeeklyResetAt } from "../utils/time";
 import { readBodyWithLimit } from "./body";
 import { proxyReadableStream } from "./stream";
@@ -160,7 +160,8 @@ export class ProxyHandler {
     slot: ConcurrencySlot,
     options: { upstreamPath: string; responseFormat: ResponseFormat }
   ): Promise<Response> {
-    const attempts = this.config.maxUpstreamRetriesPerRequest + 1;
+    const attempts = Math.max(1, this.keyPool.selectableCount());
+    const triedKeyIds = new Set<string>();
     let lastError: Response | null = null;
 
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -168,7 +169,8 @@ export class ProxyHandler {
         requestId,
         client.clientName,
         originalModel ?? undefined,
-        upstreamModel ?? undefined
+        upstreamModel ?? undefined,
+        triedKeyIds
       );
       if (!selectedKey) {
         slot.release();
@@ -185,6 +187,7 @@ export class ProxyHandler {
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, "no_available_key");
         return openAiError(503, "no_available_key", "No available Ollama Cloud key", this.noAvailableKeyDetails());
       }
+      triedKeyIds.add(selectedKey.id);
 
       const response = await this.tryUpstream(
         req,
@@ -197,6 +200,7 @@ export class ProxyHandler {
         startedAt,
         slot,
         attempt,
+        attempts,
         options
       );
 
@@ -212,7 +216,7 @@ export class ProxyHandler {
           keyName: selectedKey.name,
           originalModel,
           upstreamModel,
-          details: { attempt: attempt + 1, maxRetries: this.config.maxUpstreamRetriesPerRequest },
+          details: { attempt: attempt + 1, maxAttempts: attempts, triedKeys: triedKeyIds.size },
         });
         continue;
       }
@@ -236,6 +240,7 @@ export class ProxyHandler {
     startedAt: number,
     slot: ConcurrencySlot,
     attempt: number,
+    maxAttempts: number,
     options: { upstreamPath: string; responseFormat: ResponseFormat }
   ): Promise<{ response: Response; retry: boolean }> {
     const controller = new AbortController();
@@ -324,8 +329,7 @@ export class ProxyHandler {
         this.keyPool.markFailure(key.id, classification, Date.now() - startedAt);
         this.keyPool.releaseKey(key.id);
         req.signal.removeEventListener("abort", abortOnClient);
-        const shouldRetry =
-          classification.retryable && attempt < this.config.maxUpstreamRetriesPerRequest;
+        const shouldRetry = this.shouldTryAnotherKey(classification, attempt, maxAttempts);
         if (shouldRetry) {
           return { response: openAiError(upstream.status, classification.blockReason, classification.message), retry: true };
         }
@@ -398,7 +402,7 @@ export class ProxyHandler {
       this.keyPool.markFailure(key.id, classification, Date.now() - startedAt);
       this.keyPool.releaseKey(key.id);
       req.signal.removeEventListener("abort", abortOnClient);
-      const shouldRetry = classification.retryable && attempt < this.config.maxUpstreamRetriesPerRequest;
+      const shouldRetry = this.shouldTryAnotherKey(classification, attempt, maxAttempts);
       if (shouldRetry) {
         return { response: openAiError(503, classification.blockReason, classification.message), retry: true };
       }
@@ -409,6 +413,14 @@ export class ProxyHandler {
         response: openAiError(503, classification.blockReason, classification.message),
       };
     }
+  }
+
+  private shouldTryAnotherKey(classification: ErrorClassification, attempt: number, maxAttempts: number): boolean {
+    const keyCannotServeRequest =
+      classification.status === "invalid" ||
+      classification.status === "session_blocked" ||
+      classification.status === "weekly_blocked";
+    return attempt < maxAttempts - 1 && (classification.retryable || keyCannotServeRequest);
   }
 
   private upstreamHeaders(req: Request, key: KeyRecord): Headers {

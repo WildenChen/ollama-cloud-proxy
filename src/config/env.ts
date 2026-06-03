@@ -13,7 +13,6 @@ export type AppConfig = {
   upstreamTotalTimeoutMs: number;
   upstreamIdleTimeoutMs: number;
   maxRequestBodySizeBytes: number;
-  maxUpstreamRetriesPerRequest: number;
   modelsCacheTtlSeconds: number;
   modelAliases: Record<string, string>;
   ollamaCompatDiscoveryPublic: boolean;
@@ -119,7 +118,6 @@ export function loadConfig(): AppConfig {
     upstreamTotalTimeoutMs: numberEnv("UPSTREAM_TOTAL_TIMEOUT_MS", 900000),
     upstreamIdleTimeoutMs: numberEnv("UPSTREAM_IDLE_TIMEOUT_MS", 180000),
     maxRequestBodySizeBytes: numberEnv("MAX_REQUEST_BODY_SIZE_MB", 20) * 1024 * 1024,
-    maxUpstreamRetriesPerRequest: numberEnv("MAX_UPSTREAM_RETRIES_PER_REQUEST", 1),
     modelsCacheTtlSeconds: numberEnv("MODELS_CACHE_TTL_SECONDS", 3600),
     modelAliases: parseModelAliases(),
     ollamaCompatDiscoveryPublic: booleanEnv("OLLAMA_COMPAT_DISCOVERY_PUBLIC", true),
