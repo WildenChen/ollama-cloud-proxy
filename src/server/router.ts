@@ -49,7 +49,12 @@ export class Router {
     if (
       (path === "/api/version" && req.method === "GET") ||
       (path === "/api/ps" && req.method === "GET") ||
-      (this.config.ollamaCompatDiscoveryPublic && path === "/api/tags" && req.method === "GET")
+      (
+        this.config.ollamaCompatDiscoveryPublic &&
+        path === "/api/tags" &&
+        req.method === "GET" &&
+        !this.hasBearerToken(req)
+      )
     ) {
       return this.proxy.handle(req, path, { clientName: "ollama-discovery", authenticated: false });
     }
@@ -66,6 +71,10 @@ export class Router {
     }
 
     return notFound();
+  }
+
+  private hasBearerToken(req: Request): boolean {
+    return /^Bearer\s+.+$/i.test(req.headers.get("authorization") || "");
   }
 
   private staticFile(path: string, contentType: string): Response {

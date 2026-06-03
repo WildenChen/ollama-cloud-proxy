@@ -352,12 +352,30 @@ describe("proxy integration", () => {
     }));
 
     const unauthorized = await fetch(`${app.baseUrl}/api/tags`);
-    const authorized = await fetch(`${app.baseUrl}/api/tags`, {
-      headers: { authorization: "Bearer client-token" },
-    });
 
     expect(unauthorized.status).toBe(401);
-    expect(authorized.status).toBe(200);
+  });
+
+  test("Ollama /api/tags with client token passes through native upstream response", async () => {
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      expect(new URL(req.url).pathname).toBe("/api/tags");
+      expect(req.headers.get("authorization")).toBe("Bearer good-key");
+      return Response.json({
+        models: [{ name: "minimax-m2.5", model: "minimax-m2.5", details: { family: "llama" } }],
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/tags`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.models[0].name).toBe("minimax-m2.5");
+    expect(body.models[0].model).toBe("minimax-m2.5");
+    expect(body.models[0].details.family).toBe("llama");
   });
 
   test("Ollama /api/version returns public Ollama-compatible version", async () => {
@@ -368,6 +386,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
+    expect(body.proxy_version).toBe("1.1.4");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

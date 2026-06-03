@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/ps`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.3`
+目前版本：`1.1.4`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -117,7 +117,7 @@ Available tags:
 
 - `latest`：latest build from the `main` branch
 - `main`：latest build from the `main` branch
-- `1.1.3` or other version tags：release builds
+- `1.1.4` or other version tags：release builds
 - `sha-<commit>`：commit-specific builds
 
 Version tags are published when the matching Git tag is pushed after the Docker publish workflow is available.
@@ -162,7 +162,7 @@ docker compose -f docker-compose.release.yml logs -f
 如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
 
 ```yaml
-image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.3
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.4
 ```
 
 固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。
@@ -289,11 +289,11 @@ API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
 | OpenAI-compatible model list | `/v1/models` | 會 cache 上游 model list，並把 alias 加進列表 |
 | Ollama native version | `/api/version` | 公開回傳 Ollama-compatible 版本，供 client 偵測服務 |
 | Ollama native running models | `/api/ps` | 公開回傳空執行中模型清單 |
-| Ollama native model list | `/api/tags` | 回傳 Ollama tags 格式，來源為 model aliases 與 `/v1/models` cache |
+| Ollama native model list | `/api/tags` | 未帶 token 時可回 compatibility model list；帶合法 token 時原樣 pass-through 到上游 |
 | Ollama native chat | `/api/chat` | 原樣 pass-through，不套用 alias，不改 tool call payload |
 | Ollama native generate | `/api/generate` | 原樣 pass-through，不套用 alias，不改 payload |
 
-`/api/version`、`/api/ps` 與預設公開的 `/api/tags` 是 discovery endpoint，不會消耗 Ollama Cloud key。`/api/chat` 和 `/api/generate` 是刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫；它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
+`/api/version`、`/api/ps` 與未帶 token 時預設公開的 `/api/tags` 是 discovery endpoint，不會消耗 Ollama Cloud key。若 `/api/tags` 帶合法 Bearer token，proxy 會改走上游 pass-through，保留 Ollama native model list 原樣回應。`/api/chat` 和 `/api/generate` 也刻意保持 native pass-through，避免工具呼叫、streaming chunk 或 Ollama 原生欄位被改寫；它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
 
 ## 應用範例：同時支援兩種 client 格式
 
