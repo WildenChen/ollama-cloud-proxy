@@ -16,6 +16,7 @@ export type AppConfig = {
   maxUpstreamRetriesPerRequest: number;
   modelsCacheTtlSeconds: number;
   modelAliases: Record<string, string>;
+  ollamaCompatDiscoveryPublic: boolean;
   usageTimezone: string;
   weeklyResetMode: string;
   weeklyResetDayOfWeek: number;
@@ -53,6 +54,15 @@ function numberEnv(name: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number`);
   return parsed;
+}
+
+function booleanEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (!raw?.trim()) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new Error(`${name} must be a boolean`);
 }
 
 function requiredEnv(name: string): string {
@@ -112,6 +122,7 @@ export function loadConfig(): AppConfig {
     maxUpstreamRetriesPerRequest: numberEnv("MAX_UPSTREAM_RETRIES_PER_REQUEST", 1),
     modelsCacheTtlSeconds: numberEnv("MODELS_CACHE_TTL_SECONDS", 3600),
     modelAliases: parseModelAliases(),
+    ollamaCompatDiscoveryPublic: booleanEnv("OLLAMA_COMPAT_DISCOVERY_PUBLIC", true),
     usageTimezone: process.env.USAGE_TIMEZONE || "Asia/Taipei",
     weeklyResetMode: process.env.WEEKLY_RESET_MODE || "fixed_weekly",
     weeklyResetDayOfWeek: numberEnv("WEEKLY_RESET_DAY_OF_WEEK", 1),

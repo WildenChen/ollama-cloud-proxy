@@ -609,7 +609,7 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  const version = `v${stats.version || "1.1.2"}`;
+  const version = `v${stats.version || "1.1.3"}`;
   $("appVersion").textContent = version;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
