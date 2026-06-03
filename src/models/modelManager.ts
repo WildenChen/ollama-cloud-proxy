@@ -114,6 +114,33 @@ export class ModelManager {
     };
   }
 
+  ollamaTags() {
+    const seen = new Set<string>();
+    const models = this.listModelsFromCache().models
+      .map((model) => String(model.id || "").trim())
+      .filter((id) => {
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map((id) => ({
+        name: id,
+        model: id,
+        modified_at: "2026-01-01T00:00:00Z",
+        size: 0,
+        digest: "proxy",
+        details: {
+          parent_model: "",
+          format: "proxy",
+          family: "ollama-cloud-proxy",
+          families: ["ollama-cloud-proxy"],
+          parameter_size: "unknown",
+          quantization_level: "unknown",
+        },
+      }));
+    return { models };
+  }
+
   cacheStats() {
     const cached = this.store.getModelsCache();
     const fetchedAt = cached?.fetchedAt || null;

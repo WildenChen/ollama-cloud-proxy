@@ -38,14 +38,19 @@ export class ProxyHandler {
       });
     }
 
-    if (path === "/api/tags" && req.method === "GET") {
-      return this.forwardWithQueue(req, requestId, client, null, null, undefined, startedAt, {
-        upstreamPath: "/api/tags",
-        responseFormat: "passthrough",
-      });
+    if (path === "/api/version" && req.method === "GET") {
+      return Response.json({ version: "0.12.6" });
     }
 
-    if (path === "/api/chat" && req.method === "POST") {
+    if (path === "/api/tags" && req.method === "GET") {
+      return Response.json(this.models.ollamaTags());
+    }
+
+    if (path === "/api/ps" && req.method === "GET") {
+      return Response.json({ models: [] });
+    }
+
+    if ((path === "/api/chat" || path === "/api/generate") && req.method === "POST") {
       let rawBody: string;
       let model: string | null;
       try {
@@ -65,7 +70,7 @@ export class ProxyHandler {
         rawBody,
         startedAt,
         {
-          upstreamPath: "/api/chat",
+          upstreamPath: path,
           responseFormat: "passthrough",
         }
       );

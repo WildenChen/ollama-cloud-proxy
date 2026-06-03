@@ -35,6 +35,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     maxUpstreamRetriesPerRequest: 1,
     modelsCacheTtlSeconds: 3600,
     modelAliases: {},
+    ollamaCompatDiscoveryPublic: true,
     usageTimezone: "Asia/Taipei",
     weeklyResetMode: "fixed_weekly",
     weeklyResetDayOfWeek: 1,
@@ -312,26 +313,89 @@ describe("proxy integration", () => {
     expect(overview.tests["minimax-m3"].message).toBe("OK");
   });
 
-  test("Ollama /api/tags passes through native upstream response", async () => {
-    const upstreamBaseUrl = createMockUpstream((req) => {
-      expect(new URL(req.url).pathname).toBe("/api/tags");
-      expect(req.headers.get("authorization")).toBe("Bearer good-key");
-      return Response.json({
-        models: [{ name: "minimax-m2.5", model: "minimax-m2.5", details: { family: "llama" } }],
-      });
-    });
-    const app = createApp(config({ upstreamBaseUrl }));
-    app.keyPool.create({ name: "good", apiKey: "good-key" });
+  test("Ollama /api/tags returns public compatibility model list from aliases", async () => {
+    const app = createApp(config({ modelAliases: { "kilo-default": "actual-model" } }));
 
-    const response = await fetch(`${app.baseUrl}/api/tags`, {
-      headers: { authorization: "Bearer client-token" },
-    });
+    const response = await fetch(`${app.baseUrl}/api/tags`);
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.models[0].name).toBe("minimax-m2.5");
-    expect(body.models[0].model).toBe("minimax-m2.5");
-    expect(body.models[0].details.family).toBe("llama");
+    expect(body.models[0].name).toBe("kilo-default");
+    expect(body.models[0].model).toBe("kilo-default");
+    expect(body.models[0].modified_at).toBe("2026-01-01T00:00:00Z");
+    expect(body.models[0].size).toBe(0);
+    expect(body.models[0].digest).toBe("proxy");
+    expect(body.models[0].details.family).toBe("ollama-cloud-proxy");
+    expect(body.models[0].details.families).toEqual(["ollama-cloud-proxy"]);
+  });
+
+  test("Ollama /api/tags includes models from cached OpenAI model list", async () => {
+    const app = createApp(config());
+    app.store.setModelsCache(JSON.stringify({
+      object: "list",
+      data: [{ id: "minimax-m3", object: "model" }],
+    }));
+
+    const response = await fetch(`${app.baseUrl}/api/tags`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.models[0].name).toBe("minimax-m3");
+    expect(body.models[0].model).toBe("minimax-m3");
+    expect(body.models[0].details.format).toBe("proxy");
+  });
+
+  test("Ollama /api/tags can require client token when public discovery is disabled", async () => {
+    const app = createApp(config({
+      modelAliases: { "kilo-default": "actual-model" },
+      ollamaCompatDiscoveryPublic: false,
+    }));
+
+    const unauthorized = await fetch(`${app.baseUrl}/api/tags`);
+    const authorized = await fetch(`${app.baseUrl}/api/tags`, {
+      headers: { authorization: "Bearer client-token" },
+    });
+
+    expect(unauthorized.status).toBe(401);
+    expect(authorized.status).toBe(200);
+  });
+
+  test("Ollama /api/version returns public Ollama-compatible version", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/api/version`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.version).toBe("0.12.6");
+  });
+
+  test("Ollama /api/ps returns public empty running-model list", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/api/ps`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.models).toEqual([]);
+  });
+
+  test("Ollama inference endpoints still require client token", async () => {
+    const app = createApp(config());
+
+    const chatResponse = await fetch(`${app.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "minimax-m2.5", messages: [] }),
+    });
+    const generateResponse = await fetch(`${app.baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "minimax-m2.5", prompt: "hi" }),
+    });
+
+    expect(chatResponse.status).toBe(401);
+    expect(generateResponse.status).toBe(401);
   });
 
   test("Ollama /api/chat non-stream passes native body through unchanged", async () => {
@@ -368,6 +432,42 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.message.content).toBe("OK");
+    expect(body.done).toBe(true);
+  });
+
+  test("Ollama /api/generate non-stream passes native body through unchanged", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/generate");
+      const body = await req.json();
+      expect(body.model).toBe("minimax-m2.5");
+      expect(body.prompt).toBe("hi");
+      expect(body.stream).toBe(false);
+      return Response.json({
+        model: body.model,
+        created_at: "2026-06-02T00:00:00.000Z",
+        response: "OK",
+        done: true,
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl, modelAliases: { "minimax-m2.5": "actual-model" } }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/api/generate`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "minimax-m2.5",
+        prompt: "hi",
+        stream: false,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.response).toBe("OK");
     expect(body.done).toBe(true);
   });
 

@@ -47,9 +47,18 @@ export class Router {
     }
 
     if (
+      (path === "/api/version" && req.method === "GET") ||
+      (path === "/api/ps" && req.method === "GET") ||
+      (this.config.ollamaCompatDiscoveryPublic && path === "/api/tags" && req.method === "GET")
+    ) {
+      return this.proxy.handle(req, path, { clientName: "ollama-discovery", authenticated: false });
+    }
+
+    if (
       path.startsWith("/v1/") ||
       path === "/api/tags" ||
-      path === "/api/chat"
+      path === "/api/chat" ||
+      path === "/api/generate"
     ) {
       const auth = authenticateClient(req, this.config);
       if ("response" in auth) return auth.response;
