@@ -146,6 +146,52 @@ If you want to build from local source instead, use the default `docker-compose.
 
 After the first GitHub Actions publish, make sure the package visibility in GitHub Packages is set to public if you want unauthenticated users to pull the image.
 
+## 版本更新紀錄
+
+### 1.1.5 - 2026-06-03
+
+- Retry 上限改成當下可用 key 數量，不再使用固定 `MAX_UPSTREAM_RETRIES_PER_REQUEST`。
+- 同一請求不會重複使用同一把 key；key 失效、session/weekly limit、rate limit、network error 或暫時性上游錯誤時，會繼續嘗試下一把可用 key。
+- 新增整合測試，確認 key 全部失敗時會試完所有可用 key，且後面的 key 成功時請求會成功返回。
+
+### 1.1.4 - 2026-06-03
+
+- 修正 `1.1.3` 後續變更造成的 `/api/tags` 相容性問題。
+- 未帶 token 的 `/api/tags` 可回 compatibility model list，供 Ollama provider discovery 使用。
+- 帶合法 Bearer token 的 `/api/tags` 恢復原樣 pass-through 到上游 Ollama Cloud，避免 native client 拿到 proxy 自造模型清單。
+- `/api/version` 保留 Ollama-compatible `version`，並新增 `proxy_version` 供檢查 proxy 自身版本。
+
+### 1.1.3 - 2026-06-03
+
+- 新增 Ollama native `/api/version` endpoint，供 client 做服務版本檢查。
+- 新增 Ollama native `/api/generate` pass-through。
+- 更新 README 與測試，補齊 `/api/version`、`/api/generate` 的使用與驗證。
+
+### 1.1.2 - 2026-06-03
+
+- Admin key list 會把已過期 cooldown 的 key 顯示成 available。
+- 修正 stats 中 expired cooldown key 仍被算成 cooling down 的問題。
+
+### 1.1.1 - 2026-06-03
+
+- Admin metrics 顯示 app version，方便確認目前容器實際跑的版本。
+- README 補充 Docker image 更新流程。
+- Docker image 增加 OCI source label。
+
+### 1.1.0 - 2026-06-02
+
+- 新增 GHCR prebuilt Docker image 發布流程與 release compose 用法。
+- Admin UI 加入繁體中文/英文切換。
+- README 補強 project status、use cases、roadmap、安全提醒與 OpenClaw 設定範例。
+
+### 1.0.0 - 2026-06-02
+
+- 首個 tagged release。
+- 建立 app version 顯示。
+- 支援 OpenAI-compatible `/v1/*` 與 Ollama native `/api/*` 基礎相容路徑。
+- 修正 Ollama native tool call stream 與 native API pass-through，相容 OpenClaw 等 Ollama client。
+- 建立 Admin UI/API、key pool、SQLite persistence、client token、model alias 與併發管理基礎。
+
 ## 更新方式
 
 如果你是用 `docker-compose.release.yml` 和 GHCR prebuilt image 部署，更新時通常不需要重新 build，只要在專案目錄執行：
