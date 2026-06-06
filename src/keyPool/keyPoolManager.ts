@@ -4,9 +4,7 @@ import type { EventStore } from "../events/eventStore";
 import type { ErrorClassification, KeyRecord, PublicKeyRecord } from "../types/domain";
 import { apiKeyPreview, KeyCipher } from "../security/encryption";
 import { cooldownUntilFromClassification } from "./errorClassifier";
-import { getNextFixedWeeklyResetAt, isoNow, parseIso } from "../utils/time";
-
-const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000;
+import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, isoNow, parseIso } from "../utils/time";
 
 export function publicKey(key: KeyRecord): PublicKeyRecord {
   const { encryptedApiKey: _encryptedApiKey, ...safe } = key;
@@ -270,26 +268,36 @@ export class KeyPoolManager {
       durationMs: durationMs ?? null,
       details: { status: key.status, blockReason: key.blockReason, cooldownUntil },
     });
-    if (classification.eventType !== "key_failure") {
-      this.events.emit({
-        level: classification.status === "invalid" ? "error" : "warn",
-        type: classification.eventType,
-        message: classification.message,
-        keyId: key.id,
-        keyName: key.name,
-        details: { cooldownUntil },
-      });
-    }
+    this.events.emit({
+      level: classification.status === "invalid" ? "error" : "warn",
+      type: classification.eventType,
+      message: classification.message,
+      keyId: key.id,
+      keyName: key.name,
+      details: { cooldownUntil },
+    });
   }
 
   private rolloverUsagePatch(key: KeyRecord, now = new Date()): KeyMutationPatch {
     const nowIso = now.toISOString();
     const patch: KeyMutationPatch = {};
+    const settings = this.store.getUsageSettings(this.config);
     const sessionStartedAt = parseIso(key.sessionWindowStartedAt);
-    if (!sessionStartedAt || now.getTime() - sessionStartedAt >= SESSION_WINDOW_MS) {
+    if (!sessionStartedAt) {
       patch.estimatedSessionRequests = 0;
       patch.estimatedSessionDurationMs = 0;
       patch.sessionWindowStartedAt = nowIso;
+    } else {
+      const nextSessionResetAfterWindowStart = getNextAnchoredIntervalResetAt(
+        new Date(sessionStartedAt),
+        settings.sessionResetAnchor,
+        settings.sessionResetIntervalHours
+      );
+      if (now.getTime() >= nextSessionResetAfterWindowStart.getTime()) {
+        patch.estimatedSessionRequests = 0;
+        patch.estimatedSessionDurationMs = 0;
+        patch.sessionWindowStartedAt = nowIso;
+      }
     }
 
     const weeklyStartedAt = parseIso(key.weeklyWindowStartedAt);
@@ -302,9 +310,9 @@ export class KeyPoolManager {
 
     const nextResetAfterWindowStart = getNextFixedWeeklyResetAt(
       new Date(weeklyStartedAt),
-      this.config.usageTimezone,
-      this.config.weeklyResetDayOfWeek,
-      this.config.weeklyResetTime
+      settings.usageTimezone,
+      settings.weeklyResetDayOfWeek,
+      settings.weeklyResetTime
     );
     if (now.getTime() >= nextResetAfterWindowStart.getTime()) {
       patch.estimatedWeeklyRequests = 0;

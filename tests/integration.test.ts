@@ -41,6 +41,9 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     ollamaCompatDiscoveryPublic: true,
     ollamaNativeApplyAliases: true,
     usageTimezone: "Asia/Taipei",
+    sessionResetMode: "fixed_anchor",
+    sessionResetAnchor: "2026-06-06T20:00:00.000Z",
+    sessionResetIntervalHours: 5,
     weeklyResetMode: "fixed_weekly",
     weeklyResetDayOfWeek: 1,
     weeklyResetTime: "08:30",
@@ -111,6 +114,32 @@ describe("proxy integration", () => {
     expect(listResponse.status).toBe(200);
     expect(listed.keys).toHaveLength(0);
     expect(app.store.getKey(created.key.id, true)?.deletedAt).toBeTruthy();
+  });
+
+  test("Admin usage settings expose and persist reset anchors", async () => {
+    const app = createApp(config());
+    const patchResponse = await fetch(`${app.baseUrl}/admin/usage-settings`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        usageTimezone: "Asia/Taipei",
+        sessionResetAnchor: "2026-06-07T04:00:00+08:00",
+        sessionResetIntervalHours: 5,
+        weeklyResetDayOfWeek: 7,
+        weeklyResetTime: "04:00",
+      }),
+    });
+    const patched = await patchResponse.json();
+    const getResponse = await fetch(`${app.baseUrl}/admin/usage-settings`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const settings = await getResponse.json();
+
+    expect(patchResponse.status).toBe(200);
+    expect(getResponse.status).toBe(200);
+    expect(patched.settings.sessionResetAnchor).toBe("2026-06-06T20:00:00.000Z");
+    expect(settings.settings.weeklyResetDayOfWeek).toBe(7);
+    expect(settings.settings.weeklyResetTime).toBe("04:00");
   });
 
   test("Admin key list treats expired cooldown as available", async () => {
@@ -437,7 +466,12 @@ describe("proxy integration", () => {
     const upstreamBaseUrl = createMockUpstream(() =>
       Response.json({ object: "list", data: [{ id: "llama", object: "model" }] })
     );
-    const app = createApp(config({ upstreamBaseUrl }));
+    const app = createApp(
+      config({
+        upstreamBaseUrl,
+        sessionResetAnchor: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+      })
+    );
     const key = app.keyPool.create({ name: "old-window", apiKey: "good-key" });
     app.store.patchKey(key.id, {
       estimatedSessionRequests: 50,
@@ -658,7 +692,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.6");
+    expect(body.proxy_version).toBe("1.1.7");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -949,7 +983,7 @@ describe("proxy stream helper", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(abortedUpstream).toBe(true);
-    expect(finalized).toEqual({ ok: false, aborted: false, errorType: "upstream_timeout" });
+    expect(finalized as unknown).toEqual({ ok: false, aborted: false, errorType: "upstream_timeout" });
   });
 
   test("cancel finalizes as client abort", async () => {
@@ -977,6 +1011,6 @@ describe("proxy stream helper", () => {
     await reader.cancel();
 
     expect(abortedUpstream).toBe(true);
-    expect(finalized).toEqual({ ok: false, aborted: true, errorType: "client_aborted" });
+    expect(finalized as unknown).toEqual({ ok: false, aborted: true, errorType: "client_aborted" });
   });
 });

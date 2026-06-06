@@ -128,6 +128,23 @@ export function getNextFixedWeeklyResetAt(
   return candidate;
 }
 
+export function getNextAnchoredIntervalResetAt(
+  now: Date,
+  anchorIso: string,
+  intervalHours: number
+): Date {
+  const anchorMs = Date.parse(anchorIso);
+  if (!Number.isFinite(anchorMs)) throw new Error("Invalid session reset anchor");
+  if (!Number.isFinite(intervalHours) || intervalHours <= 0) throw new Error("Invalid session reset interval");
+
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+  const nowMs = now.getTime();
+  if (anchorMs > nowMs) return new Date(anchorMs);
+
+  const elapsedIntervals = Math.floor((nowMs - anchorMs) / intervalMs) + 1;
+  return new Date(anchorMs + elapsedIntervals * intervalMs);
+}
+
 export function randomInt(maxExclusive: number): number {
   if (maxExclusive <= 0) return 0;
   return Math.floor(Math.random() * maxExclusive);

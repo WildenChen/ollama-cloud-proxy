@@ -6,8 +6,8 @@ import { classifyUpstreamResponse } from "../keyPool/errorClassifier";
 import type { KeyPoolManager } from "../keyPool/keyPoolManager";
 import { publicKey } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
-import type { DatabaseStore } from "../storage/database";
-import { getNextFixedWeeklyResetAt } from "../utils/time";
+import type { DatabaseStore, UsageSettingsPatch } from "../storage/database";
+import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt } from "../utils/time";
 import { APP_VERSION } from "../config/version";
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {
@@ -32,6 +32,8 @@ export class AdminRoutes {
 
   async handle(req: Request, path: string): Promise<Response> {
     if (path === "/admin/stats" && req.method === "GET") return json(this.stats());
+    if (path === "/admin/usage-settings" && req.method === "GET") return json(this.usageSettings());
+    if (path === "/admin/usage-settings" && req.method === "PATCH") return this.patchUsageSettings(req);
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
     if (path === "/admin/models" && req.method === "GET") return json(this.modelsOverview());
     if (path === "/admin/models/refresh" && req.method === "POST") return this.refreshModels();
@@ -133,7 +135,7 @@ export class AdminRoutes {
         response.status,
         body,
         key.consecutiveFailures,
-        this.config
+        this.store.getUsageSettings(this.config)
       );
       this.keyPool.markFailure(id, classification, Date.now() - started);
       this.events.emit({
@@ -201,7 +203,12 @@ export class AdminRoutes {
         return json(this.modelsOverview());
       }
       const body = await response.text();
-      const classification = await classifyUpstreamResponse(response.status, body, key.consecutiveFailures, this.config);
+      const classification = await classifyUpstreamResponse(
+        response.status,
+        body,
+        key.consecutiveFailures,
+        this.store.getUsageSettings(this.config)
+      );
       this.keyPool.markFailure(key.id, classification, durationMs);
       this.keyPool.releaseKey(key.id);
       return openAiError(response.status, classification.blockReason, classification.message);
@@ -260,7 +267,12 @@ export class AdminRoutes {
         return json({ ok: true, model, upstreamModel, statusCode: response.status, responseTimeMs, result: this.modelsOverview().tests[model] });
       }
 
-      const classification = await classifyUpstreamResponse(response.status, text, key.consecutiveFailures, this.config);
+      const classification = await classifyUpstreamResponse(
+        response.status,
+        text,
+        key.consecutiveFailures,
+        this.store.getUsageSettings(this.config)
+      );
       this.keyPool.markFailure(key.id, classification, responseTimeMs);
       this.keyPool.releaseKey(key.id);
       this.store.upsertModelTest({
@@ -295,12 +307,58 @@ export class AdminRoutes {
     }
   }
 
+  private usageSettings() {
+    const settings = this.store.getUsageSettings(this.config);
+    return {
+      settings,
+      nextSessionResetAt: getNextAnchoredIntervalResetAt(
+        new Date(),
+        settings.sessionResetAnchor,
+        settings.sessionResetIntervalHours
+      ).toISOString(),
+      nextWeeklyResetAt: getNextFixedWeeklyResetAt(
+        new Date(),
+        settings.usageTimezone,
+        settings.weeklyResetDayOfWeek,
+        settings.weeklyResetTime
+      ).toISOString(),
+    };
+  }
+
+  private async patchUsageSettings(req: Request) {
+    try {
+      const body = await readJson(req);
+      const patch: UsageSettingsPatch = {};
+      if (typeof body.usageTimezone === "string") patch.usageTimezone = body.usageTimezone.trim();
+      if (typeof body.sessionResetMode === "string") patch.sessionResetMode = body.sessionResetMode.trim();
+      if (typeof body.sessionResetAnchor === "string") patch.sessionResetAnchor = new Date(body.sessionResetAnchor).toISOString();
+      if ("sessionResetIntervalHours" in body) patch.sessionResetIntervalHours = Number(body.sessionResetIntervalHours);
+      if (typeof body.weeklyResetMode === "string") patch.weeklyResetMode = body.weeklyResetMode.trim();
+      if ("weeklyResetDayOfWeek" in body) patch.weeklyResetDayOfWeek = Number(body.weeklyResetDayOfWeek);
+      if (typeof body.weeklyResetTime === "string") patch.weeklyResetTime = body.weeklyResetTime.trim();
+      if ("weeklyResetGraceMinutes" in body) patch.weeklyResetGraceMinutes = Number(body.weeklyResetGraceMinutes);
+      if ("weeklyReactivationJitterSeconds" in body) {
+        patch.weeklyReactivationJitterSeconds = Number(body.weeklyReactivationJitterSeconds);
+      }
+      this.store.patchUsageSettings(this.config, patch);
+      return json(this.usageSettings());
+    } catch (error) {
+      return openAiError(400, "invalid_usage_settings", (error as Error).message);
+    }
+  }
+
   private stats() {
+    const settings = this.store.getUsageSettings(this.config);
+    const nextSessionResetAt = getNextAnchoredIntervalResetAt(
+      new Date(),
+      settings.sessionResetAnchor,
+      settings.sessionResetIntervalHours
+    ).toISOString();
     const nextWeeklyResetAt = getNextFixedWeeklyResetAt(
       new Date(),
-      this.config.usageTimezone,
-      this.config.weeklyResetDayOfWeek,
-      this.config.weeklyResetTime
+      settings.usageTimezone,
+      settings.weeklyResetDayOfWeek,
+      settings.weeklyResetTime
     ).toISOString();
     const keySummary = this.keyPool.summary();
     const runtimeClients = new Map(
@@ -351,13 +409,18 @@ export class AdminRoutes {
           },
           lifetimeFields: ["totalRequests", "totalSuccesses", "totalFailures"],
         },
-        weeklyResetMode: this.config.weeklyResetMode,
-        weeklyResetDayOfWeek: this.config.weeklyResetDayOfWeek,
-        weeklyResetTime: this.config.weeklyResetTime,
-        usageTimezone: this.config.usageTimezone,
+        settings,
+        sessionResetMode: settings.sessionResetMode,
+        sessionResetAnchor: settings.sessionResetAnchor,
+        sessionResetIntervalHours: settings.sessionResetIntervalHours,
+        nextSessionResetAt,
+        weeklyResetMode: settings.weeklyResetMode,
+        weeklyResetDayOfWeek: settings.weeklyResetDayOfWeek,
+        weeklyResetTime: settings.weeklyResetTime,
+        usageTimezone: settings.usageTimezone,
         nextWeeklyResetAt,
-        weeklyResetGraceMinutes: this.config.weeklyResetGraceMinutes,
-        weeklyReactivationJitterSeconds: this.config.weeklyReactivationJitterSeconds,
+        weeklyResetGraceMinutes: settings.weeklyResetGraceMinutes,
+        weeklyReactivationJitterSeconds: settings.weeklyReactivationJitterSeconds,
         weeklyBlockedKeysCount: keySummary.weeklyBlockedKeys,
         keysReactivatingAtNextWeeklyReset: this.store
           .listKeys(false)

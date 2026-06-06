@@ -7,6 +7,7 @@ const state = {
   keys: [],
   events: [],
   modelOverview: null,
+  usageSettings: null,
   page: "overview",
   testingModels: new Set(),
   loaded: false,
@@ -67,6 +68,7 @@ const dictionaries = {
     queuedRequestsMetric: "排隊中",
     availableKeysMetric: "可用金鑰",
     weeklyResetMetric: "每週重置",
+    sessionResetMetric: "5hr 重置",
     upstreamRequests: "上游請求",
     keyPoolTitle: "金鑰池",
     keyPoolDescription: "管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。",
@@ -89,6 +91,29 @@ const dictionaries = {
     modelsDescription: "別名與請求次數。",
     usageTitle: "用量與快取",
     usageDescription: "依目前可保存的資料顯示請求、token 與模型清單快取。",
+    usageSettingsTitle: "重置時間",
+    usageSettingsDescription: "調整 Ollama Cloud 5hr 與每週額度重置時間。",
+    nextSessionReset: "下次 5hr 重置",
+    nextWeeklyReset: "下次每週重置",
+    usageTimezoneLabel: "時區",
+    sessionAnchorLabel: "5hr 基準時間",
+    sessionIntervalLabel: "5hr 週期",
+    weeklyDayLabel: "每週重置日",
+    weeklyTimeLabel: "每週重置時間",
+    weeklyGraceLabel: "每週寬限分鐘",
+    weeklyJitterLabel: "每週隨機秒數",
+    saveUsageSettings: "儲存重置時間",
+    usageSettingsSaved: "重置時間已儲存。",
+    hoursUnit: "小時",
+    dayNames: {
+      1: "週一",
+      2: "週二",
+      3: "週三",
+      4: "週四",
+      5: "週五",
+      6: "週六",
+      7: "週日",
+    },
     cacheTitle: "模型清單快取",
     cacheDescription: "顯示 /v1/models cache 狀態與命中率。",
     modelTestTitle: "模型測試",
@@ -273,6 +298,7 @@ const dictionaries = {
     queuedRequestsMetric: "Queued",
     availableKeysMetric: "Available keys",
     weeklyResetMetric: "Weekly reset",
+    sessionResetMetric: "5hr reset",
     upstreamRequests: "Upstream requests",
     keyPoolTitle: "Key Pool",
     keyPoolDescription: "Manage encrypted Ollama keys, cooldowns, and blocked states.",
@@ -295,6 +321,29 @@ const dictionaries = {
     modelsDescription: "Aliases and request counts.",
     usageTitle: "Usage and Cache",
     usageDescription: "Shows persisted requests, tokens, and model-list cache data.",
+    usageSettingsTitle: "Reset Times",
+    usageSettingsDescription: "Adjust Ollama Cloud 5-hour and weekly quota reset times.",
+    nextSessionReset: "Next 5hr reset",
+    nextWeeklyReset: "Next weekly reset",
+    usageTimezoneLabel: "Timezone",
+    sessionAnchorLabel: "5hr anchor",
+    sessionIntervalLabel: "5hr interval",
+    weeklyDayLabel: "Weekly reset day",
+    weeklyTimeLabel: "Weekly reset time",
+    weeklyGraceLabel: "Weekly grace minutes",
+    weeklyJitterLabel: "Weekly jitter seconds",
+    saveUsageSettings: "Save reset times",
+    usageSettingsSaved: "Reset times saved.",
+    hoursUnit: "hours",
+    dayNames: {
+      1: "Mon",
+      2: "Tue",
+      3: "Wed",
+      4: "Thu",
+      5: "Fri",
+      6: "Sat",
+      7: "Sun",
+    },
     cacheTitle: "Model List Cache",
     cacheDescription: "Shows /v1/models cache state and hit rate.",
     modelTestTitle: "Model Tests",
@@ -513,11 +562,25 @@ function formatPercent(value) {
 function formatDate(value) {
   if (!value) return "-";
   return new Intl.DateTimeFormat(state.locale === "en" ? "en-US" : "zh-TW", {
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function toDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocal(value) {
+  if (!value) return "";
+  return new Date(value).toISOString();
 }
 
 function relativeDate(value) {
@@ -609,7 +672,7 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  const version = `v${stats.version || "1.1.6"}`;
+  const version = `v${stats.version || "1.1.7"}`;
   $("appVersion").textContent = version;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
@@ -620,6 +683,7 @@ function renderStats() {
   $("availableKeys").textContent = formatNumber(stats.keys.availableKeys);
   $("totalKeys").textContent = t("totalKeys")(formatNumber(stats.keys.totalKeys));
   $("weeklyReset").textContent = formatDate(stats.usage.nextWeeklyResetAt);
+  $("sessionReset").textContent = formatDate(stats.usage.nextSessionResetAt);
   $("weeklyBlocked").textContent = t("weeklyBlocked")(formatNumber(stats.usage.weeklyBlockedKeysCount));
   $("summaryLine").textContent = t("summaryLine")(
     formatNumber(stats.keys.availableKeys),
@@ -795,6 +859,33 @@ function renderUsage() {
     .join("");
 }
 
+function renderUsageSettings() {
+  const data = state.usageSettings || {
+    settings: state.stats?.usage?.settings,
+    nextSessionResetAt: state.stats?.usage?.nextSessionResetAt,
+    nextWeeklyResetAt: state.stats?.usage?.nextWeeklyResetAt,
+  };
+  const settings = data.settings;
+  const summary = $("usageSettingsSummary");
+  if (!settings) {
+    summary.innerHTML = `<div class="empty">${escapeHtml(t("loadingKeys"))}</div>`;
+    return;
+  }
+  summary.innerHTML = `
+    <div class="miniRow"><strong>${escapeHtml(t("nextSessionReset"))}</strong><span>${escapeHtml(formatDate(data.nextSessionResetAt))}</span></div>
+    <div class="miniRow"><strong>${escapeHtml(t("nextWeeklyReset"))}</strong><span>${escapeHtml(formatDate(data.nextWeeklyResetAt))}</span></div>
+  `;
+
+  const form = $("usageSettingsForm");
+  form.elements.usageTimezone.value = settings.usageTimezone || "Asia/Taipei";
+  form.elements.sessionResetAnchor.value = toDateTimeLocal(settings.sessionResetAnchor);
+  form.elements.sessionResetIntervalHours.value = settings.sessionResetIntervalHours || 5;
+  form.elements.weeklyResetDayOfWeek.value = String(settings.weeklyResetDayOfWeek || 1);
+  form.elements.weeklyResetTime.value = settings.weeklyResetTime || "08:30";
+  form.elements.weeklyResetGraceMinutes.value = settings.weeklyResetGraceMinutes ?? 5;
+  form.elements.weeklyReactivationJitterSeconds.value = settings.weeklyReactivationJitterSeconds ?? 180;
+}
+
 function renderCache() {
   const root = $("cacheList");
   const cache = state.stats?.models?.cache || state.modelOverview?.cache;
@@ -862,6 +953,7 @@ function renderAll() {
   renderEvents();
   renderClients();
   renderModels();
+  renderUsageSettings();
   renderUsage();
   renderCache();
   renderModelTests();
@@ -887,16 +979,18 @@ async function refresh(options = {}) {
     const eventQuery = new URLSearchParams({ limit: "80" });
     if (level) eventQuery.set("level", level);
     if (type) eventQuery.set("type", type);
-    const [stats, keys, events, models] = await Promise.all([
+    const [stats, keys, events, models, usageSettings] = await Promise.all([
       api("/admin/stats"),
       api("/admin/keys"),
       api(`/admin/events?${eventQuery.toString()}`),
       api("/admin/models"),
+      api("/admin/usage-settings"),
     ]);
     state.stats = stats;
     state.keys = keys.keys || [];
     state.events = events.events || [];
     state.modelOverview = models;
+    state.usageSettings = usageSettings;
     state.loaded = true;
     state.loading = false;
     state.loadNotice = null;
@@ -972,6 +1066,37 @@ async function testModel(modelId) {
   }
 }
 
+async function saveUsageSettings(event) {
+  event.preventDefault();
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    usageTimezone: String(form.get("usageTimezone") || ""),
+    sessionResetMode: "fixed_anchor",
+    sessionResetAnchor: fromDateTimeLocal(String(form.get("sessionResetAnchor") || "")),
+    sessionResetIntervalHours: Number(form.get("sessionResetIntervalHours") || 5),
+    weeklyResetMode: "fixed_weekly",
+    weeklyResetDayOfWeek: Number(form.get("weeklyResetDayOfWeek") || 1),
+    weeklyResetTime: String(form.get("weeklyResetTime") || "08:30"),
+    weeklyResetGraceMinutes: Number(form.get("weeklyResetGraceMinutes") || 0),
+    weeklyReactivationJitterSeconds: Number(form.get("weeklyReactivationJitterSeconds") || 0),
+  };
+  try {
+    state.usageSettings = await api("/admin/usage-settings", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    state.stats = await api("/admin/stats");
+    renderAll();
+    showNotice(t("usageSettingsSaved"));
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1007,6 +1132,7 @@ function applyLocale() {
     if (typeof value === "string") element.setAttribute("aria-label", value);
   });
   renderEventTypeOptions();
+  renderWeeklyDayOptions();
 }
 
 function renderEventTypeOptions() {
@@ -1016,6 +1142,16 @@ function renderEventTypeOptions() {
     ...eventTypes.map((type) => `<option value="${type}">${escapeHtml(mapText("eventType", type) || t("otherEvent"))}</option>`),
   ].join("");
   $("eventType").value = selected;
+}
+
+function renderWeeklyDayOptions() {
+  const select = $("usageSettingsForm")?.elements.weeklyResetDayOfWeek;
+  if (!select) return;
+  const selected = select.value || "1";
+  select.innerHTML = [1, 2, 3, 4, 5, 6, 7]
+    .map((day) => `<option value="${day}">${escapeHtml(t("dayNames")[day])}</option>`)
+    .join("");
+  select.value = selected;
 }
 
 function bindEvents() {
@@ -1087,6 +1223,7 @@ function bindEvents() {
     actionForKey(card.dataset.keyId, button.dataset.action);
   });
   $("refreshModelsButton").addEventListener("click", refreshModels);
+  $("usageSettingsForm").addEventListener("submit", saveUsageSettings);
   $("modelTestList").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-model-test]");
     if (!button) return;

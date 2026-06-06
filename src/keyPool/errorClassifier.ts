@@ -1,8 +1,18 @@
 import type { AppConfig } from "../config/env";
+import type { UsageSettings } from "../storage/database";
 import type { ErrorClassification } from "../types/domain";
-import { addMsIso, getNextFixedWeeklyResetAt, randomInt } from "../utils/time";
+import { addMsIso, getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, randomInt } from "../utils/time";
 
-const SESSION_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+type ResetSettings = Pick<
+  AppConfig,
+  | "usageTimezone"
+  | "sessionResetAnchor"
+  | "sessionResetIntervalHours"
+  | "weeklyResetDayOfWeek"
+  | "weeklyResetTime"
+  | "weeklyResetGraceMinutes"
+  | "weeklyReactivationJitterSeconds"
+> | UsageSettings;
 
 function includesAny(text: string, needles: string[]) {
   const lower = text.toLowerCase();
@@ -18,7 +28,7 @@ export async function classifyUpstreamResponse(
   statusCode: number,
   bodyText: string,
   consecutiveFailures: number,
-  config: AppConfig
+  settings: ResetSettings
 ): Promise<ErrorClassification> {
   const body = bodyText.slice(0, 2000);
 
@@ -38,12 +48,12 @@ export async function classifyUpstreamResponse(
     if (includesAny(body, ["weekly", "week", "7 day", "7-day"])) {
       const resetAt = getNextFixedWeeklyResetAt(
         new Date(),
-        config.usageTimezone,
-        config.weeklyResetDayOfWeek,
-        config.weeklyResetTime
+        settings.usageTimezone,
+        settings.weeklyResetDayOfWeek,
+        settings.weeklyResetTime
       );
-      const graceMs = config.weeklyResetGraceMinutes * 60 * 1000;
-      const jitterMs = randomInt(config.weeklyReactivationJitterSeconds * 1000);
+      const graceMs = settings.weeklyResetGraceMinutes * 60 * 1000;
+      const jitterMs = randomInt(settings.weeklyReactivationJitterSeconds * 1000);
       return {
         retryable: false,
         category: "key",
@@ -56,12 +66,17 @@ export async function classifyUpstreamResponse(
     }
 
     if (includesAny(body, ["session", "5 hour", "5-hour", "usage limit reached"])) {
+      const resetAt = getNextAnchoredIntervalResetAt(
+        new Date(),
+        settings.sessionResetAnchor,
+        settings.sessionResetIntervalHours
+      );
       return {
         retryable: false,
         category: "key",
         status: "session_blocked",
         blockReason: "session_usage_inferred",
-        cooldownMs: SESSION_COOLDOWN_MS,
+        cooldownMs: resetAt.getTime() - Date.now(),
         eventType: "key_session_blocked",
         message: "Session usage block inferred from upstream response",
       };

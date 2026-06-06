@@ -21,6 +21,9 @@ export type AppConfig = {
   ollamaCompatDiscoveryPublic: boolean;
   ollamaNativeApplyAliases: boolean;
   usageTimezone: string;
+  sessionResetMode: string;
+  sessionResetAnchor: string;
+  sessionResetIntervalHours: number;
   weeklyResetMode: string;
   weeklyResetDayOfWeek: number;
   weeklyResetTime: string;
@@ -141,6 +144,9 @@ export function loadConfig(): AppConfig {
     ollamaCompatDiscoveryPublic: booleanEnv("OLLAMA_COMPAT_DISCOVERY_PUBLIC", true),
     ollamaNativeApplyAliases: booleanEnv("OLLAMA_NATIVE_APPLY_ALIASES", true),
     usageTimezone: process.env.USAGE_TIMEZONE || "Asia/Taipei",
+    sessionResetMode: process.env.SESSION_RESET_MODE || "fixed_anchor",
+    sessionResetAnchor: process.env.SESSION_RESET_ANCHOR || "2026-06-06T20:00:00.000Z",
+    sessionResetIntervalHours: numberEnv("SESSION_RESET_INTERVAL_HOURS", 5),
     weeklyResetMode: process.env.WEEKLY_RESET_MODE || "fixed_weekly",
     weeklyResetDayOfWeek: numberEnv("WEEKLY_RESET_DAY_OF_WEEK", 1),
     weeklyResetTime: process.env.WEEKLY_RESET_TIME || "08:30",

@@ -1,1 +1,1 @@
-export { getNextFixedWeeklyResetAt } from "../utils/time";
+export { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt } from "../utils/time";

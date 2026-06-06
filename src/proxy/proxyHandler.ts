@@ -10,7 +10,7 @@ import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore } from "../storage/database";
 import type { TokenUsageInput } from "../storage/database";
 import type { ClientIdentity, ErrorClassification, KeyRecord } from "../types/domain";
-import { getNextFixedWeeklyResetAt } from "../utils/time";
+import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt } from "../utils/time";
 import { readBodyWithLimit } from "./body";
 import { proxyReadableStream } from "./stream";
 
@@ -403,7 +403,7 @@ export class ProxyHandler {
           upstream.status,
           errorBody,
           key.consecutiveFailures,
-          this.config
+          this.store.getUsageSettings(this.config)
         );
         if (classification.category !== "request") {
           this.keyPool.markFailure(key.id, classification, Date.now() - startedAt);
@@ -580,14 +580,20 @@ export class ProxyHandler {
   }
 
   private noAvailableKeyDetails() {
+    const settings = this.store.getUsageSettings(this.config);
     return {
       ...this.keyPool.summary(),
       ...this.concurrency.stats(),
       nextWeeklyResetAt: getNextFixedWeeklyResetAt(
         new Date(),
-        this.config.usageTimezone,
-        this.config.weeklyResetDayOfWeek,
-        this.config.weeklyResetTime
+        settings.usageTimezone,
+        settings.weeklyResetDayOfWeek,
+        settings.weeklyResetTime
+      ).toISOString(),
+      nextSessionResetAt: getNextAnchoredIntervalResetAt(
+        new Date(),
+        settings.sessionResetAnchor,
+        settings.sessionResetIntervalHours
       ).toISOString(),
     };
   }

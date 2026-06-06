@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=20260603-admin-pages" />
+    <link rel="stylesheet" href="/admin/app.css?v=20260607-reset-settings" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.1.6</span></h1>
+          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.1.7</span></h1>
           <p id="summaryLine" data-i18n="summaryDefault">管理總覽</p>
         </div>
         <form id="tokenForm" class="tokenBar">
@@ -61,6 +61,11 @@
             <span data-i18n="weeklyResetMetric">每週重置</span>
             <strong id="weeklyReset">-</strong>
             <small id="weeklyBlocked">受限金鑰</small>
+          </article>
+          <article class="metric">
+            <span data-i18n="sessionResetMetric">5hr 重置</span>
+            <strong id="sessionReset">-</strong>
+            <small data-i18n="nextSessionReset">下次 5hr 重置</small>
           </article>
         </section>
 
@@ -126,6 +131,54 @@
       </section>
 
       <section id="usagePage" class="page">
+        <section class="panel">
+          <div class="panelHeader compact">
+            <div>
+              <h2 data-i18n="usageSettingsTitle">重置時間</h2>
+              <p data-i18n="usageSettingsDescription">調整 Ollama Cloud 5hr 與每週額度重置時間。</p>
+            </div>
+          </div>
+          <div id="usageSettingsSummary" class="resetSummary"></div>
+          <form id="usageSettingsForm" class="settingsForm">
+            <label>
+              <span data-i18n="usageTimezoneLabel">時區</span>
+              <input name="usageTimezone" autocomplete="off" placeholder="Asia/Taipei" />
+            </label>
+            <label>
+              <span data-i18n="sessionAnchorLabel">5hr 基準時間</span>
+              <input name="sessionResetAnchor" type="datetime-local" step="60" />
+            </label>
+            <label>
+              <span data-i18n="sessionIntervalLabel">5hr 週期</span>
+              <input name="sessionResetIntervalHours" type="number" min="1" step="0.5" />
+            </label>
+            <label>
+              <span data-i18n="weeklyDayLabel">每週重置日</span>
+              <select name="weeklyResetDayOfWeek">
+                <option value="1">週一</option>
+                <option value="2">週二</option>
+                <option value="3">週三</option>
+                <option value="4">週四</option>
+                <option value="5">週五</option>
+                <option value="6">週六</option>
+                <option value="7">週日</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="weeklyTimeLabel">每週重置時間</span>
+              <input name="weeklyResetTime" type="time" step="60" />
+            </label>
+            <label>
+              <span data-i18n="weeklyGraceLabel">每週寬限分鐘</span>
+              <input name="weeklyResetGraceMinutes" type="number" min="0" step="1" />
+            </label>
+            <label>
+              <span data-i18n="weeklyJitterLabel">每週隨機秒數</span>
+              <input name="weeklyReactivationJitterSeconds" type="number" min="0" step="1" />
+            </label>
+            <button class="button primary" type="submit" data-i18n="saveUsageSettings">儲存重置時間</button>
+          </form>
+        </section>
         <section class="lowerGrid">
           <section class="panel">
             <div class="panelHeader compact">
@@ -189,6 +242,6 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=20260603-ollama-compat" type="module"></script>
+    <script src="/admin/app.js?v=20260607-reset-settings" type="module"></script>
   </body>
 </html>

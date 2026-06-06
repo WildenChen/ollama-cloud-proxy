@@ -11,6 +11,7 @@ import type {
   UsageSource,
 } from "../types/domain";
 import { isoNow } from "../utils/time";
+import type { AppConfig } from "../config/env";
 
 type Row = Record<string, unknown>;
 
@@ -74,6 +75,20 @@ export type TokenUsageInput = {
   totalTokens?: number;
   cachedTokens?: number;
 };
+
+export type UsageSettings = {
+  usageTimezone: string;
+  sessionResetMode: string;
+  sessionResetAnchor: string;
+  sessionResetIntervalHours: number;
+  weeklyResetMode: string;
+  weeklyResetDayOfWeek: number;
+  weeklyResetTime: string;
+  weeklyResetGraceMinutes: number;
+  weeklyReactivationJitterSeconds: number;
+};
+
+export type UsageSettingsPatch = Partial<UsageSettings>;
 
 function asString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
@@ -235,6 +250,12 @@ export class DatabaseStore {
         fetchedAt TEXT NOT NULL,
         responseJson TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
     `);
     this.ensureColumn("model_stats", "promptTokens", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("model_stats", "completionTokens", "INTEGER NOT NULL DEFAULT 0");
@@ -250,6 +271,84 @@ export class DatabaseStore {
 
   private resetStaleActiveRequests() {
     this.db.query("UPDATE keys SET activeRequests = 0").run();
+  }
+
+  getUsageSettings(config: AppConfig): UsageSettings {
+    const rows = this.db.query("SELECT key, value FROM settings WHERE key LIKE 'usage.%'").all() as Row[];
+    const saved = Object.fromEntries(rows.map((row) => [String(row.key), String(row.value)]));
+    return {
+      usageTimezone: saved["usage.timezone"] || config.usageTimezone,
+      sessionResetMode: saved["usage.sessionResetMode"] || config.sessionResetMode,
+      sessionResetAnchor: saved["usage.sessionResetAnchor"] || config.sessionResetAnchor,
+      sessionResetIntervalHours: Number(saved["usage.sessionResetIntervalHours"] || config.sessionResetIntervalHours),
+      weeklyResetMode: saved["usage.weeklyResetMode"] || config.weeklyResetMode,
+      weeklyResetDayOfWeek: Number(saved["usage.weeklyResetDayOfWeek"] || config.weeklyResetDayOfWeek),
+      weeklyResetTime: saved["usage.weeklyResetTime"] || config.weeklyResetTime,
+      weeklyResetGraceMinutes: Number(saved["usage.weeklyResetGraceMinutes"] || config.weeklyResetGraceMinutes),
+      weeklyReactivationJitterSeconds: Number(
+        saved["usage.weeklyReactivationJitterSeconds"] || config.weeklyReactivationJitterSeconds
+      ),
+    };
+  }
+
+  patchUsageSettings(config: AppConfig, patch: UsageSettingsPatch): UsageSettings {
+    const current = this.getUsageSettings(config);
+    const next: UsageSettings = { ...current, ...patch };
+    this.validateUsageSettings(next);
+    const entries: Array<[string, string]> = [
+      ["usage.timezone", next.usageTimezone],
+      ["usage.sessionResetMode", next.sessionResetMode],
+      ["usage.sessionResetAnchor", next.sessionResetAnchor],
+      ["usage.sessionResetIntervalHours", String(next.sessionResetIntervalHours)],
+      ["usage.weeklyResetMode", next.weeklyResetMode],
+      ["usage.weeklyResetDayOfWeek", String(next.weeklyResetDayOfWeek)],
+      ["usage.weeklyResetTime", next.weeklyResetTime],
+      ["usage.weeklyResetGraceMinutes", String(next.weeklyResetGraceMinutes)],
+      ["usage.weeklyReactivationJitterSeconds", String(next.weeklyReactivationJitterSeconds)],
+    ];
+    const now = isoNow();
+    const statement = this.db.query(
+      `INSERT INTO settings (key, value, updatedAt)
+       VALUES ($key, $value, $updatedAt)
+       ON CONFLICT(key) DO UPDATE SET value = $value, updatedAt = $updatedAt`
+    );
+    for (const [key, value] of entries) statement.run({ $key: key, $value: value, $updatedAt: now });
+    return next;
+  }
+
+  private validateUsageSettings(settings: UsageSettings): void {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: settings.usageTimezone }).format(new Date());
+    } catch {
+      throw new Error("Invalid usage timezone");
+    }
+    if (settings.sessionResetMode !== "fixed_anchor") throw new Error("Unsupported session reset mode");
+    if (!Number.isFinite(Date.parse(settings.sessionResetAnchor))) throw new Error("Invalid session reset anchor");
+    if (!Number.isFinite(settings.sessionResetIntervalHours) || settings.sessionResetIntervalHours <= 0) {
+      throw new Error("Invalid session reset interval");
+    }
+    if (settings.weeklyResetMode !== "fixed_weekly") throw new Error("Unsupported weekly reset mode");
+    if (!Number.isInteger(settings.weeklyResetDayOfWeek) || settings.weeklyResetDayOfWeek < 1 || settings.weeklyResetDayOfWeek > 7) {
+      throw new Error("Invalid weekly reset day");
+    }
+    const [weeklyHour, weeklyMinute] = settings.weeklyResetTime.split(":").map(Number);
+    if (
+      !/^\d{2}:\d{2}$/.test(settings.weeklyResetTime) ||
+      !Number.isInteger(weeklyHour) ||
+      weeklyHour < 0 ||
+      weeklyHour > 23 ||
+      !Number.isInteger(weeklyMinute) ||
+      weeklyMinute < 0 ||
+      weeklyMinute > 59
+    ) {
+      throw new Error("Invalid weekly reset time");
+    }
+    if (!Number.isFinite(settings.weeklyResetGraceMinutes) || settings.weeklyResetGraceMinutes < 0) {
+      throw new Error("Invalid weekly reset grace minutes");
+    }
+    if (!Number.isFinite(settings.weeklyReactivationJitterSeconds) || settings.weeklyReactivationJitterSeconds < 0) {
+      throw new Error("Invalid weekly reset jitter seconds");
+    }
   }
 
   createKey(input: KeyCreateInput): KeyRecord {
@@ -314,7 +413,7 @@ export class DatabaseStore {
       params[`$${key}`] = typeof value === "boolean" ? (value ? 1 : 0) : value;
     }
     sets.push("updatedAt = $updatedAt");
-    this.db.query(`UPDATE keys SET ${sets.join(", ")} WHERE id = $id`).run(params);
+    this.db.query(`UPDATE keys SET ${sets.join(", ")} WHERE id = $id`).run(params as any);
     return this.getKeyOrThrow(id, true);
   }
 
@@ -397,7 +496,7 @@ export class DatabaseStore {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     return this.db
       .query(`SELECT * FROM events ${where} ORDER BY createdAt DESC LIMIT $limit`)
-      .all(params) as Row[];
+      .all(params as any) as Row[];
   }
 
   cleanupEvents(retentionDays: number, maxEvents: number): void {
