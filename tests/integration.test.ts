@@ -181,6 +181,59 @@ describe("proxy integration", () => {
     expect(body.usage.windows.lifetimeFields).toContain("totalRequests");
   });
 
+  test("Admin usage overview totals all keys and groups by account label", async () => {
+    const app = createApp(config());
+    const now = new Date().toISOString();
+    const first = app.keyPool.create({ name: "free-a-1", accountLabel: "free-a", apiKey: "good-key-a1" });
+    const second = app.keyPool.create({ name: "free-a-2", accountLabel: "free-a", apiKey: "good-key-a2" });
+    const ungrouped = app.keyPool.create({ name: "free-b-1", apiKey: "good-key-b1" });
+
+    app.store.patchKey(first.id, {
+      estimatedSessionRequests: 3,
+      estimatedWeeklyRequests: 10,
+      estimatedSessionDurationMs: 1200,
+      estimatedWeeklyDurationMs: 5000,
+      sessionWindowStartedAt: now,
+      weeklyWindowStartedAt: now,
+      totalRequests: 10,
+      totalSuccesses: 9,
+      totalFailures: 1,
+    });
+    app.store.patchKey(second.id, {
+      estimatedSessionRequests: 2,
+      estimatedWeeklyRequests: 7,
+      estimatedSessionDurationMs: 800,
+      estimatedWeeklyDurationMs: 3000,
+      sessionWindowStartedAt: now,
+      weeklyWindowStartedAt: now,
+      totalRequests: 7,
+      totalSuccesses: 7,
+    });
+    app.store.patchKey(ungrouped.id, {
+      estimatedSessionRequests: 1,
+      estimatedWeeklyRequests: 4,
+      sessionWindowStartedAt: now,
+      weeklyWindowStartedAt: now,
+      totalRequests: 4,
+      totalSuccesses: 4,
+    });
+
+    const response = await fetch(`${app.baseUrl}/admin/usage-overview`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.totals.keyCount).toBe(3);
+    expect(body.totals.session.estimatedRequests).toBe(6);
+    expect(body.totals.weekly.estimatedRequests).toBe(21);
+    expect(body.totals.lifetime.totalRequests).toBe(21);
+    expect(body.accounts).toHaveLength(2);
+    expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.keyCount).toBe(2);
+    expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.weekly.estimatedRequests).toBe(17);
+    expect(body.accounts.find((account: { name: string }) => account.name === "free-b-1")?.keyCount).toBe(1);
+  });
+
   test("queue full returns queue_full", async () => {
     const app = createApp(config({ maxConcurrentRequests: 0, requestQueueMax: 0 }));
 

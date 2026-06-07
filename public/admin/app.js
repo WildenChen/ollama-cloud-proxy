@@ -87,6 +87,24 @@ const dictionaries = {
     clientsDescription: "依今日權杖身分統計。",
     modelsTitle: "模型",
     modelsDescription: "別名與請求次數。",
+    usageOverviewTitle: "全部帳號用量",
+    usageOverviewDescription: "依全部金鑰與帳號分組彙總代理估算用量。",
+    totalAccountsUsage: "全部帳號總計",
+    accountUsageTitle: "帳號分組",
+    modelUsageTodayTitle: "今日模型分布",
+    proxyEstimated: "代理估算",
+    accountFallback: "未分組帳號",
+    keysUnit: (count) => `${count} 把金鑰`,
+    activeKeysUnit: (available, total) => `${available}/${total} 可用`,
+    sessionUsageLabel: "5hr 用量",
+    weeklyUsageLabel: "每週用量",
+    lifetimeUsageLabel: "累計用量",
+    durationLabel: "耗時",
+    requestsLabel: "請求",
+    successesLabel: "成功",
+    failuresLabel: "失敗",
+    activeRequestsLabel: "處理中",
+    blockedKeysLabel: "受限",
     usageTitle: "用量與快取",
     usageDescription: "依目前可保存的資料顯示請求、token 與模型清單快取。",
     cacheTitle: "模型清單快取",
@@ -293,6 +311,24 @@ const dictionaries = {
     clientsDescription: "Today by client token identity.",
     modelsTitle: "Models",
     modelsDescription: "Aliases and request counts.",
+    usageOverviewTitle: "All Account Usage",
+    usageOverviewDescription: "Estimated usage grouped across all keys and accounts.",
+    totalAccountsUsage: "All accounts total",
+    accountUsageTitle: "Account groups",
+    modelUsageTodayTitle: "Model mix today",
+    proxyEstimated: "Proxy estimated",
+    accountFallback: "Ungrouped account",
+    keysUnit: (count) => `${count} keys`,
+    activeKeysUnit: (available, total) => `${available}/${total} available`,
+    sessionUsageLabel: "5h usage",
+    weeklyUsageLabel: "Weekly usage",
+    lifetimeUsageLabel: "Lifetime usage",
+    durationLabel: "Duration",
+    requestsLabel: "Requests",
+    successesLabel: "Successes",
+    failuresLabel: "Failures",
+    activeRequestsLabel: "Active",
+    blockedKeysLabel: "Blocked",
     usageTitle: "Usage and Cache",
     usageDescription: "Shows persisted requests, tokens, and model-list cache data.",
     cacheTitle: "Model List Cache",
@@ -508,6 +544,17 @@ function formatNumber(value) {
 function formatPercent(value) {
   if (value === null || value === undefined) return "-";
   return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatDuration(value) {
+  const ms = Number(value || 0);
+  if (ms < 1000) return `${formatNumber(ms)} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${minutes.toFixed(minutes < 10 ? 1 : 0)} min`;
+  const hours = minutes / 60;
+  return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
 }
 
 function formatDate(value) {
@@ -772,6 +819,139 @@ function renderModels() {
     .join("");
 }
 
+function renderUsageOverview() {
+  const root = $("usageOverview");
+  if (!root) return;
+  const overview = state.stats?.usage?.overview;
+  if (!overview) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("loadingKeys"))}</div>`;
+    return;
+  }
+
+  const totals = overview.totals;
+  const accounts = overview.accounts || [];
+  const maxSession = Math.max(1, ...accounts.map((account) => account.session?.estimatedRequests || 0));
+  const maxWeekly = Math.max(1, ...accounts.map((account) => account.weekly?.estimatedRequests || 0));
+  const totalModelRequests = Math.max(
+    1,
+    (overview.topModelsToday || []).reduce((sum, model) => sum + Number(model.totalRequests || 0), 0)
+  );
+  const blockedKeys = (totals.sessionBlockedKeys || 0) + (totals.weeklyBlockedKeys || 0);
+
+  root.innerHTML = `
+    <div class="usageSummaryGrid">
+      ${usageSummaryCard(t("totalAccountsUsage"), t("requestsLabel"), totals.lifetime.totalRequests, t("proxyEstimated"))}
+      ${usageSummaryCard(t("sessionUsageLabel"), t("requestsLabel"), totals.session.estimatedRequests, formatDuration(totals.session.estimatedDurationMs))}
+      ${usageSummaryCard(t("weeklyUsageLabel"), t("requestsLabel"), totals.weekly.estimatedRequests, formatDuration(totals.weekly.estimatedDurationMs))}
+      ${usageSummaryCard(t("blockedKeysLabel"), t("keysUnit")(blockedKeys), blockedKeys, t("activeKeysUnit")(formatNumber(totals.availableKeys), formatNumber(totals.keyCount)))}
+    </div>
+    <div class="usageBlocks">
+      <section class="usageBlock">
+        <div class="usageBlockHeader">
+          <strong>${escapeHtml(t("accountUsageTitle"))}</strong>
+          <span>${escapeHtml(t("activeKeysUnit")(formatNumber(totals.availableKeys), formatNumber(totals.keyCount)))}</span>
+        </div>
+        <div class="accountUsageList">
+          ${
+            accounts.length
+              ? accounts.map((account) => renderAccountUsage(account, maxSession, maxWeekly)).join("")
+              : `<div class="empty">${escapeHtml(t("noKeys"))}</div>`
+          }
+        </div>
+      </section>
+      <section class="usageBlock">
+        <div class="usageBlockHeader">
+          <strong>${escapeHtml(t("modelUsageTodayTitle"))}</strong>
+          <span>${escapeHtml(t("proxyEstimated"))}</span>
+        </div>
+        <div class="modelShareBar">
+          ${
+            (overview.topModelsToday || []).length
+              ? overview.topModelsToday
+                  .slice(0, 8)
+                  .map((model, index) => {
+                    const width = Math.max(4, (Number(model.totalRequests || 0) / totalModelRequests) * 100);
+                    return `<span class="modelShareSegment tone${index % 5}" style="width: ${width}%" title="${escapeHtml(model.model)} · ${escapeHtml(formatNumber(model.totalRequests))}"></span>`;
+                  })
+                  .join("")
+              : `<span class="modelShareSegment emptySegment" style="width: 100%"></span>`
+          }
+        </div>
+        <div class="modelUsageList">
+          ${
+            (overview.topModelsToday || []).length
+              ? overview.topModelsToday
+                  .slice(0, 8)
+                  .map(
+                    (model) => `
+                      <div class="modelUsageItem">
+                        <strong>${escapeHtml(model.model)}</strong>
+                        <span>${escapeHtml(t("requestsLabel"))} ${formatNumber(model.totalRequests)}</span>
+                        <span>${escapeHtml(t("tokenMetrics").total)} ${formatNumber(model.totalTokens)}</span>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : `<div class="empty">${escapeHtml(t("noModels"))}</div>`
+          }
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function usageSummaryCard(title, label, value, meta) {
+  return `
+    <article class="usageSummaryCard">
+      <span>${escapeHtml(title)}</span>
+      <strong>${formatNumber(value)}</strong>
+      <small>${escapeHtml(label)} · ${escapeHtml(meta)}</small>
+    </article>
+  `;
+}
+
+function renderAccountUsage(account, maxSession, maxWeekly) {
+  const sessionWidth = Math.max(2, (Number(account.session?.estimatedRequests || 0) / maxSession) * 100);
+  const weeklyWidth = Math.max(2, (Number(account.weekly?.estimatedRequests || 0) / maxWeekly) * 100);
+  const blocked = Number(account.sessionBlockedKeys || 0) + Number(account.weeklyBlockedKeys || 0);
+  return `
+    <article class="accountUsageCard">
+      <div class="accountUsageHeader">
+        <div>
+          <strong>${escapeHtml(account.name || t("accountFallback"))}</strong>
+          <small>${escapeHtml(t("keysUnit")(formatNumber(account.keyCount)))} · ${escapeHtml(t("activeKeysUnit")(formatNumber(account.availableKeys), formatNumber(account.keyCount)))}</small>
+        </div>
+        <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blocked)}</span>
+      </div>
+      <div class="accountUsageBars">
+        ${usageMeter(t("sessionUsageLabel"), account.session?.estimatedRequests, account.session?.estimatedDurationMs, sessionWidth)}
+        ${usageMeter(t("weeklyUsageLabel"), account.weekly?.estimatedRequests, account.weekly?.estimatedDurationMs, weeklyWidth)}
+      </div>
+      <div class="accountUsageMeta">
+        <span>${escapeHtml(t("lifetimeUsageLabel"))} ${formatNumber(account.lifetime?.totalRequests)}</span>
+        <span>${escapeHtml(t("successesLabel"))} ${formatNumber(account.lifetime?.totalSuccesses)}</span>
+        <span>${escapeHtml(t("failuresLabel"))} ${formatNumber(account.lifetime?.totalFailures)}</span>
+        <span>${escapeHtml(t("activeRequestsLabel"))} ${formatNumber(account.activeRequests)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function usageMeter(label, requests, durationMs, width) {
+  return `
+    <div class="usageMeter">
+      <div class="usageMeterLabel">
+        <span>${escapeHtml(label)}</span>
+        <strong>${formatNumber(requests)} ${escapeHtml(t("requestsLabel"))}</strong>
+      </div>
+      <div class="usageMeterTrack">
+        <span style="width: ${Math.min(100, width)}%"></span>
+      </div>
+      <small>${escapeHtml(t("durationLabel"))} ${escapeHtml(formatDuration(durationMs))}</small>
+    </div>
+  `;
+}
+
 function renderUsage() {
   const root = $("usageList");
   const today = state.stats?.models?.today || [];
@@ -862,6 +1042,7 @@ function renderAll() {
   renderEvents();
   renderClients();
   renderModels();
+  renderUsageOverview();
   renderUsage();
   renderCache();
   renderModelTests();

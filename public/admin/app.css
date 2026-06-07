@@ -579,6 +579,181 @@ svg {
   font-size: 12px;
 }
 
+.usageOverview {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.usageSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.usageSummaryCard,
+.usageBlock,
+.accountUsageCard {
+  border: 1px solid rgba(180, 205, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.048);
+}
+
+.usageSummaryCard {
+  padding: 12px;
+  min-width: 0;
+}
+
+.usageSummaryCard span,
+.usageSummaryCard small,
+.usageBlockHeader span,
+.accountUsageHeader small,
+.accountUsageHeader span,
+.accountUsageMeta,
+.usageMeter small,
+.modelUsageItem span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usageSummaryCard > span,
+.usageMeterLabel span {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.usageSummaryCard strong {
+  display: block;
+  margin: 8px 0 5px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.usageBlocks {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: 12px;
+}
+
+.usageBlock {
+  padding: 12px;
+  min-width: 0;
+}
+
+.usageBlockHeader,
+.accountUsageHeader,
+.usageMeterLabel,
+.accountUsageMeta,
+.modelUsageItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.accountUsageList,
+.modelUsageList {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.accountUsageCard {
+  padding: 10px;
+}
+
+.accountUsageHeader {
+  align-items: flex-start;
+}
+
+.accountUsageHeader strong,
+.modelUsageItem strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountUsageBars {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.usageMeter {
+  display: grid;
+  gap: 5px;
+}
+
+.usageMeterTrack,
+.modelShareBar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.usageMeterTrack span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+}
+
+.accountUsageMeta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.accountUsageMeta span {
+  min-width: 86px;
+}
+
+.modelShareBar {
+  display: flex;
+  margin-top: 10px;
+}
+
+.modelShareSegment {
+  min-width: 4px;
+}
+
+.modelShareSegment.tone0 {
+  background: var(--accent);
+}
+
+.modelShareSegment.tone1 {
+  background: var(--green);
+}
+
+.modelShareSegment.tone2 {
+  background: var(--amber);
+}
+
+.modelShareSegment.tone3 {
+  background: var(--blue);
+}
+
+.modelShareSegment.tone4 {
+  background: var(--red);
+}
+
+.modelShareSegment.emptySegment {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.modelUsageItem {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(180, 205, 235, 0.1);
+}
+
+.modelUsageItem:last-child {
+  border-bottom: 0;
+}
+
 .modelTestRow {
   grid-template-columns: minmax(220px, 1fr) minmax(220px, auto) minmax(86px, auto);
 }
@@ -644,11 +819,13 @@ dialog::backdrop {
   }
 
   .workspace,
-  .lowerGrid {
+  .lowerGrid,
+  .usageBlocks {
     grid-template-columns: 1fr;
   }
 
-  .metricGrid {
+  .metricGrid,
+  .usageSummaryGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
@@ -683,7 +860,8 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
-  .metricGrid {
+  .metricGrid,
+  .usageSummaryGrid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -713,6 +891,13 @@ dialog::backdrop {
   .usageRow,
   .modelTestRow {
     grid-template-columns: 1fr;
+  }
+
+  .accountUsageHeader,
+  .usageMeterLabel,
+  .modelUsageItem {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .keyCard {

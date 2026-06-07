@@ -7,8 +7,11 @@ import type { KeyPoolManager } from "../keyPool/keyPoolManager";
 import { publicKey } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore } from "../storage/database";
-import { getNextFixedWeeklyResetAt } from "../utils/time";
+import type { KeyRecord } from "../types/domain";
+import { getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
+
+const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000;
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {
   const text = await req.text();
@@ -32,6 +35,7 @@ export class AdminRoutes {
 
   async handle(req: Request, path: string): Promise<Response> {
     if (path === "/admin/stats" && req.method === "GET") return json(this.stats());
+    if (path === "/admin/usage-overview" && req.method === "GET") return json(this.usageOverview());
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
     if (path === "/admin/models" && req.method === "GET") return json(this.modelsOverview());
     if (path === "/admin/models/refresh" && req.method === "POST") return this.refreshModels();
@@ -341,6 +345,7 @@ export class AdminRoutes {
       keys: keySummary,
       usage: {
         note: "Session and weekly usage are estimated by this proxy unless an official usage API is configured.",
+        overview: this.usageOverview(),
         windows: {
           session: {
             durationHours: 5,
@@ -388,5 +393,147 @@ export class AdminRoutes {
       level: url.searchParams.get("level") || undefined,
       since: url.searchParams.get("since") || undefined,
     });
+  }
+
+  private usageOverview() {
+    const keys = this.store.listKeys(false);
+    const now = new Date();
+    const totals = this.emptyAccountUsage("all", "All accounts");
+    const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
+
+    for (const key of keys) {
+      const accountId = key.accountLabel?.trim() || `key:${key.id}`;
+      const accountName = key.accountLabel?.trim() || key.name;
+      const account = accounts.get(accountId) ?? this.emptyAccountUsage(accountId, accountName);
+      this.addKeyUsage(totals, key, now);
+      this.addKeyUsage(account, key, now);
+      accounts.set(accountId, account);
+    }
+
+    return {
+      source: "estimated_by_proxy",
+      accountGrouping: "accountLabel",
+      note: "Totals cover all keys known to this proxy. Keys without accountLabel are treated as separate accounts.",
+      totals,
+      accounts: Array.from(accounts.values()).sort((a, b) => b.weekly.estimatedRequests - a.weekly.estimatedRequests),
+      topModelsToday: this.store.getTodayModelStats().map((row) => ({
+        model: String(row.model),
+        totalRequests: Number(row.totalRequests || 0),
+        totalSuccesses: Number(row.totalSuccesses || 0),
+        totalFailures: Number(row.totalFailures || 0),
+        promptTokens: Number(row.promptTokens || 0),
+        completionTokens: Number(row.completionTokens || 0),
+        totalTokens: Number(row.totalTokens || 0),
+        cachedTokens: Number(row.cachedTokens || 0),
+      })),
+      nextSessionResetAt: new Date(now.getTime() + SESSION_WINDOW_MS).toISOString(),
+      nextWeeklyResetAt: getNextFixedWeeklyResetAt(
+        now,
+        this.config.usageTimezone,
+        this.config.weeklyResetDayOfWeek,
+        this.config.weeklyResetTime
+      ).toISOString(),
+    };
+  }
+
+  private emptyAccountUsage(id: string, name: string) {
+    return {
+      id,
+      name,
+      keyCount: 0,
+      availableKeys: 0,
+      sessionBlockedKeys: 0,
+      weeklyBlockedKeys: 0,
+      coolingDownKeys: 0,
+      invalidKeys: 0,
+      disabledKeys: 0,
+      activeRequests: 0,
+      session: {
+        estimatedRequests: 0,
+        estimatedDurationMs: 0,
+        windowStartedAt: null as string | null,
+      },
+      weekly: {
+        estimatedRequests: 0,
+        estimatedDurationMs: 0,
+        windowStartedAt: null as string | null,
+      },
+      lifetime: {
+        totalRequests: 0,
+        totalSuccesses: 0,
+        totalFailures: 0,
+      },
+    };
+  }
+
+  private addKeyUsage(target: ReturnType<typeof this.emptyAccountUsage>, key: KeyRecord, now: Date) {
+    const session = this.effectiveSessionUsage(key, now);
+    const weekly = this.effectiveWeeklyUsage(key, now);
+    target.keyCount += 1;
+    target.availableKeys += this.isEffectivelyAvailable(key, now.getTime()) ? 1 : 0;
+    target.sessionBlockedKeys += key.status === "session_blocked" ? 1 : 0;
+    target.weeklyBlockedKeys += key.status === "weekly_blocked" ? 1 : 0;
+    target.coolingDownKeys += key.status === "cooling_down" ? 1 : 0;
+    target.invalidKeys += key.status === "invalid" ? 1 : 0;
+    target.disabledKeys += !key.enabled || key.status === "disabled" ? 1 : 0;
+    target.activeRequests += key.activeRequests;
+    target.session.estimatedRequests += session.estimatedRequests;
+    target.session.estimatedDurationMs += session.estimatedDurationMs;
+    target.session.windowStartedAt = this.earliestIso(target.session.windowStartedAt, session.windowStartedAt);
+    target.weekly.estimatedRequests += weekly.estimatedRequests;
+    target.weekly.estimatedDurationMs += weekly.estimatedDurationMs;
+    target.weekly.windowStartedAt = this.earliestIso(target.weekly.windowStartedAt, weekly.windowStartedAt);
+    target.lifetime.totalRequests += key.totalRequests;
+    target.lifetime.totalSuccesses += key.totalSuccesses;
+    target.lifetime.totalFailures += key.totalFailures;
+  }
+
+  private effectiveSessionUsage(key: KeyRecord, now: Date) {
+    const startedAt = parseIso(key.sessionWindowStartedAt);
+    if (!startedAt || now.getTime() - startedAt >= SESSION_WINDOW_MS) {
+      return { estimatedRequests: 0, estimatedDurationMs: 0, windowStartedAt: null as string | null };
+    }
+    return {
+      estimatedRequests: key.estimatedSessionRequests,
+      estimatedDurationMs: key.estimatedSessionDurationMs,
+      windowStartedAt: key.sessionWindowStartedAt,
+    };
+  }
+
+  private effectiveWeeklyUsage(key: KeyRecord, now: Date) {
+    const startedAt = parseIso(key.weeklyWindowStartedAt);
+    if (!startedAt) return { estimatedRequests: 0, estimatedDurationMs: 0, windowStartedAt: null as string | null };
+    const nextReset = getNextFixedWeeklyResetAt(
+      new Date(startedAt),
+      this.config.usageTimezone,
+      this.config.weeklyResetDayOfWeek,
+      this.config.weeklyResetTime
+    );
+    if (now.getTime() >= nextReset.getTime()) {
+      return { estimatedRequests: 0, estimatedDurationMs: 0, windowStartedAt: null as string | null };
+    }
+    return {
+      estimatedRequests: key.estimatedWeeklyRequests,
+      estimatedDurationMs: key.estimatedWeeklyDurationMs,
+      windowStartedAt: key.weeklyWindowStartedAt,
+    };
+  }
+
+  private isEffectivelyAvailable(key: KeyRecord, now: number) {
+    const cooldownUntil = parseIso(key.cooldownUntil);
+    return (
+      key.enabled &&
+      key.deletedAt === null &&
+      key.status !== "invalid" &&
+      key.status !== "disabled" &&
+      (!cooldownUntil || cooldownUntil <= now) &&
+      key.activeRequests < this.config.maxConcurrentRequestsPerKey
+    );
+  }
+
+  private earliestIso(current: string | null, next: string | null) {
+    if (!next) return current;
+    if (!current) return next;
+    return Date.parse(next) < Date.parse(current) ? next : current;
   }
 }
