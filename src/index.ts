@@ -8,6 +8,7 @@ import { ProxyHandler } from "./proxy/proxyHandler";
 import { Router } from "./server/router";
 import { KeyCipher } from "./security/encryption";
 import { DatabaseStore } from "./storage/database";
+import { WebService } from "./web/webService";
 
 const config = loadConfig();
 const store = new DatabaseStore(config.dbPath);
@@ -18,7 +19,8 @@ const keyPool = new KeyPoolManager(config, store, events, cipher);
 const models = new ModelManager(config, store);
 const admin = new AdminRoutes(config, store, keyPool, concurrency, events, models);
 const proxy = new ProxyHandler(config, concurrency, keyPool, models, events, store);
-const router = new Router(config, admin, proxy, concurrency, keyPool);
+const web = new WebService(config, concurrency, keyPool, events, store);
+const router = new Router(config, admin, proxy, concurrency, keyPool, web);
 
 events.cleanup(config.eventRetentionDays, config.maxEvents);
 setInterval(() => events.cleanup(config.eventRetentionDays, config.maxEvents), 60 * 60 * 1000);

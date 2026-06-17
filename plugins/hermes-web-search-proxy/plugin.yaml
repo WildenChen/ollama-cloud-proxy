@@ -1,0 +1,30 @@
+name: hermes-web-search-proxy
+version: 0.1.0
+description: Hermes Agent tools that call ollama-cloud-proxy Web Search and Web Fetch endpoints.
+author: WildenChen
+entrypoint: __init__.py
+config: config.json
+tools:
+  - name: proxy_web_search
+    description: Search the web through ollama-cloud-proxy without exposing the Ollama API key to Hermes.
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query.
+        max_results:
+          type: integer
+          description: Optional result count, default from config, maximum enforced by the proxy.
+      required:
+        - query
+  - name: proxy_web_fetch
+    description: Fetch and extract a web page through ollama-cloud-proxy without exposing the Ollama API key to Hermes.
+    input_schema:
+      type: object
+      properties:
+        url:
+          type: string
+          description: URL to fetch.
+      required:
+        - url

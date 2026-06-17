@@ -55,6 +55,107 @@ Typical use cases include:
 
 This project is especially useful for local-first or self-hosted AI agent workflows where several tools need to access the same model service safely and consistently.
 
+
+## Ollama Web Search / Web Fetch
+
+`ollama-cloud-proxy` 也可以代理 Ollama 官方 Web Search / Web Fetch API，讓 Hermes Agent、自製工具或其他 client 只持有 proxy 的 client token，不直接接觸 Ollama API key。
+
+上游呼叫固定使用官方 API：
+
+- `POST https://ollama.com/api/web_search`
+- `POST https://ollama.com/api/web_fetch`
+
+可設定的 env：
+
+```env
+OLLAMA_WEB_BASE_URL=https://ollama.com
+OLLAMA_WEB_SEARCH_PATH=/api/web_search
+OLLAMA_WEB_FETCH_PATH=/api/web_fetch
+OLLAMA_WEB_TIMEOUT_MS=30000
+```
+
+Proxy endpoints：
+
+- `POST /v1/web/search`
+- `POST /v1/web/fetch`
+- `POST /api/web_search`
+- `POST /api/web_fetch`
+
+`/v1/web/search` 和 `/api/web_search` 接受：
+
+```json
+{
+  "query": "Hermes Agent plugin web search",
+  "max_results": 3
+}
+```
+
+也支援 `q` alias：
+
+```json
+{
+  "q": "Hermes Agent plugin web search",
+  "max_results": 3
+}
+```
+
+`max_results` 預設為 `5`，最大值為 `10`；超過 `10` 會回 `400 invalid_request`，不會自動 clamp。
+
+`/v1/web/fetch` 和 `/api/web_fetch` 接受：
+
+```json
+{
+  "url": "https://ollama.com"
+}
+```
+
+測 `/v1/web/search`：
+
+```bash
+curl -X POST http://127.0.0.1:11435/v1/web/search \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Hermes Agent plugin web search","max_results":3}'
+```
+
+測 `/v1/web/fetch`：
+
+```bash
+curl -X POST http://127.0.0.1:11435/v1/web/fetch \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://docs.ollama.com/capabilities/web-search"}'
+```
+
+測 Ollama-compatible aliases：
+
+```bash
+curl -X POST http://127.0.0.1:11435/api/web_search \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Apple Developer news","max_results":3}'
+
+curl -X POST http://127.0.0.1:11435/api/web_fetch \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://ollama.com"}'
+```
+
+Hermes plugin 安裝範例：
+
+詳細安裝、設定、工具 schema、除錯與安全注意事項請看 [Hermes Web Search Proxy Plugin 使用說明](plugins/hermes-web-search-proxy/README.md)。
+
+```bash
+mkdir -p ~/.hermes/plugins
+cp -R plugins/hermes-web-search-proxy ~/.hermes/plugins/
+cp ~/.hermes/plugins/hermes-web-search-proxy/config.example.json ~/.hermes/plugins/hermes-web-search-proxy/config.json
+# 編輯 config.json，填入 base_url 與 client_token
+# 依 Hermes CLI 實際支援方式啟用 plugin
+hermes plugins list
+```
+
+如果 Hermes 支援從 GitHub repo 的子目錄安裝，可以依本機版本改用等效指令；不要把 Ollama API key 寫進 Hermes plugin config。
+
 ## Security Notes
 
 This project handles API keys and routing for AI coding tools, so it should be deployed carefully.
@@ -312,6 +413,10 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `KEY_ENCRYPTION_SECRET` | 必填 | 加密 Ollama Cloud API key 的 secret |
 | `CLIENT_API_KEYS` | 空 | client token 清單，格式是 `clientName:token,client2:token2` |
 | `OLLAMA_UPSTREAM_BASE_URL` | `https://ollama.com` | 上游 Ollama Cloud base URL |
+| `OLLAMA_WEB_BASE_URL` | `https://ollama.com` | Ollama 官方 Web Search / Web Fetch base URL |
+| `OLLAMA_WEB_SEARCH_PATH` | `/api/web_search` | Ollama 官方 Web Search path |
+| `OLLAMA_WEB_FETCH_PATH` | `/api/web_fetch` | Ollama 官方 Web Fetch path |
+| `OLLAMA_WEB_TIMEOUT_MS` | `30000` | Web Search / Web Fetch 上游請求總逾時 |
 | `MAX_CONCURRENT_REQUESTS` | `5` | 全域同時送往上游的 request 數量 |
 | `MAX_CONCURRENT_REQUESTS_PER_KEY` | `1` | 單把 key 同時處理的 request 數量 |
 | `REQUEST_QUEUE_MAX` | `30` | 全域額度滿時最多排隊 request 數 |

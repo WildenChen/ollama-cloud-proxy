@@ -10,6 +10,7 @@ import { proxyReadableStream } from "../src/proxy/stream";
 import { Router } from "../src/server/router";
 import { KeyCipher } from "../src/security/encryption";
 import { DatabaseStore } from "../src/storage/database";
+import { WebService } from "../src/web/webService";
 
 const servers: Array<{ stop: (force?: boolean) => void }> = [];
 
@@ -26,6 +27,10 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     keyEncryptionSecret: "test-secret",
     clientApiKeys: new Map([["client-token", "openclaw"]]),
     upstreamBaseUrl: "http://127.0.0.1:1",
+    ollamaWebBaseUrl: "http://127.0.0.1:1",
+    ollamaWebSearchPath: "/api/web_search",
+    ollamaWebFetchPath: "/api/web_fetch",
+    ollamaWebTimeoutMs: 30000,
     maxConcurrentRequests: 5,
     maxConcurrentRequestsPerKey: 1,
     requestQueueMax: 30,
@@ -65,7 +70,8 @@ function createApp(appConfig: AppConfig) {
   const models = new ModelManager(appConfig, store);
   const admin = new AdminRoutes(appConfig, store, keyPool, concurrency, events, models);
   const proxy = new ProxyHandler(appConfig, concurrency, keyPool, models, events, store);
-  const router = new Router(appConfig, admin, proxy, concurrency, keyPool);
+  const web = new WebService(appConfig, concurrency, keyPool, events, store);
+  const router = new Router(appConfig, admin, proxy, concurrency, keyPool, web);
   const server = Bun.serve({ port: 0, fetch: (req) => router.handle(req) });
   servers.push(server);
   return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool, concurrency, events };
@@ -1013,6 +1019,197 @@ describe("proxy integration", () => {
     expect(lines[0].done).toBe(false);
     expect(lines[1].done).toBe(true);
   });
+  test("/v1/web/search requires client token", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "ollama" }),
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  test("/v1/web/search validates query and max_results", async () => {
+    const app = createApp(config());
+
+    const missing = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ max_results: 3 }),
+    });
+    const empty = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "   " }),
+    });
+    const tooMany = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "ollama", max_results: 11 }),
+    });
+
+    expect(missing.status).toBe(400);
+    expect(empty.status).toBe(400);
+    expect(tooMany.status).toBe(400);
+  });
+
+  test("/v1/web/search supports query and q request bodies", async () => {
+    const seenBodies: Array<Record<string, unknown>> = [];
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/web_search");
+      expect(req.headers.get("authorization")).toBe("Bearer good-key");
+      seenBodies.push(await req.json());
+      return Response.json({ results: [{ title: "Ollama", url: "https://ollama.com", content: "models" }] });
+    });
+    const app = createApp(config({ ollamaWebBaseUrl: upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const byQuery = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "what is ollama?", max_results: 3 }),
+    });
+    const byQ = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ q: "ollama cloud" }),
+    });
+    const first = await byQuery.json();
+    const second = await byQ.json();
+
+    expect(byQuery.status).toBe(200);
+    expect(byQ.status).toBe(200);
+    expect(first.backend).toBe("ollama-web-search");
+    expect(second.results[0].title).toBe("Ollama");
+    expect(seenBodies).toEqual([
+      { query: "what is ollama?", max_results: 3 },
+      { query: "ollama cloud", max_results: 5 },
+    ]);
+  });
+
+  test("/v1/web/fetch validates url", async () => {
+    const app = createApp(config());
+
+    const missing = await fetch(`${app.baseUrl}/v1/web/fetch`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const invalid = await fetch(`${app.baseUrl}/v1/web/fetch`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ url: "not a url" }),
+    });
+
+    expect(missing.status).toBe(400);
+    expect(invalid.status).toBe(400);
+  });
+
+  test("/v1/web/fetch returns normalized page content", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/web_fetch");
+      expect(req.headers.get("authorization")).toBe("Bearer good-key");
+      expect(await req.json()).toEqual({ url: "https://ollama.com/" });
+      return Response.json({ title: "Ollama", content: "Run models", links: ["https://ollama.com/library", 123] });
+    });
+    const app = createApp(config({ ollamaWebBaseUrl: upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const response = await fetch(`${app.baseUrl}/v1/web/fetch`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://ollama.com" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.title).toBe("Ollama");
+    expect(body.content).toBe("Run models");
+    expect(body.links).toEqual(["https://ollama.com/library"]);
+    expect(body.backend).toBe("ollama-web-fetch");
+  });
+
+  test("Ollama-compatible web aliases use the same services", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const path = new URL(req.url).pathname;
+      if (path === "/api/web_search") {
+        return Response.json({ results: [{ title: "Alias", url: "https://example.com", content: "ok" }] });
+      }
+      if (path === "/api/web_fetch") {
+        return Response.json({ title: "Alias Fetch", content: "ok", links: [] });
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
+    const app = createApp(config({ ollamaWebBaseUrl: upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const search = await fetch(`${app.baseUrl}/api/web_search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "alias", max_results: 2 }),
+    });
+    const fetchResponse = await fetch(`${app.baseUrl}/api/web_fetch`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com" }),
+    });
+
+    expect(search.status).toBe(200);
+    expect((await search.json()).backend).toBe("ollama-web-search");
+    expect(fetchResponse.status).toBe(200);
+    expect((await fetchResponse.json()).backend).toBe("ollama-web-fetch");
+  });
+
+  test("web upstream 401 marks key invalid without leaking the API key", async () => {
+    const upstreamBaseUrl = createMockUpstream(() => Response.json({ error: "bad key" }, { status: 401 }));
+    const app = createApp(config({ ollamaWebBaseUrl: upstreamBaseUrl }));
+    const key = app.keyPool.create({ name: "bad", apiKey: "bad-key-secret" });
+
+    const response = await fetch(`${app.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "ollama" }),
+    });
+    const bodyText = await response.text();
+    const updated = app.store.getKey(key.id, true)!;
+
+    expect(response.status).toBe(401);
+    expect(updated.status).toBe("invalid");
+    expect(updated.activeRequests).toBe(0);
+    expect(bodyText).not.toContain("bad-key-secret");
+  });
+
+  test("web upstream 429 and 5xx return classified errors", async () => {
+    const rateLimitedUpstream = createMockUpstream(() => Response.json({ error: "rate limit" }, { status: 429 }));
+    const rateLimitedApp = createApp(config({ ollamaWebBaseUrl: rateLimitedUpstream }));
+    rateLimitedApp.keyPool.create({ name: "limited", apiKey: "limited-key" });
+
+    const rateLimited = await fetch(`${rateLimitedApp.baseUrl}/v1/web/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: "ollama" }),
+    });
+    const rateLimitedBody = await rateLimited.json();
+
+    const providerUpstream = createMockUpstream(() => Response.json({ error: "temporary unavailable" }, { status: 502 }));
+    const providerApp = createApp(config({ ollamaWebBaseUrl: providerUpstream }));
+    providerApp.keyPool.create({ name: "provider", apiKey: "provider-key" });
+
+    const provider = await fetch(`${providerApp.baseUrl}/v1/web/fetch`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://ollama.com" }),
+    });
+    const providerBody = await provider.json();
+
+    expect(rateLimited.status).toBe(429);
+    expect(rateLimitedBody.error.type).toBe("rate_limited");
+    expect(provider.status).toBe(502);
+    expect(providerBody.error.type).toBe("provider_error");
+  });
+
 });
 
 describe("proxy stream helper", () => {

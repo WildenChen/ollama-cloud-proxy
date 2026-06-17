@@ -1,0 +1,8 @@
+{
+  "base_url": "http://127.0.0.1:11435",
+  "client_token": "change-me",
+  "search_path": "/v1/web/search",
+  "fetch_path": "/v1/web/fetch",
+  "timeout_seconds": 30,
+  "max_results": 5
+}

@@ -6,6 +6,10 @@ export type AppConfig = {
   keyEncryptionSecret: string;
   clientApiKeys: Map<string, string>;
   upstreamBaseUrl: string;
+  ollamaWebBaseUrl: string;
+  ollamaWebSearchPath: string;
+  ollamaWebFetchPath: string;
+  ollamaWebTimeoutMs: number;
   maxConcurrentRequests: number;
   maxConcurrentRequestsPerKey: number;
   requestQueueMax: number;
@@ -129,6 +133,10 @@ export function loadConfig(): AppConfig {
     keyEncryptionSecret: requiredEnv("KEY_ENCRYPTION_SECRET"),
     clientApiKeys: parseClientApiKeys(process.env.CLIENT_API_KEYS),
     upstreamBaseUrl: process.env.OLLAMA_UPSTREAM_BASE_URL || "https://ollama.com",
+    ollamaWebBaseUrl: process.env.OLLAMA_WEB_BASE_URL || "https://ollama.com",
+    ollamaWebSearchPath: process.env.OLLAMA_WEB_SEARCH_PATH || "/api/web_search",
+    ollamaWebFetchPath: process.env.OLLAMA_WEB_FETCH_PATH || "/api/web_fetch",
+    ollamaWebTimeoutMs: numberEnv("OLLAMA_WEB_TIMEOUT_MS", 30_000),
     maxConcurrentRequests: numberEnv("MAX_CONCURRENT_REQUESTS", 5),
     maxConcurrentRequestsPerKey: numberEnv("MAX_CONCURRENT_REQUESTS_PER_KEY", 1),
     requestQueueMax: numberEnv("REQUEST_QUEUE_MAX", 30),
