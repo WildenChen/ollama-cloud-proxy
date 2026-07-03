@@ -1067,7 +1067,7 @@ function aggregateUsageMeter(label, window, resetAt) {
   }
   const remaining = Math.max(0, Math.min(100, Number(window.remainingPercent || 0)));
   const used = Math.max(0, Number(window.used || 0));
-  const state = remaining <= 1 ? "critical" : used > 0 ? "warning" : "ok";
+  const state = remaining <= 1 ? "critical" : remaining <= 50 ? "warning" : "ok";
   return `
     <div class="quotaWindow ${state}">
       <div class="quotaWindowLabel">
@@ -1171,7 +1171,7 @@ function officialUsageMeter(label, window, threshold = 1, options = {}) {
   }
   const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
   const used = Math.min(100, Math.max(0, Number(window.usedPercent || 0)));
-  const state = options.blocked ? "blocked" : remaining <= Number(threshold || 1) ? "critical" : used > 0 ? "warning" : "ok";
+  const state = options.blocked ? "blocked" : remaining <= Number(threshold || 1) ? "critical" : remaining <= 50 ? "warning" : "ok";
   return `
     <div class="quotaWindow ${state}">
       <div class="quotaWindowLabel">
@@ -1251,14 +1251,13 @@ function officialQuotaStatus(official) {
   const used = [official.session?.usedPercent, official.weekly?.usedPercent]
     .filter((value) => value !== null && value !== undefined)
     .map(Number);
-  if (used.some((value) => Number.isFinite(value) && value > 0)) return "warning";
   const remaining = [official.session?.remainingPercent, official.weekly?.remainingPercent]
     .filter((value) => value !== null && value !== undefined)
     .map(Number);
   const minimum = remaining.length ? Math.min(...remaining) : null;
   if (minimum === null || !Number.isFinite(minimum)) return "missing";
   if (minimum <= 1) return "critical";
-  if (minimum <= 25) return "warning";
+  if (minimum <= 50) return "warning";
   return "ok";
 }
 

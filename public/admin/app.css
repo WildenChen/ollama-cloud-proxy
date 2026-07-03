@@ -330,6 +330,13 @@ svg {
   flex-wrap: wrap;
 }
 
+.panelActions .button.compact {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
 .status {
   display: inline-flex;
   align-items: center;
