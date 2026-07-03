@@ -263,6 +263,12 @@ After the first GitHub Actions publish, make sure the package visibility in GitH
 
 ## 版本更新紀錄
 
+### 1.2.2 - 2026-07-03
+
+- 總額度池改成只合計目前可用金鑰，不再把 weekly/session 已受限的 key 算進 5hr 或 weekly 可用額度。
+- weekly 額度已用完或整把 key 目前不可用時，單卡 5hr / weekly 用量條改成灰階並標示「目前不可用」，避免 5hr 顯示 100% 綠條造成誤解。
+- 調整首頁 key card 字體、間距、meter 與按鈕尺寸，讓版面更接近 OmniRoute 的可讀密度。
+
 ### 1.2.1 - 2026-07-03
 
 - Admin 首頁新增「總額度池」合體卡片，合計所有已接入官方用量的 5hr / weekly 額度。
