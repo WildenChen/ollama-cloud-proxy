@@ -22,6 +22,27 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
   return parsed as Record<string, unknown>;
 }
 
+type OfficialUsageWindow = { usedPercent: number; remainingPercent: number; resetAt: string | null };
+
+type OfficialKeyUsageCard = {
+  id: string;
+  name: string;
+  accountLabel: string | null;
+  apiKeyPreview: string;
+  enabled: boolean;
+  status: string;
+  blockReason: string;
+  hasCookie: boolean;
+  plan: string | null;
+  fetchedAt: string | null;
+  lastError: string | null;
+  session: OfficialUsageWindow | null;
+  weekly: OfficialUsageWindow | null;
+  sessionRemainingThresholdPercent: number;
+  weeklyRemainingThresholdPercent: number;
+  updatedAt: string;
+};
+
 export class AdminRoutes {
   constructor(
     private readonly config: AppConfig,
@@ -64,6 +85,7 @@ export class AdminRoutes {
     if (action === "disable") return json({ key: this.keyPool.disable(id) });
     if (action === "reset-cooldown") return json({ key: this.keyPool.resetCooldown(id) });
     if (action === "rotate") return this.rotateKey(req, id);
+    if (action === "usage-refresh") return this.refreshKeyUsage(id);
     if (action === "test") return this.testKey(id);
 
     return openAiError(404, "not_found", "Admin key action not found");
@@ -92,6 +114,17 @@ export class AdminRoutes {
     } catch (error) {
       return openAiError(400, "invalid_request", (error as Error).message);
     }
+  }
+
+  private async refreshKeyUsage(id: string) {
+    const key = this.store.getKey(id, false);
+    if (!key) return openAiError(404, "key_not_found", "Key not found");
+    const official = await this.officialUsageForKey(key, true);
+    const currentKey = this.store.getKey(id, false) ?? key;
+    return json({
+      key: this.keyPool.getPublic(id),
+      usage: this.officialUsageCardForKey(currentKey, official ?? this.parseUsageSnapshot(currentKey.ollamaUsageJson)),
+    });
   }
 
   private async rotateKey(req: Request, id: string) {
@@ -465,16 +498,19 @@ export class AdminRoutes {
     const now = new Date();
     const totals = this.emptyAccountUsage("all", "All accounts");
     const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
+    const keyCards: OfficialKeyUsageCard[] = [];
 
     for (const key of keys) {
       const official = await this.officialUsageForKey(key, forceRefresh);
-      const accountId = key.accountLabel?.trim() || `key:${key.id}`;
-      const accountName = key.accountLabel?.trim() || key.name;
+      const currentKey = this.store.getKey(key.id, false) ?? key;
+      const accountId = currentKey.accountLabel?.trim() || `key:${currentKey.id}`;
+      const accountName = currentKey.accountLabel?.trim() || currentKey.name;
       const account = accounts.get(accountId) ?? this.emptyAccountUsage(accountId, accountName);
-      this.addKeyUsage(totals, key, now, settings);
-      this.addKeyUsage(account, key, now, settings);
-      this.addOfficialUsage(totals, key, official);
-      this.addOfficialUsage(account, key, official);
+      this.addKeyUsage(totals, currentKey, now, settings);
+      this.addKeyUsage(account, currentKey, now, settings);
+      this.addOfficialUsage(totals, currentKey, official);
+      this.addOfficialUsage(account, currentKey, official);
+      keyCards.push(this.officialUsageCardForKey(currentKey, official));
       accounts.set(accountId, account);
     }
 
@@ -487,6 +523,11 @@ export class AdminRoutes {
         const aRemaining = a.official.weekly?.remainingPercent ?? -1;
         const bRemaining = b.official.weekly?.remainingPercent ?? -1;
         return bRemaining - aRemaining;
+      }),
+      keyCards: keyCards.sort((a, b) => {
+        const aRemaining = this.minimumRemainingPercent(a);
+        const bRemaining = this.minimumRemainingPercent(b);
+        return aRemaining - bRemaining || a.name.localeCompare(b.name);
       }),
       topModelsToday: this.store.getTodayModelStats().map((row) => ({
         model: String(row.model),
@@ -563,6 +604,39 @@ export class AdminRoutes {
     };
   }
 
+  private officialUsageCardForKey(key: KeyRecord, official: OllamaCloudUsageSnapshot | null): OfficialKeyUsageCard {
+    return {
+      id: key.id,
+      name: key.name,
+      accountLabel: key.accountLabel,
+      apiKeyPreview: key.apiKeyPreview,
+      enabled: key.enabled,
+      status: key.status,
+      blockReason: key.blockReason,
+      hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
+      plan: official?.plan ?? null,
+      fetchedAt: key.ollamaUsageLastRefreshAt,
+      lastError: key.ollamaUsageLastError,
+      session: official?.session ?? null,
+      weekly: official?.weekly ?? null,
+      sessionRemainingThresholdPercent: this.effectiveRemainingThreshold(key.sessionRemainingThresholdPercent),
+      weeklyRemainingThresholdPercent: this.effectiveRemainingThreshold(key.weeklyRemainingThresholdPercent),
+      updatedAt: key.updatedAt,
+    };
+  }
+
+  private effectiveRemainingThreshold(value: number | null | undefined): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 1;
+  }
+
+  private minimumRemainingPercent(card: OfficialKeyUsageCard): number {
+    const values = [card.session?.remainingPercent, card.weekly?.remainingPercent]
+      .filter((value) => value !== null && value !== undefined)
+      .map(Number)
+      .filter(Number.isFinite);
+    return values.length ? Math.min(...values) : 101;
+  }
+
   private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
     const cookie = this.keyPool.decryptOllamaUsageCookie(key) || this.config.ollamaUsageCookie;
     const snapshot = this.parseUsageSnapshot(key.ollamaUsageJson);
@@ -620,15 +694,17 @@ export class AdminRoutes {
   }
 
   private applyOfficialUsageBlock(key: KeyRecord, snapshot: OllamaCloudUsageSnapshot) {
-    const exhausted = (window: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null) =>
-      Boolean(window && (window.usedPercent >= 99 || window.remainingPercent <= 1));
-    if (exhausted(snapshot.session)) {
+    const exhausted = (window: OfficialUsageWindow | null, threshold: number) =>
+      Boolean(window && window.remainingPercent <= threshold);
+    const sessionThreshold = this.effectiveRemainingThreshold(key.sessionRemainingThresholdPercent);
+    const weeklyThreshold = this.effectiveRemainingThreshold(key.weeklyRemainingThresholdPercent);
+    if (exhausted(snapshot.session, sessionThreshold)) {
       const settings = this.store.getUsageSettings(this.config);
       const fallback = getNextAnchoredIntervalResetAt(new Date(), settings.sessionResetAnchor, settings.sessionResetIntervalHours).toISOString();
       this.keyPool.markOfficialUsageBlocked(key.id, "session_blocked", snapshot.session?.resetAt || fallback);
       return;
     }
-    if (exhausted(snapshot.weekly)) {
+    if (exhausted(snapshot.weekly, weeklyThreshold)) {
       const settings = this.store.getUsageSettings(this.config);
       const fallback = getNextFixedWeeklyResetAt(new Date(), settings.usageTimezone, settings.weeklyResetDayOfWeek, settings.weeklyResetTime).toISOString();
       this.keyPool.markOfficialUsageBlocked(key.id, "weekly_blocked", snapshot.weekly?.resetAt || fallback);

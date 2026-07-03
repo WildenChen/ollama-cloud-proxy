@@ -14,6 +14,10 @@ const state = {
   loading: false,
   loadNotice: null,
   creatingKey: false,
+  editingKeySettingsId: null,
+  editingThresholdKeyId: null,
+  savingKeySettings: false,
+  savingThresholds: false,
 };
 
 const eventTypes = [
@@ -106,7 +110,7 @@ const dictionaries = {
     usageCookieState: "用量 Cookie",
     setUsageCookie: "設定用量 Cookie",
     clearUsageCookie: "清除用量 Cookie",
-    officialUsageCardsTitle: "Ollama Cloud 帳號剩餘量",
+    officialUsageCardsTitle: "Ollama Cloud Key 剩餘量",
     cookieReadyLabel: "Cookie 已設定",
     cookieMissingLabel: "未設定 Cookie",
     officialUnavailable: "尚無官方用量資料",
@@ -114,6 +118,21 @@ const dictionaries = {
     quotaWarningLabel: "接近用盡",
     quotaCriticalLabel: "即將耗盡",
     quotaMissingLabel: "待設定",
+    providerName: "Ollama Cloud",
+    keySettingsTitle: "Key 設定",
+    closeKeySettingsTitle: "關閉 Key 設定",
+    saveKeySettings: "儲存設定",
+    keySettingsSaved: "Key 設定已儲存。",
+    thresholdDialogTitle: "編輯截止值",
+    closeThresholdTitle: "關閉截止值設定",
+    sessionThresholdLabel: "5hr 最低剩餘百分比",
+    weeklyThresholdLabel: "每週最低剩餘百分比",
+    saveThresholds: "儲存截止值",
+    thresholdsSaved: "截止值已儲存。",
+    editThresholds: "編輯截止值",
+    refreshNow: "立即刷新",
+    cookieInputHint: "留空代表不變；勾選清除會移除已保存 Cookie。",
+    noAccountLabel: "未設定標籤",
     totalAccountsUsage: "全部帳號總計",
     accountUsageTitle: "帳號分組",
     modelUsageTodayTitle: "今日模型分布",
@@ -254,6 +273,9 @@ const dictionaries = {
       rotate: "輪替",
       "set-usage-cookie": "設定 Cookie",
       "clear-usage-cookie": "清除 Cookie",
+      "usage-refresh": "刷新用量",
+      "key-settings": "Key 設定",
+      "edit-thresholds": "編輯截止值",
       delete: "刪除",
       handled: "已處理",
     },
@@ -265,6 +287,9 @@ const dictionaries = {
       rotate: "替換這把金鑰的 API key，保留名稱與統計資料",
       "set-usage-cookie": "設定這把金鑰的 Ollama Cloud 用量 Cookie",
       "clear-usage-cookie": "清除這把金鑰保存的用量 Cookie",
+      "usage-refresh": "只刷新這把金鑰的 Ollama Cloud 官方用量",
+      "key-settings": "編輯這把金鑰的名稱、標籤、備註與用量 Cookie",
+      "edit-thresholds": "設定這把金鑰用量剩餘百分比截止值",
       delete: "軟刪除這把金鑰，列表不再顯示但保留事件紀錄",
     },
     level: {
@@ -383,7 +408,7 @@ const dictionaries = {
     usageCookieState: "Usage Cookie",
     setUsageCookie: "Set Usage Cookie",
     clearUsageCookie: "Clear Usage Cookie",
-    officialUsageCardsTitle: "Ollama Cloud Account Remaining Usage",
+    officialUsageCardsTitle: "Ollama Cloud Key Remaining Usage",
     cookieReadyLabel: "Cookie set",
     cookieMissingLabel: "Cookie missing",
     officialUnavailable: "No official usage data yet",
@@ -391,6 +416,21 @@ const dictionaries = {
     quotaWarningLabel: "Running low",
     quotaCriticalLabel: "Almost exhausted",
     quotaMissingLabel: "Needs setup",
+    providerName: "Ollama Cloud",
+    keySettingsTitle: "Key Settings",
+    closeKeySettingsTitle: "Close key settings",
+    saveKeySettings: "Save Settings",
+    keySettingsSaved: "Key settings saved.",
+    thresholdDialogTitle: "Edit Cutoffs",
+    closeThresholdTitle: "Close cutoff settings",
+    sessionThresholdLabel: "5h minimum remaining percent",
+    weeklyThresholdLabel: "Weekly minimum remaining percent",
+    saveThresholds: "Save Cutoffs",
+    thresholdsSaved: "Cutoffs saved.",
+    editThresholds: "Edit Cutoffs",
+    refreshNow: "Refresh Now",
+    cookieInputHint: "Leave blank to keep the saved cookie; check clear to remove it.",
+    noAccountLabel: "No label",
     totalAccountsUsage: "All accounts total",
     accountUsageTitle: "Account groups",
     modelUsageTodayTitle: "Model mix today",
@@ -531,6 +571,9 @@ const dictionaries = {
       rotate: "Rotate",
       "set-usage-cookie": "Set Cookie",
       "clear-usage-cookie": "Clear Cookie",
+      "usage-refresh": "Refresh Usage",
+      "key-settings": "Key Settings",
+      "edit-thresholds": "Edit Cutoffs",
       delete: "Delete",
       handled: "Handled",
     },
@@ -542,6 +585,9 @@ const dictionaries = {
       rotate: "Replace this API key while keeping name and statistics",
       "set-usage-cookie": "Set this key's Ollama Cloud usage cookie",
       "clear-usage-cookie": "Clear this key's saved usage cookie",
+      "usage-refresh": "Refresh official Ollama Cloud usage for this key only",
+      "key-settings": "Edit this key's name, label, notes, and usage cookie",
+      "edit-thresholds": "Edit this key's remaining-percent cutoffs",
       delete: "Soft-delete this key; events remain available",
     },
     level: {
@@ -628,6 +674,18 @@ function closeKeyDialog() {
   if (dialog.open) dialog.close();
 }
 
+function closeKeySettingsDialog() {
+  const dialog = $("keySettingsDialog");
+  if (dialog.open) dialog.close();
+  state.editingKeySettingsId = null;
+}
+
+function closeThresholdDialog() {
+  const dialog = $("thresholdDialog");
+  if (dialog.open) dialog.close();
+  state.editingThresholdKeyId = null;
+}
+
 function headers(json = false) {
   const result = { Authorization: `Bearer ${state.token}` };
   if (json) result["Content-Type"] = "application/json";
@@ -659,6 +717,12 @@ function formatPercent(value) {
   return `${Math.round(percent)}%`;
 }
 
+function formatQuotaNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+}
+
 function formatDuration(value) {
   const ms = Number(value || 0);
   if (ms < 1000) return `${formatNumber(ms)} ms`;
@@ -679,6 +743,17 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatResetTime(value) {
+  if (!value) return "-";
+  const diff = new Date(value).getTime() - Date.now();
+  if (!Number.isFinite(diff) || diff <= 0) return formatDate(value);
+  const minutes = Math.max(1, Math.round(diff / 60_000));
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  if (hours > 0) return `${hours}h ${restMinutes}m`;
+  return `${restMinutes}m`;
 }
 
 function toDateTimeLocal(value) {
@@ -783,7 +858,7 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  const version = `v${stats.version || "1.1.9"}`;
+  const version = `v${stats.version || "1.1.10"}`;
   $("appVersion").textContent = version;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
@@ -961,7 +1036,7 @@ function renderUsageOverview() {
   }
 
   const totals = overview.totals;
-  const accounts = overview.accounts || [];
+  const keyCards = overview.keyCards || [];
   const totalModelRequests = Math.max(
     1,
     (overview.topModelsToday || []).reduce((sum, model) => sum + Number(model.totalRequests || 0), 0)
@@ -983,8 +1058,8 @@ function renderUsageOverview() {
     </div>
     <div class="officialQuotaGrid">
       ${
-        accounts.length
-          ? accounts.map((account) => renderOfficialAccountUsage(account)).join("")
+        keyCards.length
+          ? keyCards.map((card) => renderOfficialKeyUsage(card)).join("")
           : `<div class="empty">${escapeHtml(t("noKeys"))}</div>`
       }
     </div>
@@ -1033,88 +1108,40 @@ function renderUsageOverview() {
   `;
 }
 
-function officialSummaryCard(title, window) {
-  if (!window) return usageSummaryCard(title, t("remainingLabel"), "-", t("noOfficialUsage"));
+function renderOfficialKeyUsage(card) {
+  const status = officialQuotaStatus(card);
+  const subtitle = [card.name, card.accountLabel || t("noAccountLabel"), card.apiKeyPreview].filter(Boolean).join(" · ");
+  const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
   return `
-    <article class="usageSummaryCard">
-      <span>${escapeHtml(title)}</span>
-      <strong>${formatPercent(window.remainingPercent)}</strong>
-      <small>${escapeHtml(t("remainingLabel"))} · ${escapeHtml(t("usedLabel"))} ${escapeHtml(formatPercent(window.usedPercent))}</small>
-    </article>
-  `;
-}
-
-function usageSummaryCard(title, label, value, meta) {
-  return `
-    <article class="usageSummaryCard">
-      <span>${escapeHtml(title)}</span>
-      <strong>${formatNumber(value)}</strong>
-      <small>${escapeHtml(label)} · ${escapeHtml(meta)}</small>
-    </article>
-  `;
-}
-
-function renderAccountUsage(account, maxSession, maxWeekly) {
-  const sessionWidth = Math.max(2, (Number(account.session?.estimatedRequests || 0) / maxSession) * 100);
-  const weeklyWidth = Math.max(2, (Number(account.weekly?.estimatedRequests || 0) / maxWeekly) * 100);
-  const blocked = Number(account.sessionBlockedKeys || 0) + Number(account.weeklyBlockedKeys || 0);
-  return `
-    <article class="accountUsageCard">
-      <div class="accountUsageHeader">
-        <div>
-          <strong>${escapeHtml(account.name || t("accountFallback"))}</strong>
-          <small>${escapeHtml(t("keysUnit")(formatNumber(account.keyCount)))} · ${escapeHtml(t("activeKeysUnit")(formatNumber(account.availableKeys), formatNumber(account.keyCount)))}</small>
-        </div>
-        <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blocked)}</span>
-      </div>
-      <div class="accountUsageBars">
-        ${usageMeter(t("sessionUsageLabel"), account.session?.estimatedRequests, account.session?.estimatedDurationMs, sessionWidth)}
-        ${usageMeter(t("weeklyUsageLabel"), account.weekly?.estimatedRequests, account.weekly?.estimatedDurationMs, weeklyWidth)}
-      </div>
-      <div class="accountUsageMeta">
-        <span>${escapeHtml(t("lifetimeUsageLabel"))} ${formatNumber(account.lifetime?.totalRequests)}</span>
-        <span>${escapeHtml(t("successesLabel"))} ${formatNumber(account.lifetime?.totalSuccesses)}</span>
-        <span>${escapeHtml(t("failuresLabel"))} ${formatNumber(account.lifetime?.totalFailures)}</span>
-        <span>${escapeHtml(t("activeRequestsLabel"))} ${formatNumber(account.activeRequests)}</span>
-      </div>
-    </article>
-  `;
-}
-
-function renderOfficialAccountUsage(account) {
-  const blocked = Number(account.sessionBlockedKeys || 0) + Number(account.weeklyBlockedKeys || 0);
-  const official = account.official || {};
-  const keys = official.keys || [];
-  const cookieCount = keys.filter((key) => key.hasCookie).length || official.available || 0;
-  const status = officialQuotaStatus(official);
-  const primaryName = account.name || keys[0]?.name || t("accountFallback");
-  const detail = keys.map((key) => key.name).filter(Boolean).join(", ");
-  const cookieLabel = cookieCount > 0 ? t("cookieReadyLabel") : t("cookieMissingLabel");
-  return `
-    <article class="officialQuotaCard ${status}">
+    <article class="officialQuotaCard ${status}" data-key-id="${escapeHtml(card.id)}">
       <div class="officialQuotaHeader">
         <span class="quotaStatusDot" aria-label="${escapeHtml(officialQuotaLabel(status))}"></span>
         <div>
-          <strong>${escapeHtml(primaryName)}</strong>
-          <small>${escapeHtml(detail && detail !== primaryName ? detail : t("activeKeysUnit")(formatNumber(account.availableKeys), formatNumber(account.keyCount)))}</small>
+          <strong>${escapeHtml(t("providerName"))}</strong>
+          <small>${escapeHtml(subtitle)}</small>
         </div>
-        <span class="quotaBadge">${escapeHtml(official.plan || "-")}</span>
+        <span class="quotaBadge">${escapeHtml(card.plan || "-")}</span>
       </div>
       <div class="quotaWindows">
-        ${officialUsageMeter(t("sessionUsageLabel"), official.session)}
-        ${officialUsageMeter(t("weeklyUsageLabel"), official.weekly)}
+        ${officialUsageMeter(t("sessionUsageLabel"), card.session, card.sessionRemainingThresholdPercent)}
+        ${officialUsageMeter(t("weeklyUsageLabel"), card.weekly, card.weeklyRemainingThresholdPercent)}
       </div>
+      ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}
       <div class="officialQuotaFooter">
-        <span>${escapeHtml(t("usageFreshnessLabel"))} ${official.fetchedAt ? relativeDate(official.fetchedAt) : "-"}</span>
-        <span>${escapeHtml(cookieLabel)} ${formatNumber(cookieCount)}/${formatNumber(account.keyCount)}</span>
-        <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blocked)}</span>
+        <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
+        <span>${escapeHtml(cookieLabel)}</span>
+        ${statusLabel(card)}
       </div>
-      ${official.lastError ? `<small class="usageError">${escapeHtml(official.lastError)}</small>` : ""}
+      <div class="quotaActions">
+        <button class="button" type="button" data-action="edit-thresholds">${escapeHtml(t("editThresholds"))}</button>
+        <button class="button" type="button" data-action="key-settings">${escapeHtml(t("keySettingsTitle"))}</button>
+        <button class="button" type="button" data-action="usage-refresh">${escapeHtml(t("refreshNow"))}</button>
+      </div>
     </article>
   `;
 }
 
-function officialUsageMeter(label, window) {
+function officialUsageMeter(label, window, threshold = 1) {
   if (!window) {
     return `
       <div class="quotaWindow missing">
@@ -1125,7 +1152,7 @@ function officialUsageMeter(label, window) {
     `;
   }
   const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
-  const state = remaining <= 1 ? "critical" : remaining <= 25 ? "warning" : "ok";
+  const state = remaining <= Number(threshold || 1) ? "critical" : remaining <= 25 ? "warning" : "ok";
   return `
     <div class="quotaWindow ${state}">
       <div class="quotaWindowLabel">
@@ -1135,13 +1162,17 @@ function officialUsageMeter(label, window) {
       <div class="quotaTrack">
         <span style="width: ${remaining}%"></span>
       </div>
-      <small>${escapeHtml(t("usedLabel"))} ${escapeHtml(formatPercent(window.usedPercent))} / 100 · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatDate(window.resetAt))}</small>
+      <small>${escapeHtml(formatQuotaNumber(window.usedPercent))} / 100 · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatResetTime(window.resetAt))}</small>
     </div>
   `;
 }
 
 function officialQuotaStatus(official) {
   if (!official?.session && !official?.weekly) return "missing";
+  const sessionThreshold = Number(official.sessionRemainingThresholdPercent ?? 1);
+  const weeklyThreshold = Number(official.weeklyRemainingThresholdPercent ?? 1);
+  if (official.session && Number(official.session.remainingPercent) <= sessionThreshold) return "critical";
+  if (official.weekly && Number(official.weekly.remainingPercent) <= weeklyThreshold) return "critical";
   const remaining = [official.session?.remainingPercent, official.weekly?.remainingPercent]
     .filter((value) => value !== null && value !== undefined)
     .map(Number);
@@ -1347,9 +1378,59 @@ async function refresh(options = {}) {
   }
 }
 
+function findKey(keyId) {
+  return state.keys.find((key) => key.id === keyId) || null;
+}
+
+function findUsageCard(keyId) {
+  return (state.stats?.usage?.overview?.keyCards || []).find((card) => card.id === keyId) || null;
+}
+
+function openKeySettingsDialog(keyId) {
+  const key = findKey(keyId);
+  if (!key) {
+    showNotice(t("noKeys"), "error");
+    return;
+  }
+  state.editingKeySettingsId = keyId;
+  const form = $("keySettingsForm");
+  form.elements.name.value = key.name || "";
+  form.elements.accountLabel.value = key.accountLabel || "";
+  form.elements.ollamaUsageCookie.value = "";
+  form.elements.clearOllamaUsageCookie.checked = false;
+  form.elements.notes.value = key.notes || "";
+  $("keySettingsDialog").showModal();
+}
+
+function openThresholdDialog(keyId) {
+  const key = findKey(keyId);
+  const card = findUsageCard(keyId);
+  if (!key && !card) {
+    showNotice(t("noKeys"), "error");
+    return;
+  }
+  state.editingThresholdKeyId = keyId;
+  const form = $("thresholdForm");
+  form.elements.sessionRemainingThresholdPercent.value = String(
+    key?.sessionRemainingThresholdPercent ?? card?.sessionRemainingThresholdPercent ?? 1
+  );
+  form.elements.weeklyRemainingThresholdPercent.value = String(
+    key?.weeklyRemainingThresholdPercent ?? card?.weeklyRemainingThresholdPercent ?? 1
+  );
+  $("thresholdDialog").showModal();
+}
+
 async function actionForKey(keyId, action) {
   if (action === "delete" && !confirm(t("confirmDelete"))) return;
   try {
+    if (action === "key-settings") {
+      openKeySettingsDialog(keyId);
+      return;
+    }
+    if (action === "edit-thresholds") {
+      openThresholdDialog(keyId);
+      return;
+    }
     if (action === "rotate") {
       const apiKey = prompt(t("promptNewKey"));
       if (!apiKey) return;
@@ -1371,6 +1452,8 @@ async function actionForKey(keyId, action) {
       });
     } else if (action === "delete") {
       await api(`/admin/keys/${keyId}`, { method: "DELETE" });
+    } else if (action === "usage-refresh") {
+      await api(`/admin/keys/${keyId}/usage-refresh`, { method: "POST" });
     } else {
       await api(`/admin/keys/${keyId}/${action}`, { method: "POST" });
     }
@@ -1416,6 +1499,70 @@ async function refreshModels() {
     showNotice(error.message, "error");
   } finally {
     $("refreshModelsButton").disabled = false;
+  }
+}
+
+async function saveKeySettings(event) {
+  event.preventDefault();
+  if (!state.editingKeySettingsId || state.savingKeySettings) return;
+  state.savingKeySettings = true;
+  const button = $("saveKeySettingsButton");
+  button.disabled = true;
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    name: String(form.get("name") || ""),
+    accountLabel: String(form.get("accountLabel") || ""),
+    notes: String(form.get("notes") || ""),
+  };
+  const cookie = String(form.get("ollamaUsageCookie") || "").trim();
+  if (event.currentTarget.elements.clearOllamaUsageCookie.checked) {
+    payload.clearOllamaUsageCookie = true;
+  } else if (cookie) {
+    payload.ollamaUsageCookie = cookie;
+  }
+  try {
+    await api(`/admin/keys/${state.editingKeySettingsId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    closeKeySettingsDialog();
+    showNotice(t("keySettingsSaved"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    state.savingKeySettings = false;
+    button.disabled = false;
+  }
+}
+
+async function saveThresholds(event) {
+  event.preventDefault();
+  if (!state.editingThresholdKeyId || state.savingThresholds) return;
+  state.savingThresholds = true;
+  const button = $("saveThresholdButton");
+  button.disabled = true;
+  const form = new FormData(event.currentTarget);
+  const valueOrNull = (name) => {
+    const value = String(form.get(name) || "").trim();
+    return value === "" ? null : Number(value);
+  };
+  try {
+    await api(`/admin/keys/${state.editingThresholdKeyId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        sessionRemainingThresholdPercent: valueOrNull("sessionRemainingThresholdPercent"),
+        weeklyRemainingThresholdPercent: valueOrNull("weeklyRemainingThresholdPercent"),
+      }),
+    });
+    closeThresholdDialog();
+    showNotice(t("thresholdsSaved"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    state.savingThresholds = false;
+    button.disabled = false;
   }
 }
 
@@ -1552,6 +1699,12 @@ function bindEvents() {
   $("addKeyButton").addEventListener("click", () => $("keyDialog").showModal());
   $("cancelKeyButton").addEventListener("click", closeKeyDialog);
   $("closeKeyDialogButton").addEventListener("click", closeKeyDialog);
+  $("cancelKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
+  $("closeKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
+  $("keySettingsForm").addEventListener("submit", saveKeySettings);
+  $("cancelThresholdButton").addEventListener("click", closeThresholdDialog);
+  $("closeThresholdButton").addEventListener("click", closeThresholdDialog);
+  $("thresholdForm").addEventListener("submit", saveThresholds);
   $("keyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (state.creatingKey) return;
@@ -1594,6 +1747,13 @@ function bindEvents() {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const card = button.closest("[data-key-id]");
+    actionForKey(card.dataset.keyId, button.dataset.action);
+  });
+  $("usageOverview").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const card = button.closest("[data-key-id]");
+    if (!card) return;
     actionForKey(card.dataset.keyId, button.dataset.action);
   });
   $("refreshModelsButton").addEventListener("click", refreshModels);

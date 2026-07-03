@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=1.1.9-usage-grid" />
+    <link rel="stylesheet" href="/admin/app.css?v=1.1.10-key-quota-cards" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.1.9</span></h1>
+          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.1.10</span></h1>
           <p id="summaryLine" data-i18n="summaryDefault">管理總覽</p>
         </div>
         <form id="tokenForm" class="tokenBar">
@@ -41,6 +41,17 @@
       </nav>
 
       <section id="overviewPage" class="page active">
+        <section class="panel usageHeroPanel">
+          <div class="panelHeader compact">
+            <div>
+              <h2 data-i18n="usageOverviewTitle">Ollama Cloud Key 用量</h2>
+              <p data-i18n="usageOverviewDescription">優先顯示 Ollama Cloud 官方剩餘用量，本 proxy 活動紀錄只作輔助。</p>
+            </div>
+            <button id="refreshUsageButton" class="button primary" type="button" data-i18n="refreshOfficialUsage">刷新官方用量</button>
+          </div>
+          <div id="usageOverview" class="usageOverview"></div>
+        </section>
+
         <section class="metricGrid" aria-label="系統指標" data-i18n-aria-label="systemMetrics">
           <article class="metric">
             <span data-i18n="activeRequestsMetric">處理中</span>
@@ -131,16 +142,6 @@
       </section>
 
       <section id="usagePage" class="page">
-        <section class="panel">
-          <div class="panelHeader compact">
-            <div>
-              <h2 data-i18n="usageOverviewTitle">全部帳號用量</h2>
-              <p data-i18n="usageOverviewDescription">依全部金鑰與帳號分組彙總代理估算用量。</p>
-            </div>
-            <button id="refreshUsageButton" class="button primary" type="button" data-i18n="refreshOfficialUsage">刷新官方用量</button>
-          </div>
-          <div id="usageOverview" class="usageOverview"></div>
-        </section>
         <section class="panel">
           <div class="panelHeader compact">
             <div>
@@ -248,6 +249,7 @@
         <label>
           <span data-i18n="usageCookieLabel">Ollama 用量 Cookie</span>
           <input name="ollamaUsageCookie" type="password" autocomplete="off" placeholder="__Secure-session=..." />
+          <small data-i18n="cookieInputHint">留空代表不變；勾選清除會移除已保存 Cookie。</small>
         </label>
         <label>
           <span data-i18n="notesLabel">備註</span>
@@ -260,6 +262,64 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=1.1.9-usage-grid" type="module"></script>
+    <dialog id="keySettingsDialog">
+      <form id="keySettingsForm" class="dialogCard">
+        <header>
+          <h2 data-i18n="keySettingsTitle">Key 設定</h2>
+          <button id="closeKeySettingsButton" class="iconButton ghost" value="cancel" type="button" title="關閉 Key 設定" aria-label="關閉 Key 設定" data-i18n-title="closeKeySettingsTitle" data-i18n-aria-label="closeKeySettingsTitle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </header>
+        <label>
+          <span data-i18n="nameLabel">名稱</span>
+          <input name="name" required autocomplete="off" />
+        </label>
+        <label>
+          <span data-i18n="accountLabelLabel">帳號標籤</span>
+          <input name="accountLabel" autocomplete="off" />
+        </label>
+        <label>
+          <span data-i18n="usageCookieLabel">Ollama 用量 Cookie</span>
+          <input name="ollamaUsageCookie" type="password" autocomplete="off" placeholder="__Secure-session=..." />
+        </label>
+        <label class="inlineCheck">
+          <input name="clearOllamaUsageCookie" type="checkbox" />
+          <span data-i18n="clearUsageCookie">清除用量 Cookie</span>
+        </label>
+        <label>
+          <span data-i18n="notesLabel">備註</span>
+          <textarea name="notes" rows="3" data-i18n-placeholder="notesPlaceholder"></textarea>
+        </label>
+        <footer>
+          <button class="button" type="button" id="cancelKeySettingsButton" data-i18n="cancel">取消</button>
+          <button class="button primary" type="submit" id="saveKeySettingsButton" data-i18n="saveKeySettings">儲存設定</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="thresholdDialog">
+      <form id="thresholdForm" class="dialogCard">
+        <header>
+          <h2 data-i18n="thresholdDialogTitle">編輯截止值</h2>
+          <button id="closeThresholdButton" class="iconButton ghost" value="cancel" type="button" title="關閉截止值設定" aria-label="關閉截止值設定" data-i18n-title="closeThresholdTitle" data-i18n-aria-label="closeThresholdTitle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </header>
+        <label>
+          <span data-i18n="sessionThresholdLabel">5hr 最低剩餘百分比</span>
+          <input name="sessionRemainingThresholdPercent" type="number" min="0" max="100" step="0.1" />
+        </label>
+        <label>
+          <span data-i18n="weeklyThresholdLabel">每週最低剩餘百分比</span>
+          <input name="weeklyRemainingThresholdPercent" type="number" min="0" max="100" step="0.1" />
+        </label>
+        <footer>
+          <button class="button" type="button" id="cancelThresholdButton" data-i18n="cancel">取消</button>
+          <button class="button primary" type="submit" id="saveThresholdButton" data-i18n="saveThresholds">儲存截止值</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/admin/app.js?v=1.1.10-key-quota-cards" type="module"></script>
   </body>
 </html>

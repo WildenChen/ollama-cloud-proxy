@@ -40,6 +40,15 @@ function publicKeyWithEffectiveStatus(key: KeyRecord, now = Date.now()): PublicK
   return safe;
 }
 
+function parseRemainingThreshold(value: unknown, field: string): number | null {
+  if (value === null || value === "") return null;
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+    throw new Error(`${field} must be between 0 and 100`);
+  }
+  return threshold;
+}
+
 export class KeyPoolManager {
   constructor(
     private readonly config: AppConfig,
@@ -99,6 +108,18 @@ export class KeyPoolManager {
     if ("accountLabel" in body) patch.accountLabel = body.accountLabel ? String(body.accountLabel) : null;
     if ("notes" in body) patch.notes = body.notes ? String(body.notes) : null;
     if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    if ("sessionRemainingThresholdPercent" in body) {
+      patch.sessionRemainingThresholdPercent = parseRemainingThreshold(
+        body.sessionRemainingThresholdPercent,
+        "sessionRemainingThresholdPercent"
+      );
+    }
+    if ("weeklyRemainingThresholdPercent" in body) {
+      patch.weeklyRemainingThresholdPercent = parseRemainingThreshold(
+        body.weeklyRemainingThresholdPercent,
+        "weeklyRemainingThresholdPercent"
+      );
+    }
     if (typeof body.ollamaUsageCookie === "string") {
       const value = body.ollamaUsageCookie.trim();
       patch.encryptedOllamaUsageCookie = value ? this.cipher.encrypt(value) : null;

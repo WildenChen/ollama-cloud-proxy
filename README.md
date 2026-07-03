@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/ps`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.9`
+目前版本：`1.1.10`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -263,6 +263,12 @@ After the first GitHub Actions publish, make sure the package visibility in GitH
 
 ## 版本更新紀錄
 
+### 1.1.10 - 2026-07-03
+
+- Admin 首頁第一屏整合 OmniRoute 風格的每 Key Ollama Cloud 用量卡片。
+- 新增 per-key 剩餘量截止值設定，官方用量低於該 Key 門檻時才封鎖輪替。
+- 新增單 Key 官方用量刷新，以及 Key 設定視窗，可編輯名稱、帳號標籤、備註與用量 Cookie。
+
 ### 1.1.9 - 2026-07-03
 
 - Admin 用量頁第一屏改成 Ollama Cloud 帳號卡片網格，直接顯示 5hr / weekly 剩餘量、已用量、重置時間、方案、Cookie 狀態與更新時間。
@@ -355,7 +361,7 @@ docker compose -f docker-compose.release.yml logs -f
 如果你使用指定版本，請把 `docker-compose.release.yml` 裡的 image tag 從 `latest` 改成固定版本，例如：
 
 ```yaml
-image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.9
+image: ghcr.io/wildenchen/ollama-cloud-proxy:1.1.10
 ```
 
 固定版本適合穩定部署；`latest` 適合跟著 `main` 最新版走。

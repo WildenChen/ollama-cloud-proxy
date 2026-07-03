@@ -67,6 +67,8 @@ export type KeyMutationPatch = Partial<{
   ollamaUsageJson: string | null;
   ollamaUsageLastRefreshAt: string | null;
   ollamaUsageLastError: string | null;
+  sessionRemainingThresholdPercent: number | null;
+  weeklyRemainingThresholdPercent: number | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;
@@ -103,6 +105,10 @@ function asNumber(value: unknown): number {
   return Number(value ?? 0);
 }
 
+function asNumberOrNull(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 function asBool(value: unknown): boolean {
   return Number(value ?? 0) === 1;
 }
@@ -136,6 +142,8 @@ function keyFromRow(row: Row): KeyRecord {
     ollamaUsageJson: asString(row.ollamaUsageJson),
     ollamaUsageLastRefreshAt: asString(row.ollamaUsageLastRefreshAt),
     ollamaUsageLastError: asString(row.ollamaUsageLastError),
+    sessionRemainingThresholdPercent: asNumberOrNull(row.sessionRemainingThresholdPercent),
+    weeklyRemainingThresholdPercent: asNumberOrNull(row.weeklyRemainingThresholdPercent),
     totalRequests: asNumber(row.totalRequests),
     totalSuccesses: asNumber(row.totalSuccesses),
     totalFailures: asNumber(row.totalFailures),
@@ -188,6 +196,8 @@ export class DatabaseStore {
         ollamaUsageJson TEXT,
         ollamaUsageLastRefreshAt TEXT,
         ollamaUsageLastError TEXT,
+        sessionRemainingThresholdPercent REAL,
+        weeklyRemainingThresholdPercent REAL,
         totalRequests INTEGER NOT NULL DEFAULT 0,
         totalSuccesses INTEGER NOT NULL DEFAULT 0,
         totalFailures INTEGER NOT NULL DEFAULT 0,
@@ -278,6 +288,8 @@ export class DatabaseStore {
     this.ensureColumn("keys", "ollamaUsageJson", "TEXT");
     this.ensureColumn("keys", "ollamaUsageLastRefreshAt", "TEXT");
     this.ensureColumn("keys", "ollamaUsageLastError", "TEXT");
+    this.ensureColumn("keys", "sessionRemainingThresholdPercent", "REAL");
+    this.ensureColumn("keys", "weeklyRemainingThresholdPercent", "REAL");
   }
 
   private ensureColumn(table: string, column: string, definition: string) {

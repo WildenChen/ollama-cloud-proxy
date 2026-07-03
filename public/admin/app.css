@@ -614,6 +614,10 @@ svg {
   padding: 12px;
 }
 
+.usageHeroPanel {
+  margin-top: 14px;
+}
+
 .officialUsageLead {
   border: 1px solid rgba(180, 205, 235, 0.12);
   border-radius: 8px;
@@ -663,7 +667,7 @@ svg {
 
 .officialQuotaGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -672,6 +676,9 @@ svg {
   border-left-width: 3px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.048);
+  display: flex;
+  flex-direction: column;
+  min-height: 176px;
   min-width: 0;
   padding: 10px;
 }
@@ -817,6 +824,22 @@ svg {
   gap: 8px 12px;
   border-top: 1px solid rgba(180, 205, 235, 0.1);
   padding-top: 9px;
+}
+
+.quotaActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 9px;
+}
+
+.quotaActions .button {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: normal;
+  line-height: 1.2;
 }
 
 .usageSummaryGrid {
@@ -1064,6 +1087,16 @@ dialog::backdrop {
   gap: 7px;
 }
 
+.dialogCard .inlineCheck {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  justify-content: start;
+}
+
+.dialogCard .inlineCheck input {
+  width: auto;
+}
+
 @media (max-width: 1180px) {
   .topbar {
     align-items: stretch;
@@ -1083,6 +1116,10 @@ dialog::backdrop {
   .metricGrid,
   .usageSummaryGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .officialQuotaGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settingsForm {
@@ -1121,7 +1158,8 @@ dialog::backdrop {
   }
 
   .metricGrid,
-  .usageSummaryGrid {
+  .usageSummaryGrid,
+  .officialQuotaGrid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1185,5 +1223,14 @@ dialog::backdrop {
 
   .actions .button {
     flex-basis: calc(50% - 4px);
+  }
+}
+
+@media (max-width: 560px) {
+  .metricGrid,
+  .usageSummaryGrid,
+  .officialQuotaGrid,
+  .quotaActions {
+    grid-template-columns: 1fr;
   }
 }

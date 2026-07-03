@@ -198,6 +198,119 @@ describe("proxy integration", () => {
     expect(app.keyPool.selectableCount()).toBe(0);
   });
 
+  test("Official usage respects per-key remaining threshold and recovers above threshold", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    let usedPercent = 95;
+    const settingsBaseUrl = createMockUpstream(() =>
+      new Response(
+        [
+          `<div data-usage-track aria-label="${usedPercent}% used">`,
+          `<span class="local-time" data-time="${resetAt}"></span>`,
+          "</div>",
+          '<div data-usage-track style="width: 20%"></div>',
+        ].join(""),
+        { headers: { "content-type": "text/html" } }
+      )
+    );
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const created = app.keyPool.create({ name: "threshold", apiKey: "good-key", ollamaUsageCookie: "cookie-value" });
+
+    const patch = await fetch(`${app.baseUrl}/admin/keys/${created.id}`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ sessionRemainingThresholdPercent: 10, weeklyRemainingThresholdPercent: 1 }),
+    });
+    const firstRefresh = await fetch(`${app.baseUrl}/admin/usage-overview/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    let key = app.store.listKeys(false)[0];
+
+    expect(patch.status).toBe(200);
+    expect(firstRefresh.status).toBe(200);
+    expect(key.status).toBe("session_blocked");
+    expect(key.cooldownUntil).toBe(resetAt);
+
+    usedPercent = 50;
+    const secondRefresh = await fetch(`${app.baseUrl}/admin/usage-overview/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    key = app.store.listKeys(false)[0];
+
+    expect(secondRefresh.status).toBe(200);
+    expect(key.status).toBe("available");
+    expect(key.cooldownUntil).toBeNull();
+  });
+
+  test("Admin key patch validates metadata and remaining thresholds", async () => {
+    const app = createApp(config());
+    const createResponse = await fetch(`${app.baseUrl}/admin/keys`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ name: "free-01", apiKey: "ollama_secret_abcdef" }),
+    });
+    const created = await createResponse.json();
+
+    const patchResponse = await fetch(`${app.baseUrl}/admin/keys/${created.key.id}`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "renamed",
+        accountLabel: "tag-a",
+        notes: "note",
+        sessionRemainingThresholdPercent: 12.5,
+        weeklyRemainingThresholdPercent: null,
+      }),
+    });
+    const patched = await patchResponse.json();
+    const invalid = await fetch(`${app.baseUrl}/admin/keys/${created.key.id}`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ sessionRemainingThresholdPercent: 120 }),
+    });
+
+    expect(patchResponse.status).toBe(200);
+    expect(patched.key.name).toBe("renamed");
+    expect(patched.key.accountLabel).toBe("tag-a");
+    expect(patched.key.notes).toBe("note");
+    expect(patched.key.sessionRemainingThresholdPercent).toBe(12.5);
+    expect(patched.key.weeklyRemainingThresholdPercent).toBeNull();
+    expect(invalid.status).toBe(400);
+  });
+
+  test("Per-key usage refresh only refreshes the selected key and hides cookies", async () => {
+    const cookies: string[] = [];
+    const settingsBaseUrl = createMockUpstream((req) => {
+      cookies.push(req.headers.get("cookie") || "");
+      return new Response(
+        [
+          '<div data-usage-track aria-label="10% used"></div>',
+          '<div data-usage-track style="width: 20%"></div>',
+        ].join(""),
+        { headers: { "content-type": "text/html" } }
+      );
+    });
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const first = app.keyPool.create({ name: "first", apiKey: "good-key-a", ollamaUsageCookie: "first-cookie" });
+    const second = app.keyPool.create({ name: "second", apiKey: "good-key-b", ollamaUsageCookie: "second-cookie" });
+
+    const refresh = await fetch(`${app.baseUrl}/admin/keys/${first.id}/usage-refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const body = await refresh.json();
+    const secondStored = app.store.getKey(second.id, true)!;
+
+    expect(refresh.status).toBe(200);
+    expect(cookies).toEqual(["__Secure-session=first-cookie"]);
+    expect(body.usage.id).toBe(first.id);
+    expect(body.usage.session.remainingPercent).toBe(90);
+    expect(secondStored.ollamaUsageLastRefreshAt).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("first-cookie");
+    expect(JSON.stringify(body)).not.toContain("second-cookie");
+  });
+
   test("Admin delete key hides it from the active key list", async () => {
     const app = createApp(config());
     const createResponse = await fetch(`${app.baseUrl}/admin/keys`, {
@@ -364,6 +477,8 @@ describe("proxy integration", () => {
     expect(body.totals.weekly.estimatedRequests).toBe(21);
     expect(body.totals.lifetime.totalRequests).toBe(21);
     expect(body.accounts).toHaveLength(2);
+    expect(body.keyCards).toHaveLength(3);
+    expect(body.keyCards.map((card: { name: string }) => card.name).sort()).toEqual(["free-a-1", "free-a-2", "free-b-1"]);
     expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.keyCount).toBe(2);
     expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.weekly.estimatedRequests).toBe(17);
     expect(body.accounts.find((account: { name: string }) => account.name === "free-b-1")?.keyCount).toBe(1);
@@ -851,7 +966,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.9");
+    expect(body.proxy_version).toBe("1.1.10");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

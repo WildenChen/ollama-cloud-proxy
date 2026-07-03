@@ -97,6 +97,8 @@ export type KeyRecord = {
   ollamaUsageJson: string | null;
   ollamaUsageLastRefreshAt: string | null;
   ollamaUsageLastError: string | null;
+  sessionRemainingThresholdPercent: number | null;
+  weeklyRemainingThresholdPercent: number | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;
