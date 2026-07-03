@@ -53,7 +53,7 @@ export class Router {
       (path === "/api/ps" && req.method === "GET") ||
       (
         this.config.ollamaCompatDiscoveryPublic &&
-        path === "/api/tags" &&
+        (path === "/api/tags" || path === "/v1/models") &&
         req.method === "GET" &&
         !this.hasBearerToken(req)
       )

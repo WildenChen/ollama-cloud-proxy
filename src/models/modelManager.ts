@@ -32,8 +32,24 @@ export class ModelManager {
     return { body: JSON.stringify(parsed), ...mapped };
   }
 
-  aliasesAsModels() {
-    return Object.keys(this.config.modelAliases).map((id) => ({
+  private enabledMap() {
+    return new Map(this.store.getModelSettings().map((row) => [String(row.model), Number(row.enabled ?? 1) === 1]));
+  }
+
+  isModelEnabled(model: string | null | undefined) {
+    if (!model) return true;
+    return this.enabledMap().get(model) ?? true;
+  }
+
+  setModelEnabled(model: string, enabled: boolean) {
+    return this.store.setModelEnabled(model, enabled);
+  }
+
+  aliasesAsModels(options: { includeDisabled?: boolean } = {}) {
+    const enabled = this.enabledMap();
+    return Object.keys(this.config.modelAliases)
+      .filter((id) => options.includeDisabled || (enabled.get(id) ?? true))
+      .map((id) => ({
       id,
       object: "model",
       created: 0,
@@ -66,17 +82,36 @@ export class ModelManager {
     this.store.setModelsCache(JSON.stringify(response));
   }
 
-  mergeAliases(response: unknown) {
-    if (!response || typeof response !== "object") {
-      return { object: "list", data: this.aliasesAsModels() };
-    }
-    const current = response as { data?: unknown };
-    const data = Array.isArray(current.data) ? current.data : [];
-    return { ...current, data: [...this.aliasesAsModels(), ...data] };
+  publicModelsResponse() {
+    const models = this.listModelsFromCache().models.map((model) => ({
+      id: model.id,
+      object: "model",
+      created: 0,
+      owned_by: model.source === "alias" ? "ollama-cloud-proxy" : "ollama-cloud",
+    }));
+    return { object: "list", data: models };
   }
 
-  listModelsFromCache(options: { includeAliases?: boolean } = {}) {
+  mergeAliases(response: unknown, options: { includeDisabled?: boolean } = {}) {
+    const enabled = this.enabledMap();
+    if (!response || typeof response !== "object") {
+      return { object: "list", data: this.aliasesAsModels(options) };
+    }
+    const current = response as { data?: unknown };
+    const data = Array.isArray(current.data)
+      ? current.data.filter((item) => {
+          if (options.includeDisabled || !item || typeof item !== "object" || Array.isArray(item)) return true;
+          const raw = item as Record<string, unknown>;
+          const id = String(raw.id || raw.name || raw.model || "");
+          return enabled.get(id) ?? true;
+        })
+      : [];
+    return { ...current, data: [...this.aliasesAsModels(options), ...data] };
+  }
+
+  listModelsFromCache(options: { includeAliases?: boolean; includeDisabled?: boolean } = {}) {
     const includeAliases = options.includeAliases ?? true;
+    const enabled = this.enabledMap();
     const cached = this.store.getModelsCache();
     let upstreamModels: Array<Record<string, unknown>> = [];
     let source: "cache" | "aliases_only" | "cache_parse_error" = "aliases_only";
@@ -98,6 +133,7 @@ export class ModelManager {
           id,
           upstreamModel,
           source: "alias",
+          enabled: enabled.get(id) ?? true,
         }))
       : [];
     const models = [
@@ -106,8 +142,9 @@ export class ModelManager {
         id: String(model.id || model.name || model.model || "unknown"),
         upstreamModel: String(model.id || model.name || model.model || "unknown"),
         source: "upstream",
+        enabled: enabled.get(String(model.id || model.name || model.model || "unknown")) ?? true,
       })),
-    ];
+    ].filter((model) => options.includeDisabled || model.enabled);
     return {
       models,
       count: models.length,

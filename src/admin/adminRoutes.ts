@@ -61,6 +61,8 @@ export class AdminRoutes {
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
     if (path === "/admin/models" && req.method === "GET") return json(this.modelsOverview());
     if (path === "/admin/models/refresh" && req.method === "POST") return this.refreshModels();
+    const modelSettingsMatch = path.match(/^\/admin\/models\/(.+)$/);
+    if (modelSettingsMatch && req.method === "PATCH") return this.patchModel(decodeURIComponent(modelSettingsMatch[1]), req);
     const modelTestMatch = path.match(/^\/admin\/models\/(.+)\/test$/);
     if (modelTestMatch && req.method === "POST") return this.testModel(decodeURIComponent(modelTestMatch[1]));
     if (path === "/admin/keys" && req.method === "GET") return json({ keys: this.keyPool.listPublic(false) });
@@ -214,10 +216,28 @@ export class AdminRoutes {
       ])
     );
     return {
-      ...this.models.listModelsFromCache(),
+      ...this.models.listModelsFromCache({ includeDisabled: true }),
       cache: this.models.cacheStats(),
       tests,
     };
+  }
+
+  private async patchModel(model: string, req: Request) {
+    try {
+      const body = await readJson(req);
+      if (typeof body.enabled !== "boolean") {
+        return openAiError(400, "invalid_model_settings", "enabled must be a boolean");
+      }
+      const setting = this.models.setModelEnabled(model, body.enabled);
+      return json({
+        model,
+        enabled: Number(setting.enabled ?? 1) === 1,
+        updatedAt: String(setting.updatedAt),
+        overview: this.modelsOverview(),
+      });
+    } catch (error) {
+      return openAiError(400, "invalid_model_settings", (error as Error).message);
+    }
   }
 
   private async refreshModels() {

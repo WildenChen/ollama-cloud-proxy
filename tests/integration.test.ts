@@ -521,9 +521,13 @@ describe("proxy integration", () => {
     expect(restartedStore.getKey(key.id, true)?.activeRequests).toBe(0);
   });
 
-  test("client token is required when CLIENT_API_KEYS is configured", async () => {
+  test("client token is required for inference when CLIENT_API_KEYS is configured", async () => {
     const app = createApp(config());
-    const response = await fetch(`${app.baseUrl}/v1/models`);
+    const response = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "minimax-m3", messages: [{ role: "user", content: "hi" }] }),
+    });
     const body = await response.json();
 
     expect(response.status).toBe(401);
@@ -872,6 +876,48 @@ describe("proxy integration", () => {
     expect(overview.tests["minimax-m3"].message).toBe("OK");
   });
 
+  test("Admin model toggle hides disabled models from public discovery and inference", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      const path = new URL(req.url).pathname;
+      if (path === "/v1/models") {
+        return Response.json({ object: "list", data: [{ id: "minimax-m3", object: "model" }] });
+      }
+      return Response.json({ choices: [{ message: { role: "assistant", content: "OK" } }] });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    await fetch(`${app.baseUrl}/admin/models/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const toggleResponse = await fetch(`${app.baseUrl}/admin/models/${encodeURIComponent("minimax-m3")}`, {
+      method: "PATCH",
+      headers: {
+        authorization: "Bearer admin-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ enabled: false }),
+    });
+    const publicModelsResponse = await fetch(`${app.baseUrl}/v1/models`);
+    const publicModels = await publicModelsResponse.json();
+    const inferenceResponse = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer client-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "minimax-m3", messages: [{ role: "user", content: "hi" }] }),
+    });
+    const inferenceBody = await inferenceResponse.json();
+
+    expect(toggleResponse.status).toBe(200);
+    expect(publicModelsResponse.status).toBe(200);
+    expect(publicModels.data).toEqual([]);
+    expect(inferenceResponse.status).toBe(404);
+    expect(inferenceBody.error.type).toBe("model_disabled");
+  });
+
   test("Ollama /api/tags returns public compatibility model list from aliases", async () => {
     const app = createApp(config({ modelAliases: { "kilo-default": "actual-model" } }));
 
@@ -963,7 +1009,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.2.0");
+    expect(body.proxy_version).toBe("1.2.1");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

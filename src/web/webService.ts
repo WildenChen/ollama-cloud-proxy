@@ -413,7 +413,7 @@ export class WebService {
 
   private parseMaxResults(value: unknown): { value: number } | { response: Response } {
     if (value === undefined || value === null) return { value: 5 };
-    if (!Number.isInteger(value) || value < 1) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
       return { response: openAiError(400, "invalid_request", "max_results must be a positive integer") };
     }
     if (value > 10) {

@@ -97,6 +97,9 @@ const dictionaries = {
     overviewPageTitle: "金鑰用量總覽",
     usageOverviewTitle: "金鑰用量總覽",
     usageOverviewDescription: "管理金鑰與檢視 Ollama Cloud 官方剩餘用量。",
+    combinedQuotaTitle: "總額度池",
+    combinedQuotaDescription: "所有已取得官方用量的金鑰合計。",
+    quotaPoolAccounts: (count, total) => `${count}/${total} 把已接入`,
     refreshOfficialUsage: "刷新官方用量",
     officialUsageTitle: "官方用量",
     proxyActivityTitle: "代理活動記錄",
@@ -178,6 +181,8 @@ const dictionaries = {
     refreshModels: "刷新模型清單",
     testModel: "測試",
     testingModel: "測試中",
+    modelEnabled: "啟用模型",
+    modelDisabled: "已停用",
     availableModelCount: (count, source) => `目前 ${count} 個模型，來源 ${source}`,
     cacheMetric: (label, value) => `${label} ${value}`,
     cacheValid: "有效",
@@ -392,6 +397,9 @@ const dictionaries = {
     overviewPageTitle: "Key Usage Overview",
     usageOverviewTitle: "Key Usage Overview",
     usageOverviewDescription: "Manage keys and view Ollama Cloud official remaining usage.",
+    combinedQuotaTitle: "Total Quota Pool",
+    combinedQuotaDescription: "Combined official usage across connected keys.",
+    quotaPoolAccounts: (count, total) => `${count}/${total} connected`,
     refreshOfficialUsage: "Refresh Official Usage",
     officialUsageTitle: "Official Usage",
     proxyActivityTitle: "Proxy Activity",
@@ -473,6 +481,8 @@ const dictionaries = {
     refreshModels: "Refresh Models",
     testModel: "Test",
     testingModel: "Testing",
+    modelEnabled: "Model enabled",
+    modelDisabled: "Disabled",
     availableModelCount: (count, source) => `${count} models, source ${source}`,
     cacheMetric: (label, value) => `${label} ${value}`,
     cacheValid: "Valid",
@@ -983,7 +993,7 @@ function renderUsageOverview() {
     <div class="officialUsageLead">
       <div>
         <span class="eyebrow">${escapeHtml(t("officialUsageTitle"))}</span>
-        <strong>${escapeHtml(t("overviewPageTitle"))}</strong>
+        <strong>Ollama Cloud ${escapeHtml(t("officialUsageTitle"))}</strong>
         <small>${escapeHtml(totals.official.lastError || overview.note || t("usageOverviewDescription"))}</small>
       </div>
       <div class="officialUsageChips" aria-label="${escapeHtml(t("officialUsageTitle"))}">
@@ -992,6 +1002,7 @@ function renderUsageOverview() {
         <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blockedKeys)}</span>
       </div>
     </div>
+    ${renderCombinedQuotaCard(totals, keyCards)}
     <div class="officialQuotaGrid">
       ${
         keyCards.length
@@ -1002,22 +1013,77 @@ function renderUsageOverview() {
   `;
 }
 
+function renderCombinedQuotaCard(totals, keyCards) {
+  const session = aggregateOfficialWindow(keyCards, "session");
+  const weekly = aggregateOfficialWindow(keyCards, "weekly");
+  return `
+    <article class="combinedQuotaCard">
+      <div class="combinedQuotaHeader">
+        <div>
+          <span class="eyebrow">${escapeHtml(t("combinedQuotaTitle"))}</span>
+          <strong>${escapeHtml(t("combinedQuotaDescription"))}</strong>
+        </div>
+        <span class="quotaBadge">${escapeHtml(t("quotaPoolAccounts")(totals.official.available || 0, totals.keyCount || 0))}</span>
+      </div>
+      <div class="combinedQuotaWindows">
+        ${aggregateUsageMeter(t("sessionUsageLabel"), session, totals.official.session?.resetAt)}
+        ${aggregateUsageMeter(t("weeklyUsageLabel"), weekly, totals.official.weekly?.resetAt)}
+      </div>
+    </article>
+  `;
+}
+
+function aggregateOfficialWindow(cards, key) {
+  const windows = (cards || []).map((card) => card[key]).filter(Boolean);
+  const capacity = windows.length * 100;
+  const used = windows.reduce((sum, window) => sum + Number(window.usedPercent || 0), 0);
+  const remainingPercent = capacity > 0 ? Math.max(0, Math.min(100, ((capacity - used) / capacity) * 100)) : null;
+  return { capacity, used, remainingPercent };
+}
+
+function aggregateUsageMeter(label, window, resetAt) {
+  if (!window.capacity) {
+    return `
+      <div class="quotaWindow missing">
+        <div class="quotaWindowLabel"><span>${escapeHtml(label)}</span><strong>-</strong></div>
+        <div class="quotaTrack"><span style="width: 0%"></span></div>
+        <small>${escapeHtml(t("officialUnavailable"))}</small>
+      </div>
+    `;
+  }
+  const remaining = Math.max(0, Math.min(100, Number(window.remainingPercent || 0)));
+  const state = remaining <= 1 ? "critical" : remaining <= 25 ? "warning" : "ok";
+  return `
+    <div class="quotaWindow ${state}">
+      <div class="quotaWindowLabel">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(formatPercent(remaining))} ${escapeHtml(t("remainingLabel"))}</strong>
+      </div>
+      <div class="quotaTrack">
+        <span style="width: ${remaining}%"></span>
+      </div>
+      <small>${escapeHtml(formatQuotaNumber(window.used))} / ${escapeHtml(formatQuotaNumber(window.capacity))} · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatResetTime(resetAt))}</small>
+    </div>
+  `;
+}
+
 function renderOfficialKeyUsage(card) {
   const status = officialQuotaStatus(card);
   const subtitle = card.apiKeyPreview;
   const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
   return `
-    <article class="officialQuotaCard ${status}" data-key-id="${escapeHtml(card.id)}">
+    <article class="officialQuotaCard ${status} ${card.enabled ? "" : "disabled"}" data-key-id="${escapeHtml(card.id)}">
       <div class="officialQuotaHeader">
-        <label class="toggleSwitch" title="${card.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}">
-          <input type="checkbox" ${card.enabled ? "checked" : ""} data-action="toggle-enable" aria-label="${card.enabled ? mapText("action", "disable") : mapText("action", "enable")}" />
-          <span class="toggleSlider"></span>
-        </label>
+        <span class="quotaStatusDot" aria-hidden="true"></span>
         <div>
           <strong>${escapeHtml(card.name)}</strong>
           <small>${escapeHtml(subtitle)}</small>
         </div>
         <span class="quotaBadge">${escapeHtml(card.plan || "-")}</span>
+        <label class="toggleSwitch" title="${card.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}">
+          <input type="checkbox" ${card.enabled ? "checked" : ""} data-action="toggle-enable" aria-label="${card.enabled ? mapText("action", "disable") : mapText("action", "enable")}" />
+          <span class="toggleSlider"></span>
+        </label>
       </div>
       <div class="quotaWindows">
         ${officialUsageMeter(t("sessionUsageLabel"), card.session, card.sessionRemainingThresholdPercent)}
@@ -1027,7 +1093,7 @@ function renderOfficialKeyUsage(card) {
       <div class="officialQuotaFooter">
         <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
         <span>${escapeHtml(cookieLabel)}</span>
-        ${statusLabel(card)}
+        ${officialRuntimeStatusLabel(card)}
       </div>
       <div class="quotaActions">
         <div class="quotaActionsPrimary">
@@ -1043,6 +1109,15 @@ function renderOfficialKeyUsage(card) {
       </div>
     </article>
   `;
+}
+
+function officialRuntimeStatusLabel(card) {
+  const status = card.enabled ? card.status : "disabled";
+  if (status === "available" || status === "unknown") return "";
+  if (status === "cooling_down" && officialQuotaStatus(card) !== "critical") {
+    return `<span class="status quiet">${escapeHtml(mapText("status", status))}</span>`;
+  }
+  return `<span class="status ${status}">${escapeHtml(mapText("status", status))}</span>`;
 }
 
 function officialUsageMeter(label, window, threshold = 1) {
@@ -1247,17 +1322,22 @@ function renderModelTests() {
     .map((model) => {
       const test = overview.tests?.[model.id];
       const testing = state.testingModels.has(model.id);
+      const enabled = model.enabled !== false;
       const result = test
         ? `${test.ok ? "OK" : "FAIL"} · ${test.responseTimeMs === null ? "-" : t("responseTime")(test.responseTimeMs)} · ${relativeDate(test.testedAt)}`
         : t("neverTested");
       return `
-        <div class="modelTestRow" data-model-id="${escapeHtml(model.id)}">
+        <div class="modelTestRow ${enabled ? "" : "disabled"}" data-model-id="${escapeHtml(model.id)}">
           <div>
             <strong>${escapeHtml(model.id)}</strong>
             <small>${escapeHtml(mapText("cacheSource", model.source))}${model.upstreamModel && model.upstreamModel !== model.id ? ` · ${escapeHtml(model.upstreamModel)}` : ""}</small>
           </div>
           <span class="${test?.ok ? "goodText" : test ? "badText" : ""}">${escapeHtml(result)}</span>
-          <button class="button" data-model-test="${escapeHtml(model.id)}" ${testing ? "disabled" : ""}>${escapeHtml(testing ? t("testingModel") : t("testModel"))}</button>
+          <label class="toggleSwitch modelToggle" title="${escapeHtml(enabled ? t("modelEnabled") : t("modelDisabled"))}">
+            <input type="checkbox" ${enabled ? "checked" : ""} data-model-toggle="${escapeHtml(model.id)}" aria-label="${escapeHtml(t("modelEnabled"))}" />
+            <span class="toggleSlider"></span>
+          </label>
+          <button class="button" data-model-test="${escapeHtml(model.id)}" ${testing || !enabled ? "disabled" : ""}>${escapeHtml(testing ? t("testingModel") : t("testModel"))}</button>
         </div>
       `;
     })
@@ -1546,6 +1626,26 @@ async function testModel(modelId) {
   }
 }
 
+async function toggleModel(modelId, enabled) {
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  try {
+    const result = await api(`/admin/models/${encodeURIComponent(modelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+    state.modelOverview = result.overview || (await api("/admin/models"));
+    renderAll();
+    showNotice(`${modelId}: ${enabled ? t("modelEnabled") : t("modelDisabled")}`);
+  } catch (error) {
+    showNotice(error.message, "error");
+    state.modelOverview = await api("/admin/models");
+    renderAll();
+  }
+}
+
 async function saveUsageSettings(event) {
   event.preventDefault();
   if (!state.token) {
@@ -1725,6 +1825,11 @@ function bindEvents() {
     const button = event.target.closest("button[data-model-test]");
     if (!button) return;
     testModel(button.dataset.modelTest);
+  });
+  $("modelTestList").addEventListener("change", (event) => {
+    const toggle = event.target.closest("input[data-model-toggle]");
+    if (!toggle) return;
+    toggleModel(toggle.dataset.modelToggle, toggle.checked);
   });
 }
 

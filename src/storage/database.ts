@@ -270,6 +270,12 @@ export class DatabaseStore {
         responseJson TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS model_settings (
+        model TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updatedAt TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -669,5 +675,22 @@ export class DatabaseStore {
 
   getModelTests(): Row[] {
     return this.db.query("SELECT * FROM model_tests ORDER BY model ASC").all() as Row[];
+  }
+
+  getModelSettings(): Row[] {
+    return this.db.query("SELECT * FROM model_settings ORDER BY model ASC").all() as Row[];
+  }
+
+  setModelEnabled(model: string, enabled: boolean): Row {
+    const normalized = model.trim();
+    const now = isoNow();
+    this.db
+      .query(
+        `INSERT INTO model_settings (model, enabled, updatedAt)
+        VALUES ($model, $enabled, $updatedAt)
+        ON CONFLICT(model) DO UPDATE SET enabled = $enabled, updatedAt = $updatedAt`
+      )
+      .run({ $model: normalized, $enabled: enabled ? 1 : 0, $updatedAt: now });
+    return this.db.query("SELECT * FROM model_settings WHERE model = $model").get({ $model: normalized }) as Row;
   }
 }

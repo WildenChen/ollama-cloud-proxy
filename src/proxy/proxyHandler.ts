@@ -46,6 +46,9 @@ export class ProxyHandler {
     const startedAt = Date.now();
 
     if (path === "/v1/models" && req.method === "GET") {
+      if (!client.authenticated && this.config.ollamaCompatDiscoveryPublic) {
+        return Response.json(this.models.publicModelsResponse());
+      }
       const cached = this.models.getCachedModels();
       if (cached) return Response.json(cached);
       return this.forwardWithQueue(req, requestId, client, null, null, undefined, startedAt, {
@@ -83,11 +86,13 @@ export class ProxyHandler {
               body: rawBody,
               originalModel: this.modelFromBody(rawBody),
               upstreamModel: this.modelFromBody(rawBody),
-            };
+          };
       } catch (error) {
         const type = (error as Error).message === "request_body_too_large" ? "request_body_too_large" : "invalid_request";
         return openAiError(type === "request_body_too_large" ? 413 : 400, type, (error as Error).message);
       }
+      const disabled = this.disabledModelError(mappedBody.originalModel, mappedBody.upstreamModel);
+      if (disabled) return disabled;
 
       return this.forwardWithQueue(
         req,
@@ -121,6 +126,8 @@ export class ProxyHandler {
       const type = (error as Error).message === "request_body_too_large" ? "request_body_too_large" : "invalid_request";
       return openAiError(type === "request_body_too_large" ? 413 : 400, type, (error as Error).message);
     }
+    const disabled = this.disabledModelError(mappedBody.originalModel, mappedBody.upstreamModel);
+    if (disabled) return disabled;
 
     return this.forwardWithQueue(
       req,
@@ -168,6 +175,16 @@ export class ProxyHandler {
     });
 
     return this.forwardAttempts(req, requestId, client, originalModel, upstreamModel, body, startedAt, slot, options);
+  }
+
+  private disabledModelError(originalModel: string | null, upstreamModel: string | null): Response | null {
+    if (!this.models.isModelEnabled(originalModel) || !this.models.isModelEnabled(upstreamModel)) {
+      return openAiError(404, "model_disabled", "Model is disabled by proxy settings", {
+        model: originalModel,
+        upstreamModel,
+      });
+    }
+    return null;
   }
 
   private async forwardAttempts(
