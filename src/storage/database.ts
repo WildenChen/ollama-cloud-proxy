@@ -33,7 +33,6 @@ export type EventInput = {
 
 export type KeyCreateInput = {
   name: string;
-  accountLabel?: string | null;
   notes?: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
@@ -42,7 +41,6 @@ export type KeyCreateInput = {
 
 export type KeyMutationPatch = Partial<{
   name: string;
-  accountLabel: string | null;
   notes: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
@@ -117,7 +115,6 @@ function keyFromRow(row: Row): KeyRecord {
   return {
     id: String(row.id),
     name: String(row.name),
-    accountLabel: asString(row.accountLabel),
     notes: asString(row.notes),
     apiKeyPreview: String(row.apiKeyPreview),
     encryptedApiKey: String(row.encryptedApiKey),
@@ -171,7 +168,6 @@ export class DatabaseStore {
       CREATE TABLE IF NOT EXISTS keys (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        accountLabel TEXT,
         notes TEXT,
         apiKeyPreview TEXT NOT NULL,
         encryptedApiKey TEXT NOT NULL,
@@ -386,11 +382,11 @@ export class DatabaseStore {
     this.db
       .query(
         `INSERT INTO keys (
-          id, name, accountLabel, notes, apiKeyPreview, encryptedApiKey, encryptedOllamaUsageCookie,
+          id, name, notes, apiKeyPreview, encryptedApiKey, encryptedOllamaUsageCookie,
           enabled, status, blockReason, activeRequests, usageSource, resetSource,
           createdAt, updatedAt
         ) VALUES (
-          $id, $name, $accountLabel, $notes, $apiKeyPreview, $encryptedApiKey, $encryptedOllamaUsageCookie,
+          $id, $name, $notes, $apiKeyPreview, $encryptedApiKey, $encryptedOllamaUsageCookie,
           1, 'unknown', 'none', 0, 'not_available', 'fallback',
           $createdAt, $updatedAt
         )`
@@ -398,7 +394,6 @@ export class DatabaseStore {
       .run({
         $id: id,
         $name: input.name,
-        $accountLabel: input.accountLabel ?? null,
         $notes: input.notes ?? null,
         $apiKeyPreview: input.apiKeyPreview,
         $encryptedApiKey: input.encryptedApiKey,

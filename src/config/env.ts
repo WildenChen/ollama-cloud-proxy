@@ -166,7 +166,7 @@ export function loadConfig(): AppConfig {
     sessionResetIntervalHours: numberEnv("SESSION_RESET_INTERVAL_HOURS", 5),
     weeklyResetMode: process.env.WEEKLY_RESET_MODE || "fixed_weekly",
     weeklyResetDayOfWeek: numberEnv("WEEKLY_RESET_DAY_OF_WEEK", 1),
-    weeklyResetTime: process.env.WEEKLY_RESET_TIME || "08:30",
+    weeklyResetTime: process.env.WEEKLY_RESET_TIME || "08:00",
     weeklyResetGraceMinutes: numberEnv("WEEKLY_RESET_GRACE_MINUTES", 5),
     weeklyReactivationJitterSeconds: numberEnv("WEEKLY_REACTIVATION_JITTER_SECONDS", 180),
     eventRetentionDays: numberEnv("EVENT_RETENTION_DAYS", 14),

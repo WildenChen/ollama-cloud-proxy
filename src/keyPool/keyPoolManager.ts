@@ -75,7 +75,7 @@ export class KeyPoolManager {
     return key.encryptedOllamaUsageCookie ? this.cipher.decrypt(key.encryptedOllamaUsageCookie) : null;
   }
 
-  create(input: { name: string; accountLabel?: string | null; notes?: string | null; apiKey: string; ollamaUsageCookie?: string | null }) {
+  create(input: { name: string; notes?: string | null; apiKey: string; ollamaUsageCookie?: string | null }) {
     const name = input.name.trim();
     const apiKey = input.apiKey.trim();
     if (!name) throw new Error("name is required");
@@ -83,7 +83,6 @@ export class KeyPoolManager {
     const usageCookie = input.ollamaUsageCookie?.trim();
     const key = this.store.createKey({
       name,
-      accountLabel: input.accountLabel ?? null,
       notes: input.notes ?? null,
       apiKeyPreview: apiKeyPreview(apiKey),
       encryptedApiKey: this.cipher.encrypt(apiKey),
@@ -105,7 +104,6 @@ export class KeyPoolManager {
       if (!body.name.trim()) throw new Error("name cannot be empty");
       patch.name = body.name.trim();
     }
-    if ("accountLabel" in body) patch.accountLabel = body.accountLabel ? String(body.accountLabel) : null;
     if ("notes" in body) patch.notes = body.notes ? String(body.notes) : null;
     if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
     if ("sessionRemainingThresholdPercent" in body) {

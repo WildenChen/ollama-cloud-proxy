@@ -231,6 +231,7 @@ const dictionaries = {
     confirmDelete: "確定要停用並刪除這把金鑰嗎？",
     promptNewKey: "新的 Ollama API 金鑰",
     creating: "建立中",
+    saving: "儲存中",
     noBlockReason: "無封鎖原因",
     perKeyLimit: "每把上限 1",
     consecutiveFailures: (count) => `連續 ${count} 次`,
@@ -525,6 +526,7 @@ const dictionaries = {
     confirmDelete: "Disable and delete this key?",
     promptNewKey: "New Ollama API key",
     creating: "Creating",
+    saving: "Saving",
     noBlockReason: "No block reason",
     perKeyLimit: "Per-key limit 1",
     consecutiveFailures: (count) => `${count} consecutive`,
@@ -1002,7 +1004,7 @@ function renderUsageOverview() {
 
 function renderOfficialKeyUsage(card) {
   const status = officialQuotaStatus(card);
-  const subtitle = [card.accountLabel || t("noAccountLabel"), card.apiKeyPreview].filter(Boolean).join(" · ");
+  const subtitle = card.apiKeyPreview;
   const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
   return `
     <article class="officialQuotaCard ${status}" data-key-id="${escapeHtml(card.id)}">
@@ -1035,8 +1037,7 @@ function renderOfficialKeyUsage(card) {
         </div>
         <div class="quotaActionsSecondary">
           <button class="button" type="button" data-action="test">${escapeHtml(mapText("action", "test"))}</button>
-          <button class="button" type="button" data-action="reset-cooldown">${escapeHtml(mapText("action", "reset-cooldown"))}</button>
-          <button class="button" type="button" data-action="rotate">${escapeHtml(mapText("action", "rotate"))}</button>
+          <button class="button" type="button" data-action="reset-cooldown" ${card.status === "cooling_down" || card.status === "session_blocked" || card.status === "weekly_blocked" ? "" : "disabled"}>${escapeHtml(mapText("action", "reset-cooldown"))}</button>
           <button class="button danger" type="button" data-action="delete">${escapeHtml(mapText("action", "delete"))}</button>
         </div>
       </div>
@@ -1353,7 +1354,6 @@ function openKeySettingsDialog(keyId) {
   state.editingKeySettingsId = keyId;
   const form = $("keySettingsForm");
   form.elements.name.value = key.name || "";
-  form.elements.accountLabel.value = key.accountLabel || "";
   form.elements.ollamaUsageCookie.value = "";
   form.elements.clearOllamaUsageCookie.checked = false;
   form.elements.notes.value = key.notes || "";
@@ -1466,11 +1466,12 @@ async function saveKeySettings(event) {
   if (!state.editingKeySettingsId || state.savingKeySettings) return;
   state.savingKeySettings = true;
   const button = $("saveKeySettingsButton");
+  const originalLabel = button.textContent;
   button.disabled = true;
+  button.textContent = t("saving");
   const form = new FormData(event.currentTarget);
   const payload = {
     name: String(form.get("name") || ""),
-    accountLabel: String(form.get("accountLabel") || ""),
     notes: String(form.get("notes") || ""),
   };
   const cookie = String(form.get("ollamaUsageCookie") || "").trim();
@@ -1492,6 +1493,7 @@ async function saveKeySettings(event) {
   } finally {
     state.savingKeySettings = false;
     button.disabled = false;
+    button.textContent = originalLabel || t("saveKeySettings");
   }
 }
 
@@ -1675,7 +1677,6 @@ function bindEvents() {
     const form = new FormData(event.currentTarget);
     const payload = {
       name: String(form.get("name") || ""),
-      accountLabel: String(form.get("accountLabel") || ""),
       apiKey: String(form.get("apiKey") || ""),
       ollamaUsageCookie: String(form.get("ollamaUsageCookie") || ""),
       notes: String(form.get("notes") || ""),

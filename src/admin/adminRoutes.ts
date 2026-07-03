@@ -27,7 +27,6 @@ type OfficialUsageWindow = { usedPercent: number; remainingPercent: number; rese
 type OfficialKeyUsageCard = {
   id: string;
   name: string;
-  accountLabel: string | null;
   apiKeyPreview: string;
   enabled: boolean;
   status: string;
@@ -96,7 +95,6 @@ export class AdminRoutes {
       const body = await readJson(req);
       const key = this.keyPool.create({
         name: String(body.name || ""),
-        accountLabel: body.accountLabel ? String(body.accountLabel) : null,
         notes: body.notes ? String(body.notes) : null,
         apiKey: String(body.apiKey || ""),
         ollamaUsageCookie: body.ollamaUsageCookie ? String(body.ollamaUsageCookie) : null,
@@ -503,8 +501,8 @@ export class AdminRoutes {
     for (const key of keys) {
       const official = await this.officialUsageForKey(key, forceRefresh);
       const currentKey = this.store.getKey(key.id, false) ?? key;
-      const accountId = currentKey.accountLabel?.trim() || `key:${currentKey.id}`;
-      const accountName = currentKey.accountLabel?.trim() || currentKey.name;
+      const accountId = `key:${currentKey.id}`;
+      const accountName = currentKey.name;
       const account = accounts.get(accountId) ?? this.emptyAccountUsage(accountId, accountName);
       this.addKeyUsage(totals, currentKey, now, settings);
       this.addKeyUsage(account, currentKey, now, settings);
@@ -516,7 +514,7 @@ export class AdminRoutes {
 
     return {
       source: totals.official.available > 0 ? "ollama_cloud_settings" : "estimated_by_proxy",
-      accountGrouping: "accountLabel",
+      accountGrouping: "none",
       note: "Official Ollama Cloud usage is shown when a usage cookie is configured. Proxy request/token stats are local activity only.",
       totals,
       accounts: Array.from(accounts.values()).sort((a, b) => {
@@ -608,7 +606,6 @@ export class AdminRoutes {
     return {
       id: key.id,
       name: key.name,
-      accountLabel: key.accountLabel,
       apiKeyPreview: key.apiKeyPreview,
       enabled: key.enabled,
       status: key.status,

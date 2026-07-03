@@ -55,7 +55,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     sessionResetIntervalHours: 5,
     weeklyResetMode: "fixed_weekly",
     weeklyResetDayOfWeek: 1,
-    weeklyResetTime: "08:30",
+    weeklyResetTime: "08:00",
     weeklyResetGraceMinutes: 5,
     weeklyReactivationJitterSeconds: 0,
     eventRetentionDays: 14,
@@ -144,7 +144,6 @@ describe("proxy integration", () => {
       headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
       body: JSON.stringify({
         name: "free-01",
-        accountLabel: "acct",
         apiKey: "ollama_secret_abcdef",
         ollamaUsageCookie: "__Secure-session=test-cookie",
       }),
@@ -257,7 +256,6 @@ describe("proxy integration", () => {
       headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
       body: JSON.stringify({
         name: "renamed",
-        accountLabel: "tag-a",
         notes: "note",
         sessionRemainingThresholdPercent: 12.5,
         weeklyRemainingThresholdPercent: null,
@@ -272,7 +270,6 @@ describe("proxy integration", () => {
 
     expect(patchResponse.status).toBe(200);
     expect(patched.key.name).toBe("renamed");
-    expect(patched.key.accountLabel).toBe("tag-a");
     expect(patched.key.notes).toBe("note");
     expect(patched.key.sessionRemainingThresholdPercent).toBe(12.5);
     expect(patched.key.weeklyRemainingThresholdPercent).toBeNull();
@@ -429,11 +426,11 @@ describe("proxy integration", () => {
     expect(body.usage.windows.lifetimeFields).toContain("totalRequests");
   });
 
-  test("Admin usage overview totals all keys and groups by account label", async () => {
+  test("Admin usage overview totals all keys and groups individually", async () => {
     const app = createApp(config());
     const now = new Date().toISOString();
-    const first = app.keyPool.create({ name: "free-a-1", accountLabel: "free-a", apiKey: "good-key-a1" });
-    const second = app.keyPool.create({ name: "free-a-2", accountLabel: "free-a", apiKey: "good-key-a2" });
+    const first = app.keyPool.create({ name: "free-a-1", apiKey: "good-key-a1" });
+    const second = app.keyPool.create({ name: "free-a-2", apiKey: "good-key-a2" });
     const ungrouped = app.keyPool.create({ name: "free-b-1", apiKey: "good-key-b1" });
 
     app.store.patchKey(first.id, {
@@ -476,11 +473,11 @@ describe("proxy integration", () => {
     expect(body.totals.session.estimatedRequests).toBe(6);
     expect(body.totals.weekly.estimatedRequests).toBe(21);
     expect(body.totals.lifetime.totalRequests).toBe(21);
-    expect(body.accounts).toHaveLength(2);
+    expect(body.accounts).toHaveLength(3);
     expect(body.keyCards).toHaveLength(3);
     expect(body.keyCards.map((card: { name: string }) => card.name).sort()).toEqual(["free-a-1", "free-a-2", "free-b-1"]);
-    expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.keyCount).toBe(2);
-    expect(body.accounts.find((account: { name: string }) => account.name === "free-a")?.weekly.estimatedRequests).toBe(17);
+    expect(body.accounts.find((account: { name: string }) => account.name === "free-a-1")?.keyCount).toBe(1);
+    expect(body.accounts.find((account: { name: string }) => account.name === "free-a-1")?.weekly.estimatedRequests).toBe(10);
     expect(body.accounts.find((account: { name: string }) => account.name === "free-b-1")?.keyCount).toBe(1);
   });
 
@@ -966,7 +963,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.10");
+    expect(body.proxy_version).toBe("1.2.0");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

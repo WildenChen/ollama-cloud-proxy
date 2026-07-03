@@ -72,7 +72,6 @@ export type ProxyEventType =
 export type KeyRecord = {
   id: string;
   name: string;
-  accountLabel: string | null;
   notes: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
