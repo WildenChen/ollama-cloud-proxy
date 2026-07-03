@@ -851,7 +851,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.1.8");
+    expect(body.proxy_version).toBe("1.1.9");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

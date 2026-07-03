@@ -106,6 +106,14 @@ const dictionaries = {
     usageCookieState: "用量 Cookie",
     setUsageCookie: "設定用量 Cookie",
     clearUsageCookie: "清除用量 Cookie",
+    officialUsageCardsTitle: "Ollama Cloud 帳號剩餘量",
+    cookieReadyLabel: "Cookie 已設定",
+    cookieMissingLabel: "未設定 Cookie",
+    officialUnavailable: "尚無官方用量資料",
+    quotaOkLabel: "正常",
+    quotaWarningLabel: "接近用盡",
+    quotaCriticalLabel: "即將耗盡",
+    quotaMissingLabel: "待設定",
     totalAccountsUsage: "全部帳號總計",
     accountUsageTitle: "帳號分組",
     modelUsageTodayTitle: "今日模型分布",
@@ -375,6 +383,14 @@ const dictionaries = {
     usageCookieState: "Usage Cookie",
     setUsageCookie: "Set Usage Cookie",
     clearUsageCookie: "Clear Usage Cookie",
+    officialUsageCardsTitle: "Ollama Cloud Account Remaining Usage",
+    cookieReadyLabel: "Cookie set",
+    cookieMissingLabel: "Cookie missing",
+    officialUnavailable: "No official usage data yet",
+    quotaOkLabel: "OK",
+    quotaWarningLabel: "Running low",
+    quotaCriticalLabel: "Almost exhausted",
+    quotaMissingLabel: "Needs setup",
     totalAccountsUsage: "All accounts total",
     accountUsageTitle: "Account groups",
     modelUsageTodayTitle: "Model mix today",
@@ -637,7 +653,10 @@ function formatNumber(value) {
 
 function formatPercent(value) {
   if (value === null || value === undefined) return "-";
-  return `${Math.round(Number(value) * 100)}%`;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  const percent = Math.abs(number) <= 1 ? number * 100 : number;
+  return `${Math.round(percent)}%`;
 }
 
 function formatDuration(value) {
@@ -764,7 +783,7 @@ function renderStats() {
     $("summaryLine").textContent = t("summaryDefault");
     return;
   }
-  const version = `v${stats.version || "1.1.8"}`;
+  const version = `v${stats.version || "1.1.9"}`;
   $("appVersion").textContent = version;
   $("activeRequests").textContent = formatNumber(stats.concurrency.activeRequests);
   $("queuedRequests").textContent = formatNumber(stats.concurrency.queuedRequests);
@@ -950,69 +969,67 @@ function renderUsageOverview() {
   const blockedKeys = (totals.sessionBlockedKeys || 0) + (totals.weeklyBlockedKeys || 0);
 
   root.innerHTML = `
-    <div class="usageSummaryGrid">
-      ${usageSummaryCard(t("officialUsageTitle"), t("planLabel"), totals.official.plan || "-", totals.official.fetchedAt ? relativeDate(totals.official.fetchedAt) : t("noOfficialUsage"))}
-      ${officialSummaryCard(t("sessionUsageLabel"), totals.official.session)}
-      ${officialSummaryCard(t("weeklyUsageLabel"), totals.official.weekly)}
-      ${usageSummaryCard(t("blockedKeysLabel"), t("keysUnit")(blockedKeys), blockedKeys, t("activeKeysUnit")(formatNumber(totals.availableKeys), formatNumber(totals.keyCount)))}
+    <div class="officialUsageLead">
+      <div>
+        <span class="eyebrow">${escapeHtml(t("officialUsageTitle"))}</span>
+        <strong>${escapeHtml(t("officialUsageCardsTitle"))}</strong>
+        <small>${escapeHtml(totals.official.lastError || overview.note || t("usageOverviewDescription"))}</small>
+      </div>
+      <div class="officialUsageChips" aria-label="${escapeHtml(t("officialUsageTitle"))}">
+        <span>${escapeHtml(t("planLabel"))} ${escapeHtml(totals.official.plan || "-")}</span>
+        <span>${escapeHtml(t("usageCookieState"))} ${formatNumber(totals.official.available || 0)}/${formatNumber(totals.keyCount || 0)}</span>
+        <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blockedKeys)}</span>
+      </div>
     </div>
-    <div class="usageBlocks">
-      <section class="usageBlock">
-        <div class="usageBlockHeader">
-          <strong>${escapeHtml(t("officialUsageTitle"))}</strong>
-          <span>${escapeHtml(totals.official.lastError || overview.note || "")}</span>
-        </div>
-        <div class="accountUsageList">
-          ${
-            accounts.length
-              ? accounts.map((account) => renderOfficialAccountUsage(account)).join("")
-              : `<div class="empty">${escapeHtml(t("noKeys"))}</div>`
-          }
-        </div>
-      </section>
-      <section class="usageBlock">
-        <div class="usageBlockHeader">
-          <strong>${escapeHtml(t("proxyActivityTitle"))}</strong>
-          <span>${escapeHtml(t("proxyEstimated"))}</span>
-        </div>
-        <div class="accountUsageMeta">
-          <span>${escapeHtml(t("totalAccountsUsage"))} ${formatNumber(totals.lifetime.totalRequests)}</span>
-          <span>${escapeHtml(t("sessionUsageLabel"))} ${formatNumber(totals.session.estimatedRequests)}</span>
-          <span>${escapeHtml(t("weeklyUsageLabel"))} ${formatNumber(totals.weekly.estimatedRequests)}</span>
-        </div>
-        <div class="modelShareBar">
-          ${
-            (overview.topModelsToday || []).length
-              ? overview.topModelsToday
-                  .slice(0, 8)
-                  .map((model, index) => {
-                    const width = Math.max(4, (Number(model.totalRequests || 0) / totalModelRequests) * 100);
-                    return `<span class="modelShareSegment tone${index % 5}" style="width: ${width}%" title="${escapeHtml(model.model)} · ${escapeHtml(formatNumber(model.totalRequests))}"></span>`;
-                  })
-                  .join("")
-              : `<span class="modelShareSegment emptySegment" style="width: 100%"></span>`
-          }
-        </div>
-        <div class="modelUsageList">
-          ${
-            (overview.topModelsToday || []).length
-              ? overview.topModelsToday
-                  .slice(0, 8)
-                  .map(
-                    (model) => `
-                      <div class="modelUsageItem">
-                        <strong>${escapeHtml(model.model)}</strong>
-                        <span>${escapeHtml(t("requestsLabel"))} ${formatNumber(model.totalRequests)}</span>
-                        <span>${escapeHtml(t("tokenMetrics").total)} ${formatNumber(model.totalTokens)}</span>
-                      </div>
-                    `
-                  )
-                  .join("")
-              : `<div class="empty">${escapeHtml(t("noModels"))}</div>`
-          }
-        </div>
-      </section>
+    <div class="officialQuotaGrid">
+      ${
+        accounts.length
+          ? accounts.map((account) => renderOfficialAccountUsage(account)).join("")
+          : `<div class="empty">${escapeHtml(t("noKeys"))}</div>`
+      }
     </div>
+    <section class="usageBlock proxyUsageBlock">
+      <div class="usageBlockHeader">
+        <strong>${escapeHtml(t("proxyActivityTitle"))}</strong>
+        <span>${escapeHtml(t("proxyEstimated"))}</span>
+      </div>
+      <div class="accountUsageMeta">
+        <span>${escapeHtml(t("totalAccountsUsage"))} ${formatNumber(totals.lifetime.totalRequests)}</span>
+        <span>${escapeHtml(t("sessionUsageLabel"))} ${formatNumber(totals.session.estimatedRequests)}</span>
+        <span>${escapeHtml(t("weeklyUsageLabel"))} ${formatNumber(totals.weekly.estimatedRequests)}</span>
+      </div>
+      <div class="modelShareBar">
+        ${
+          (overview.topModelsToday || []).length
+            ? overview.topModelsToday
+                .slice(0, 8)
+                .map((model, index) => {
+                  const width = Math.max(4, (Number(model.totalRequests || 0) / totalModelRequests) * 100);
+                  return `<span class="modelShareSegment tone${index % 5}" style="width: ${width}%" title="${escapeHtml(model.model)} · ${escapeHtml(formatNumber(model.totalRequests))}"></span>`;
+                })
+                .join("")
+            : `<span class="modelShareSegment emptySegment" style="width: 100%"></span>`
+        }
+      </div>
+      <div class="modelUsageList compactModelUsage">
+        ${
+          (overview.topModelsToday || []).length
+            ? overview.topModelsToday
+                .slice(0, 8)
+                .map(
+                  (model) => `
+                    <div class="modelUsageItem">
+                      <strong>${escapeHtml(model.model)}</strong>
+                      <span>${escapeHtml(t("requestsLabel"))} ${formatNumber(model.totalRequests)}</span>
+                      <span>${escapeHtml(t("tokenMetrics").total)} ${formatNumber(model.totalTokens)}</span>
+                    </div>
+                  `
+                )
+                .join("")
+            : `<div class="empty">${escapeHtml(t("noModels"))}</div>`
+        }
+      </div>
+    </section>
   `;
 }
 
@@ -1066,25 +1083,33 @@ function renderAccountUsage(account, maxSession, maxWeekly) {
 
 function renderOfficialAccountUsage(account) {
   const blocked = Number(account.sessionBlockedKeys || 0) + Number(account.weeklyBlockedKeys || 0);
+  const official = account.official || {};
+  const keys = official.keys || [];
+  const cookieCount = keys.filter((key) => key.hasCookie).length || official.available || 0;
+  const status = officialQuotaStatus(official);
+  const primaryName = account.name || keys[0]?.name || t("accountFallback");
+  const detail = keys.map((key) => key.name).filter(Boolean).join(", ");
+  const cookieLabel = cookieCount > 0 ? t("cookieReadyLabel") : t("cookieMissingLabel");
   return `
-    <article class="accountUsageCard">
-      <div class="accountUsageHeader">
+    <article class="officialQuotaCard ${status}">
+      <div class="officialQuotaHeader">
+        <span class="quotaStatusDot" aria-label="${escapeHtml(officialQuotaLabel(status))}"></span>
         <div>
-          <strong>${escapeHtml(account.name || t("accountFallback"))}</strong>
-          <small>${escapeHtml(t("keysUnit")(formatNumber(account.keyCount)))} · ${escapeHtml(t("activeKeysUnit")(formatNumber(account.availableKeys), formatNumber(account.keyCount)))}</small>
+          <strong>${escapeHtml(primaryName)}</strong>
+          <small>${escapeHtml(detail && detail !== primaryName ? detail : t("activeKeysUnit")(formatNumber(account.availableKeys), formatNumber(account.keyCount)))}</small>
         </div>
+        <span class="quotaBadge">${escapeHtml(official.plan || "-")}</span>
+      </div>
+      <div class="quotaWindows">
+        ${officialUsageMeter(t("sessionUsageLabel"), official.session)}
+        ${officialUsageMeter(t("weeklyUsageLabel"), official.weekly)}
+      </div>
+      <div class="officialQuotaFooter">
+        <span>${escapeHtml(t("usageFreshnessLabel"))} ${official.fetchedAt ? relativeDate(official.fetchedAt) : "-"}</span>
+        <span>${escapeHtml(cookieLabel)} ${formatNumber(cookieCount)}/${formatNumber(account.keyCount)}</span>
         <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blocked)}</span>
       </div>
-      <div class="accountUsageBars">
-        ${officialUsageMeter(t("sessionUsageLabel"), account.official?.session)}
-        ${officialUsageMeter(t("weeklyUsageLabel"), account.official?.weekly)}
-      </div>
-      <div class="accountUsageMeta">
-        <span>${escapeHtml(t("planLabel"))} ${escapeHtml(account.official?.plan || "-")}</span>
-        <span>${escapeHtml(t("usageFreshnessLabel"))} ${account.official?.fetchedAt ? relativeDate(account.official.fetchedAt) : "-"}</span>
-        <span>${escapeHtml(t("usageCookieState"))} ${formatNumber(account.official?.available || 0)}/${formatNumber(account.keyCount)}</span>
-      </div>
-      ${account.official?.lastError ? `<small class="usageError">${escapeHtml(account.official.lastError)}</small>` : ""}
+      ${official.lastError ? `<small class="usageError">${escapeHtml(official.lastError)}</small>` : ""}
     </article>
   `;
 }
@@ -1092,25 +1117,46 @@ function renderOfficialAccountUsage(account) {
 function officialUsageMeter(label, window) {
   if (!window) {
     return `
-      <div class="usageMeter">
-        <div class="usageMeterLabel"><span>${escapeHtml(label)}</span><strong>-</strong></div>
-        <div class="usageMeterTrack"><span style="width: 0%"></span></div>
-        <small>${escapeHtml(t("noOfficialUsage"))}</small>
+      <div class="quotaWindow missing">
+        <div class="quotaWindowLabel"><span>${escapeHtml(label)}</span><strong>-</strong></div>
+        <div class="quotaTrack"><span style="width: 0%"></span></div>
+        <small>${escapeHtml(t("officialUnavailable"))}</small>
       </div>
     `;
   }
+  const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
+  const state = remaining <= 1 ? "critical" : remaining <= 25 ? "warning" : "ok";
   return `
-    <div class="usageMeter">
-      <div class="usageMeterLabel">
+    <div class="quotaWindow ${state}">
+      <div class="quotaWindowLabel">
         <span>${escapeHtml(label)}</span>
         <strong>${escapeHtml(formatPercent(window.remainingPercent))} ${escapeHtml(t("remainingLabel"))}</strong>
       </div>
-      <div class="usageMeterTrack official">
-        <span style="width: ${Math.min(100, Math.max(0, Number(window.usedPercent || 0)))}%"></span>
+      <div class="quotaTrack">
+        <span style="width: ${remaining}%"></span>
       </div>
-      <small>${escapeHtml(t("usedLabel"))} ${escapeHtml(formatPercent(window.usedPercent))} · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatDate(window.resetAt))}</small>
+      <small>${escapeHtml(t("usedLabel"))} ${escapeHtml(formatPercent(window.usedPercent))} / 100 · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatDate(window.resetAt))}</small>
     </div>
   `;
+}
+
+function officialQuotaStatus(official) {
+  if (!official?.session && !official?.weekly) return "missing";
+  const remaining = [official.session?.remainingPercent, official.weekly?.remainingPercent]
+    .filter((value) => value !== null && value !== undefined)
+    .map(Number);
+  const minimum = remaining.length ? Math.min(...remaining) : null;
+  if (minimum === null || !Number.isFinite(minimum)) return "missing";
+  if (minimum <= 1) return "critical";
+  if (minimum <= 25) return "warning";
+  return "ok";
+}
+
+function officialQuotaLabel(status) {
+  if (status === "critical") return t("quotaCriticalLabel");
+  if (status === "warning") return t("quotaWarningLabel");
+  if (status === "ok") return t("quotaOkLabel");
+  return t("quotaMissingLabel");
 }
 
 function usageMeter(label, requests, durationMs, width) {

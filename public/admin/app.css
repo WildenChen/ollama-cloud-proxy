@@ -12,6 +12,7 @@
   --green: #6ee7a8;
   --amber: #f5c86a;
   --red: #ff7a90;
+  --danger: #ff7a90;
   --blue: #8cb8ff;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -613,6 +614,211 @@ svg {
   padding: 12px;
 }
 
+.officialUsageLead {
+  border: 1px solid rgba(180, 205, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(6, 13, 23, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+}
+
+.officialUsageLead strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.officialUsageLead small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.officialUsageChips {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.officialUsageChips span,
+.quotaBadge {
+  border: 1px solid rgba(180, 205, 235, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce9f6;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.officialQuotaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 10px;
+}
+
+.officialQuotaCard {
+  border: 1px solid rgba(180, 205, 235, 0.12);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.048);
+  min-width: 0;
+  padding: 10px;
+}
+
+.officialQuotaCard.ok {
+  border-left-color: var(--green);
+}
+
+.officialQuotaCard.warning {
+  border-left-color: var(--amber);
+}
+
+.officialQuotaCard.critical {
+  border-left-color: var(--red);
+}
+
+.officialQuotaCard.missing {
+  border-left-color: rgba(158, 176, 195, 0.62);
+}
+
+.officialQuotaHeader {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+}
+
+.officialQuotaHeader strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.officialQuotaHeader small,
+.officialQuotaFooter,
+.quotaWindow small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.officialQuotaHeader small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quotaStatusDot {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: rgba(158, 176, 195, 0.9);
+  box-shadow: 0 0 0 4px rgba(158, 176, 195, 0.1);
+}
+
+.officialQuotaCard.ok .quotaStatusDot {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(110, 231, 168, 0.12);
+}
+
+.officialQuotaCard.warning .quotaStatusDot {
+  background: var(--amber);
+  box-shadow: 0 0 0 4px rgba(245, 200, 106, 0.13);
+}
+
+.officialQuotaCard.critical .quotaStatusDot {
+  background: var(--red);
+  box-shadow: 0 0 0 4px rgba(255, 122, 144, 0.13);
+}
+
+.quotaWindows {
+  display: grid;
+  gap: 9px;
+  margin: 13px 0 10px;
+}
+
+.quotaWindow {
+  display: grid;
+  gap: 5px;
+}
+
+.quotaWindowLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quotaWindowLabel span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quotaWindowLabel strong {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.quotaWindow.warning .quotaWindowLabel strong {
+  color: var(--amber);
+}
+
+.quotaWindow.critical .quotaWindowLabel strong {
+  color: var(--red);
+}
+
+.quotaWindow.missing .quotaWindowLabel strong {
+  color: var(--muted);
+}
+
+.quotaTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.quotaTrack span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--green);
+}
+
+.quotaWindow.warning .quotaTrack span {
+  background: var(--amber);
+}
+
+.quotaWindow.critical .quotaTrack span {
+  background: var(--red);
+}
+
+.officialQuotaFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  border-top: 1px solid rgba(180, 205, 235, 0.1);
+  padding-top: 9px;
+}
+
 .usageSummaryGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -793,6 +999,17 @@ svg {
   border-bottom: 0;
 }
 
+.proxyUsageBlock .compactModelUsage {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.proxyUsageBlock .modelUsageItem {
+  border-bottom: 0;
+  border-radius: 8px;
+  background: rgba(6, 13, 23, 0.24);
+  padding: 9px;
+}
+
 .modelTestRow {
   grid-template-columns: minmax(220px, 1fr) minmax(220px, auto) minmax(86px, auto);
 }
@@ -943,9 +1160,19 @@ dialog::backdrop {
 
   .accountUsageHeader,
   .usageMeterLabel,
-  .modelUsageItem {
+  .modelUsageItem,
+  .officialUsageLead,
+  .quotaWindowLabel {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .officialUsageLead {
+    display: flex;
+  }
+
+  .officialUsageChips {
+    justify-content: flex-start;
   }
 
   .keyCard {
