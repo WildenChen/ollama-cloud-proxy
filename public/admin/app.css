@@ -304,13 +304,6 @@ svg {
   color: var(--amber);
 }
 
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
-  gap: 14px;
-  margin-top: 14px;
-}
-
 .panel {
   border-radius: 8px;
   overflow: hidden;
@@ -331,82 +324,10 @@ svg {
   min-height: 64px;
 }
 
-.keyList {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.keyCard {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.052);
-  display: grid;
-  grid-template-columns: minmax(190px, 0.8fr) minmax(360px, 1.5fr) minmax(130px, auto);
-  gap: 12px;
-  align-items: stretch;
-  padding: 12px;
-}
-
-.keyTitle {
-  min-width: 0;
-  display: grid;
-  align-content: center;
-  gap: 5px;
-}
-
-.keyTitle strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.keyTitle small {
-  overflow-wrap: anywhere;
-}
-
-.keyMeta {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(74px, 1fr));
+.panelActions {
+  display: flex;
   gap: 8px;
-  min-width: 0;
-}
-
-.cell {
-  min-width: 0;
-  border-radius: 8px;
-  background: rgba(6, 13, 23, 0.28);
-  padding: 9px 10px;
-}
-
-.keyTitle small,
-.cell small {
-  display: block;
-  color: var(--muted);
-  margin-top: 4px;
-  min-height: 17px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cell span {
-  display: block;
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 760;
-  text-transform: uppercase;
-}
-
-.cell strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 14px;
-  font-weight: 720;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .status {
@@ -442,47 +363,6 @@ svg {
   color: #ffd7de;
   border-color: rgba(255, 122, 144, 0.28);
   background: rgba(255, 122, 144, 0.1);
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  align-content: center;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 124px;
-}
-
-.actions .button {
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 12px;
-  flex: 1 1 54px;
-}
-
-.compactDanger {
-  width: 32px;
-  min-height: 32px;
-  flex: 0 0 32px;
-  padding: 0;
-  opacity: 0.72;
-}
-
-.compactDanger:hover {
-  opacity: 1;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .eventPanel {
@@ -539,6 +419,10 @@ svg {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.lowerGrid.cols3 {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .miniTable {
@@ -701,7 +585,7 @@ svg {
 
 .officialQuotaHeader {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: start;
 }
@@ -728,28 +612,75 @@ svg {
   white-space: nowrap;
 }
 
-.quotaStatusDot {
-  width: 10px;
-  height: 10px;
-  margin-top: 4px;
+/* ── Toggle Switch ── */
+.toggleSwitch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.toggleSwitch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleSlider {
+  position: absolute;
+  inset: 0;
   border-radius: 999px;
-  background: rgba(158, 176, 195, 0.9);
-  box-shadow: 0 0 0 4px rgba(158, 176, 195, 0.1);
+  background: rgba(158, 176, 195, 0.32);
+  transition: background 0.2s;
 }
 
-.officialQuotaCard.ok .quotaStatusDot {
+.toggleSlider::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.toggleSwitch input:checked + .toggleSlider {
   background: var(--green);
-  box-shadow: 0 0 0 4px rgba(110, 231, 168, 0.12);
 }
 
-.officialQuotaCard.warning .quotaStatusDot {
-  background: var(--amber);
-  box-shadow: 0 0 0 4px rgba(245, 200, 106, 0.13);
+.toggleSwitch input:checked + .toggleSlider::before {
+  transform: translateX(16px);
 }
 
-.officialQuotaCard.critical .quotaStatusDot {
-  background: var(--red);
-  box-shadow: 0 0 0 4px rgba(255, 122, 144, 0.13);
+.toggleSwitch input:disabled + .toggleSlider {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toggleSwitch .toggleStatusLabel {
+  margin-left: 42px;
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.toggleSwitch input:checked ~ .toggleStatusLabel {
+  color: var(--green);
+}
+
+.quotaStatusDot {
+  display: none;
+}
+
+.officialQuotaCard .toggleSwitch {
+  margin-top: 2px;
 }
 
 .quotaWindows {
@@ -828,10 +759,22 @@ svg {
 
 .quotaActions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   margin-top: auto;
   padding-top: 9px;
+}
+
+.quotaActionsPrimary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.quotaActionsSecondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
 }
 
 .quotaActions .button {
@@ -840,6 +783,23 @@ svg {
   font-size: 12px;
   white-space: normal;
   line-height: 1.2;
+}
+
+.quotaActionsSecondary .button {
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 11px;
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.quotaActionsSecondary .button:hover {
+  opacity: 1;
+}
+
+.quotaActionsSecondary .button.danger {
+  color: #ffd7de;
+  border-color: rgba(255, 122, 144, 0.32);
 }
 
 .usageSummaryGrid {
@@ -1107,8 +1067,8 @@ dialog::backdrop {
     grid-template-columns: auto minmax(140px, 1fr) auto minmax(220px, 2fr) auto auto;
   }
 
-  .workspace,
   .lowerGrid,
+  .lowerGrid.cols3,
   .usageBlocks {
     grid-template-columns: 1fr;
   }
@@ -1124,20 +1084,6 @@ dialog::backdrop {
 
   .settingsForm {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
-  }
-
-  .keyCard {
-    grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
-  }
-
-  .keyMeta {
-    grid-template-columns: repeat(3, minmax(86px, 1fr));
-  }
-
-  .actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    min-width: 0;
   }
 }
 
@@ -1211,18 +1157,6 @@ dialog::backdrop {
 
   .officialUsageChips {
     justify-content: flex-start;
-  }
-
-  .keyCard {
-    grid-template-columns: 1fr;
-  }
-
-  .keyMeta {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .actions .button {
-    flex-basis: calc(50% - 4px);
   }
 }
 

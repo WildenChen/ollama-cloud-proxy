@@ -1,0 +1,8 @@
+services:
+  ollama-cloud-proxy:
+    volumes:
+      - ./public:/app/public
+    build:
+      context: .
+    environment:
+      - NODE_ENV=development

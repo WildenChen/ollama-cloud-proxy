@@ -77,10 +77,8 @@ const dictionaries = {
     weeklyResetMetric: "每週重置",
     sessionResetMetric: "5hr 重置",
     upstreamRequests: "上游請求",
-    keyPoolTitle: "金鑰池",
-    keyPoolDescription: "管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。",
     addKey: "新增金鑰",
-    addKeyTitle: "新增一把 Ollama API 金鑰到金鑰池",
+    addKeyTitle: "新增一把 Ollama API 金鑰",
     addKeyAria: "新增 Ollama 金鑰",
     eventsTitle: "事件",
     eventsDescription: "近期代理與金鑰活動。",
@@ -96,11 +94,12 @@ const dictionaries = {
     clientsDescription: "依今日權杖身分統計。",
     modelsTitle: "模型",
     modelsDescription: "別名與請求次數。",
-    usageOverviewTitle: "全部帳號用量",
-    usageOverviewDescription: "優先顯示 Ollama Cloud 官方剩餘用量，本 proxy 活動紀錄只作輔助。",
+    overviewPageTitle: "金鑰用量總覽",
+    usageOverviewTitle: "金鑰用量總覽",
+    usageOverviewDescription: "管理金鑰與檢視 Ollama Cloud 官方剩餘用量。",
     refreshOfficialUsage: "刷新官方用量",
-    officialUsageTitle: "Ollama Cloud 官方用量",
-    proxyActivityTitle: "本 proxy 活動紀錄",
+    officialUsageTitle: "官方用量",
+    proxyActivityTitle: "代理活動記錄",
     remainingLabel: "剩餘",
     usedLabel: "已用",
     resetAtLabel: "重置",
@@ -110,7 +109,6 @@ const dictionaries = {
     usageCookieState: "用量 Cookie",
     setUsageCookie: "設定用量 Cookie",
     clearUsageCookie: "清除用量 Cookie",
-    officialUsageCardsTitle: "Ollama Cloud Key 剩餘量",
     cookieReadyLabel: "Cookie 已設定",
     cookieMissingLabel: "未設定 Cookie",
     officialUnavailable: "尚無官方用量資料",
@@ -118,7 +116,6 @@ const dictionaries = {
     quotaWarningLabel: "接近用盡",
     quotaCriticalLabel: "即將耗盡",
     quotaMissingLabel: "待設定",
-    providerName: "Ollama Cloud",
     keySettingsTitle: "Key 設定",
     closeKeySettingsTitle: "關閉 Key 設定",
     saveKeySettings: "儲存設定",
@@ -221,8 +218,7 @@ const dictionaries = {
     totalKeys: (count) => `共 ${count} 把金鑰`,
     weeklyBlocked: (count) => `${count} 把每週額度受限`,
     summaryLine: (available, total, active, queued) => `${available}/${total} 把金鑰可用，${active} 個處理中，${queued} 個排隊中`,
-    noToken: "請先輸入管理權杖，再按「儲存」載入金鑰池。",
-    loadingKeys: "正在載入金鑰池。",
+    loadingKeys: "正在載入資料。",
     loadNotice: "無法載入資料，請確認管理權杖後按「儲存」或「重新整理」。",
     noKeys: "目前沒有金鑰。請新增第一把已加密保存的 Ollama 金鑰。",
     noEvents: "目前沒有近期事件。",
@@ -375,10 +371,8 @@ const dictionaries = {
     weeklyResetMetric: "Weekly reset",
     sessionResetMetric: "5hr reset",
     upstreamRequests: "Upstream requests",
-    keyPoolTitle: "Key Pool",
-    keyPoolDescription: "Manage encrypted Ollama keys, cooldowns, and blocked states.",
     addKey: "Add Key",
-    addKeyTitle: "Add an Ollama API key to the key pool",
+    addKeyTitle: "Add an Ollama API key",
     addKeyAria: "Add Ollama key",
     eventsTitle: "Events",
     eventsDescription: "Recent proxy and key activity.",
@@ -394,10 +388,11 @@ const dictionaries = {
     clientsDescription: "Today by client token identity.",
     modelsTitle: "Models",
     modelsDescription: "Aliases and request counts.",
-    usageOverviewTitle: "All Account Usage",
-    usageOverviewDescription: "Shows official Ollama Cloud remaining usage first. Proxy activity is secondary.",
+    overviewPageTitle: "Key Usage Overview",
+    usageOverviewTitle: "Key Usage Overview",
+    usageOverviewDescription: "Manage keys and view Ollama Cloud official remaining usage.",
     refreshOfficialUsage: "Refresh Official Usage",
-    officialUsageTitle: "Ollama Cloud Official Usage",
+    officialUsageTitle: "Official Usage",
     proxyActivityTitle: "Proxy Activity",
     remainingLabel: "Remaining",
     usedLabel: "Used",
@@ -408,7 +403,6 @@ const dictionaries = {
     usageCookieState: "Usage Cookie",
     setUsageCookie: "Set Usage Cookie",
     clearUsageCookie: "Clear Usage Cookie",
-    officialUsageCardsTitle: "Ollama Cloud Key Remaining Usage",
     cookieReadyLabel: "Cookie set",
     cookieMissingLabel: "Cookie missing",
     officialUnavailable: "No official usage data yet",
@@ -416,7 +410,6 @@ const dictionaries = {
     quotaWarningLabel: "Running low",
     quotaCriticalLabel: "Almost exhausted",
     quotaMissingLabel: "Needs setup",
-    providerName: "Ollama Cloud",
     keySettingsTitle: "Key Settings",
     closeKeySettingsTitle: "Close key settings",
     saveKeySettings: "Save Settings",
@@ -519,8 +512,7 @@ const dictionaries = {
     totalKeys: (count) => `${count} total keys`,
     weeklyBlocked: (count) => `${count} weekly-blocked keys`,
     summaryLine: (available, total, active, queued) => `${available}/${total} keys available, ${active} active, ${queued} queued`,
-    noToken: "Enter the admin token, then press Save to load the key pool.",
-    loadingKeys: "Loading key pool.",
+    loadingKeys: "Loading data.",
     loadNotice: "Unable to load data. Check the admin token, then press Save or Refresh.",
     noKeys: "No keys yet. Add the first encrypted Ollama key.",
     noEvents: "No recent events.",
@@ -879,61 +871,7 @@ function renderStats() {
   );
 }
 
-function renderKeys() {
-  const root = $("keyList");
-  if (!state.token) {
-    root.innerHTML = `<div class="empty">${escapeHtml(t("noToken"))}</div>`;
-    return;
-  }
-  if (state.loading) {
-    root.innerHTML = `<div class="empty">${escapeHtml(t("loadingKeys"))}</div>`;
-    return;
-  }
-  if (state.loadNotice) {
-    root.innerHTML = `<div class="empty">${escapeHtml(state.loadNotice)}</div>`;
-    return;
-  }
-  if (state.keys.length === 0) {
-    root.innerHTML = `<div class="empty">${escapeHtml(t("noKeys"))}</div>`;
-    return;
-  }
 
-  root.innerHTML = state.keys
-    .map((key) => {
-      const cooldown = key.cooldownUntil ? formatDate(key.cooldownUntil) : "-";
-      const lastSuccess = key.lastSuccessAt ? relativeDate(key.lastSuccessAt) : "-";
-      const usageCookie = key.hasOllamaUsageCookie ? "OK" : "-";
-      return `
-        <article class="keyCard" data-key-id="${key.id}">
-          <div class="keyTitle">
-            <strong>${escapeHtml(key.name)}</strong>
-            <small>${escapeHtml([key.apiKeyPreview, key.accountLabel].filter(Boolean).join(" · "))}</small>
-          </div>
-          <div class="keyMeta">
-            <div class="cell"><span>${escapeHtml(t("statusCell"))}</span><strong>${statusLabel(key)}</strong><small>${escapeHtml(key.blockReason || t("noBlockReason"))}</small></div>
-            <div class="cell"><span>${escapeHtml(t("activeCell"))}</span><strong>${formatNumber(key.activeRequests)}</strong><small>${escapeHtml(t("perKeyLimit"))}</small></div>
-            <div class="cell"><span>${escapeHtml(t("successCell"))}</span><strong>${formatNumber(key.totalSuccesses)}</strong><small>${lastSuccess}</small></div>
-            <div class="cell"><span>${escapeHtml(t("failureCell"))}</span><strong>${formatNumber(key.totalFailures)}</strong><small>${escapeHtml(t("consecutiveFailures")(formatNumber(key.consecutiveFailures)))}</small></div>
-            <div class="cell"><span>${escapeHtml(t("cooldownCell"))}</span><strong>${cooldown}</strong><small>${escapeHtml(translateUsageSource(key.usageSource))} / ${escapeHtml(translateResetSource(key.resetSource))}</small></div>
-            <div class="cell"><span>${escapeHtml(t("usageCookieState"))}</span><strong>${usageCookie}</strong><small>${escapeHtml(key.ollamaUsageLastError || (key.ollamaUsageLastRefreshAt ? relativeDate(key.ollamaUsageLastRefreshAt) : "-"))}</small></div>
-          </div>
-          <div class="actions">
-            <button class="button" data-action="test" title="${mapText("actionTitle", "test")}" aria-label="${mapText("actionTitle", "test")}">${mapText("action", "test")}</button>
-            <button class="button" data-action="${key.enabled ? "disable" : "enable"}" title="${key.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}" aria-label="${key.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}">${key.enabled ? mapText("action", "disable") : mapText("action", "enable")}</button>
-            <button class="button warn" data-action="reset-cooldown" title="${mapText("actionTitle", "reset-cooldown")}" aria-label="${mapText("actionTitle", "reset-cooldown")}">${mapText("action", "reset-cooldown")}</button>
-            <button class="button" data-action="rotate" title="${mapText("actionTitle", "rotate")}" aria-label="${mapText("actionTitle", "rotate")}">${mapText("action", "rotate")}</button>
-            <button class="button" data-action="set-usage-cookie" title="${mapText("actionTitle", "set-usage-cookie")}" aria-label="${mapText("actionTitle", "set-usage-cookie")}">${mapText("action", "set-usage-cookie")}</button>
-            <button class="button" data-action="clear-usage-cookie" title="${mapText("actionTitle", "clear-usage-cookie")}" aria-label="${mapText("actionTitle", "clear-usage-cookie")}">${mapText("action", "clear-usage-cookie")}</button>
-            <button class="iconButton danger compactDanger" data-action="delete" title="${mapText("actionTitle", "delete")}" aria-label="${mapText("actionTitle", "delete")}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M10 11v6M14 11v6M6 6l1 14h10l1-14" /></svg>
-              <span class="srOnly">${mapText("action", "delete")}</span>
-            </button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
 
 function renderEvents() {
   const root = $("eventList");
@@ -1037,17 +975,13 @@ function renderUsageOverview() {
 
   const totals = overview.totals;
   const keyCards = overview.keyCards || [];
-  const totalModelRequests = Math.max(
-    1,
-    (overview.topModelsToday || []).reduce((sum, model) => sum + Number(model.totalRequests || 0), 0)
-  );
   const blockedKeys = (totals.sessionBlockedKeys || 0) + (totals.weeklyBlockedKeys || 0);
 
   root.innerHTML = `
     <div class="officialUsageLead">
       <div>
         <span class="eyebrow">${escapeHtml(t("officialUsageTitle"))}</span>
-        <strong>${escapeHtml(t("officialUsageCardsTitle"))}</strong>
+        <strong>${escapeHtml(t("overviewPageTitle"))}</strong>
         <small>${escapeHtml(totals.official.lastError || overview.note || t("usageOverviewDescription"))}</small>
       </div>
       <div class="officialUsageChips" aria-label="${escapeHtml(t("officialUsageTitle"))}">
@@ -1063,11 +997,94 @@ function renderUsageOverview() {
           : `<div class="empty">${escapeHtml(t("noKeys"))}</div>`
       }
     </div>
-    <section class="usageBlock proxyUsageBlock">
-      <div class="usageBlockHeader">
-        <strong>${escapeHtml(t("proxyActivityTitle"))}</strong>
-        <span>${escapeHtml(t("proxyEstimated"))}</span>
+  `;
+}
+
+function renderOfficialKeyUsage(card) {
+  const status = officialQuotaStatus(card);
+  const subtitle = [card.accountLabel || t("noAccountLabel"), card.apiKeyPreview].filter(Boolean).join(" · ");
+  const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
+  return `
+    <article class="officialQuotaCard ${status}" data-key-id="${escapeHtml(card.id)}">
+      <div class="officialQuotaHeader">
+        <label class="toggleSwitch" title="${card.enabled ? mapText("actionTitle", "disable") : mapText("actionTitle", "enable")}">
+          <input type="checkbox" ${card.enabled ? "checked" : ""} data-action="toggle-enable" aria-label="${card.enabled ? mapText("action", "disable") : mapText("action", "enable")}" />
+          <span class="toggleSlider"></span>
+        </label>
+        <div>
+          <strong>${escapeHtml(card.name)}</strong>
+          <small>${escapeHtml(subtitle)}</small>
+        </div>
+        <span class="quotaBadge">${escapeHtml(card.plan || "-")}</span>
       </div>
+      <div class="quotaWindows">
+        ${officialUsageMeter(t("sessionUsageLabel"), card.session, card.sessionRemainingThresholdPercent)}
+        ${officialUsageMeter(t("weeklyUsageLabel"), card.weekly, card.weeklyRemainingThresholdPercent)}
+      </div>
+      ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}
+      <div class="officialQuotaFooter">
+        <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
+        <span>${escapeHtml(cookieLabel)}</span>
+        ${statusLabel(card)}
+      </div>
+      <div class="quotaActions">
+        <div class="quotaActionsPrimary">
+          <button class="button" type="button" data-action="edit-thresholds">${escapeHtml(t("editThresholds"))}</button>
+          <button class="button" type="button" data-action="key-settings">${escapeHtml(t("keySettingsTitle"))}</button>
+          <button class="button" type="button" data-action="usage-refresh">${escapeHtml(t("refreshNow"))}</button>
+        </div>
+        <div class="quotaActionsSecondary">
+          <button class="button" type="button" data-action="test">${escapeHtml(mapText("action", "test"))}</button>
+          <button class="button" type="button" data-action="reset-cooldown">${escapeHtml(mapText("action", "reset-cooldown"))}</button>
+          <button class="button" type="button" data-action="rotate">${escapeHtml(mapText("action", "rotate"))}</button>
+          <button class="button danger" type="button" data-action="delete">${escapeHtml(mapText("action", "delete"))}</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function officialUsageMeter(label, window, threshold = 1) {
+  if (!window) {
+    return `
+      <div class="quotaWindow missing">
+        <div class="quotaWindowLabel"><span>${escapeHtml(label)}</span><strong>-</strong></div>
+        <div class="quotaTrack"><span style="width: 0%"></span></div>
+        <small>${escapeHtml(t("officialUnavailable"))}</small>
+      </div>
+    `;
+  }
+  const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
+  const state = remaining <= Number(threshold || 1) ? "critical" : remaining <= 25 ? "warning" : "ok";
+  return `
+    <div class="quotaWindow ${state}">
+      <div class="quotaWindowLabel">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(formatPercent(window.remainingPercent))} ${escapeHtml(t("remainingLabel"))}</strong>
+      </div>
+      <div class="quotaTrack">
+        <span style="width: ${remaining}%"></span>
+      </div>
+      <small>${escapeHtml(formatQuotaNumber(window.usedPercent))} / 100 · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatResetTime(window.resetAt))}</small>
+    </div>
+  `;
+}
+
+function renderUsageProxyActivity() {
+  const root = $("usageProxyActivity");
+  if (!root) return;
+  const overview = state.stats?.usage?.overview;
+  if (!overview) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("noModels"))}</div>`;
+    return;
+  }
+  const totals = overview.totals;
+  const totalModelRequests = Math.max(
+    1,
+    (overview.topModelsToday || []).reduce((sum, model) => sum + Number(model.totalRequests || 0), 0)
+  );
+  root.innerHTML = `
+    <div class="usageBlock proxyUsageBlock" style="border: none; background: none; padding: 0;">
       <div class="accountUsageMeta">
         <span>${escapeHtml(t("totalAccountsUsage"))} ${formatNumber(totals.lifetime.totalRequests)}</span>
         <span>${escapeHtml(t("sessionUsageLabel"))} ${formatNumber(totals.session.estimatedRequests)}</span>
@@ -1104,65 +1121,6 @@ function renderUsageOverview() {
             : `<div class="empty">${escapeHtml(t("noModels"))}</div>`
         }
       </div>
-    </section>
-  `;
-}
-
-function renderOfficialKeyUsage(card) {
-  const status = officialQuotaStatus(card);
-  const subtitle = [card.name, card.accountLabel || t("noAccountLabel"), card.apiKeyPreview].filter(Boolean).join(" · ");
-  const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
-  return `
-    <article class="officialQuotaCard ${status}" data-key-id="${escapeHtml(card.id)}">
-      <div class="officialQuotaHeader">
-        <span class="quotaStatusDot" aria-label="${escapeHtml(officialQuotaLabel(status))}"></span>
-        <div>
-          <strong>${escapeHtml(t("providerName"))}</strong>
-          <small>${escapeHtml(subtitle)}</small>
-        </div>
-        <span class="quotaBadge">${escapeHtml(card.plan || "-")}</span>
-      </div>
-      <div class="quotaWindows">
-        ${officialUsageMeter(t("sessionUsageLabel"), card.session, card.sessionRemainingThresholdPercent)}
-        ${officialUsageMeter(t("weeklyUsageLabel"), card.weekly, card.weeklyRemainingThresholdPercent)}
-      </div>
-      ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}
-      <div class="officialQuotaFooter">
-        <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
-        <span>${escapeHtml(cookieLabel)}</span>
-        ${statusLabel(card)}
-      </div>
-      <div class="quotaActions">
-        <button class="button" type="button" data-action="edit-thresholds">${escapeHtml(t("editThresholds"))}</button>
-        <button class="button" type="button" data-action="key-settings">${escapeHtml(t("keySettingsTitle"))}</button>
-        <button class="button" type="button" data-action="usage-refresh">${escapeHtml(t("refreshNow"))}</button>
-      </div>
-    </article>
-  `;
-}
-
-function officialUsageMeter(label, window, threshold = 1) {
-  if (!window) {
-    return `
-      <div class="quotaWindow missing">
-        <div class="quotaWindowLabel"><span>${escapeHtml(label)}</span><strong>-</strong></div>
-        <div class="quotaTrack"><span style="width: 0%"></span></div>
-        <small>${escapeHtml(t("officialUnavailable"))}</small>
-      </div>
-    `;
-  }
-  const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
-  const state = remaining <= Number(threshold || 1) ? "critical" : remaining <= 25 ? "warning" : "ok";
-  return `
-    <div class="quotaWindow ${state}">
-      <div class="quotaWindowLabel">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(formatPercent(window.remainingPercent))} ${escapeHtml(t("remainingLabel"))}</strong>
-      </div>
-      <div class="quotaTrack">
-        <span style="width: ${remaining}%"></span>
-      </div>
-      <small>${escapeHtml(formatQuotaNumber(window.usedPercent))} / 100 · ${escapeHtml(t("resetAtLabel"))} ${escapeHtml(formatResetTime(window.resetAt))}</small>
     </div>
   `;
 }
@@ -1318,11 +1276,11 @@ function renderAll() {
   applyLocale();
   renderPages();
   renderStats();
-  renderKeys();
   renderEvents();
   renderClients();
   renderModels();
   renderUsageOverview();
+  renderUsageProxyActivity();
   renderUsageSettings();
   renderUsage();
   renderCache();
@@ -1461,6 +1419,7 @@ async function actionForKey(keyId, action) {
     await refresh({ showErrors: true });
   } catch (error) {
     showNotice(error.message, "error");
+    await refresh({ showErrors: false, preserveOnError: true });
   }
 }
 
@@ -1729,7 +1688,7 @@ function bindEvents() {
       if (created?.key) {
         state.loaded = true;
         state.keys = [...state.keys.filter((key) => key.id !== created.key.id), created.key];
-        renderKeys();
+        renderAll();
       }
       event.currentTarget.reset();
       closeKeyDialog();
@@ -1743,18 +1702,20 @@ function bindEvents() {
       submitButton.textContent = originalLabel || t("createKey");
     }
   });
-  $("keyList").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) return;
-    const card = button.closest("[data-key-id]");
-    actionForKey(card.dataset.keyId, button.dataset.action);
-  });
   $("usageOverview").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const card = button.closest("[data-key-id]");
     if (!card) return;
     actionForKey(card.dataset.keyId, button.dataset.action);
+  });
+  $("usageOverview").addEventListener("change", (event) => {
+    const toggle = event.target.closest("input[data-action='toggle-enable']");
+    if (!toggle) return;
+    const card = toggle.closest("[data-key-id]");
+    if (!card) return;
+    const action = toggle.checked ? "enable" : "disable";
+    actionForKey(card.dataset.keyId, action);
   });
   $("refreshModelsButton").addEventListener("click", refreshModels);
   $("refreshUsageButton").addEventListener("click", refreshOfficialUsage);

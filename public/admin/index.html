@@ -44,10 +44,16 @@
         <section class="panel usageHeroPanel">
           <div class="panelHeader compact">
             <div>
-              <h2 data-i18n="usageOverviewTitle">Ollama Cloud Key 用量</h2>
-              <p data-i18n="usageOverviewDescription">優先顯示 Ollama Cloud 官方剩餘用量，本 proxy 活動紀錄只作輔助。</p>
+              <h2 data-i18n="overviewPageTitle">金鑰用量總覽</h2>
+              <p data-i18n="usageOverviewDescription">管理金鑰與檢視 Ollama Cloud 官方剩餘用量。</p>
             </div>
-            <button id="refreshUsageButton" class="button primary" type="button" data-i18n="refreshOfficialUsage">刷新官方用量</button>
+            <div class="panelActions">
+              <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰" aria-label="新增 Ollama 金鑰" data-i18n-title="addKeyTitle" data-i18n-aria-label="addKeyAria">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                <span data-i18n="addKey">新增金鑰</span>
+              </button>
+              <button id="refreshUsageButton" class="button primary" type="button" data-i18n="refreshOfficialUsage">刷新官方用量</button>
+            </div>
           </div>
           <div id="usageOverview" class="usageOverview"></div>
         </section>
@@ -78,66 +84,6 @@
             <strong id="sessionReset">-</strong>
             <small data-i18n="nextSessionReset">下次 5hr 重置</small>
           </article>
-        </section>
-
-        <section class="workspace">
-          <section class="panel keyPanel">
-            <div class="panelHeader">
-              <div>
-                <h2 data-i18n="keyPoolTitle">金鑰池</h2>
-                <p data-i18n="keyPoolDescription">管理已加密的 Ollama 金鑰、冷卻與封鎖狀態。</p>
-              </div>
-              <button id="addKeyButton" class="button primary" type="button" title="新增一把 Ollama API 金鑰到金鑰池" aria-label="新增 Ollama 金鑰" data-i18n-title="addKeyTitle" data-i18n-aria-label="addKeyAria">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                <span data-i18n="addKey">新增金鑰</span>
-              </button>
-            </div>
-            <div id="keyList" class="keyList"></div>
-          </section>
-
-          <aside class="panel eventPanel">
-            <div class="panelHeader compact">
-              <div>
-                <h2 data-i18n="eventsTitle">事件</h2>
-                <p data-i18n="eventsDescription">近期代理與金鑰活動。</p>
-              </div>
-            </div>
-            <div class="filters">
-              <select id="eventLevel" aria-label="事件層級" data-i18n-aria-label="eventLevelLabel">
-                <option value="" data-i18n="allLevels">所有層級</option>
-                <option value="debug" data-i18n="levelDebug">除錯</option>
-                <option value="info" data-i18n="levelInfo">資訊</option>
-                <option value="warn" data-i18n="levelWarn">警告</option>
-                <option value="error" data-i18n="levelError">錯誤</option>
-              </select>
-              <select id="eventType" aria-label="事件類型" data-i18n-aria-label="eventTypeLabel">
-                <option value="" data-i18n="allTypes">所有類型</option>
-              </select>
-            </div>
-            <div id="eventList" class="eventList"></div>
-          </aside>
-        </section>
-
-        <section class="lowerGrid">
-          <section class="panel">
-            <div class="panelHeader compact">
-              <div>
-                <h2 data-i18n="clientsTitle">客戶端</h2>
-                <p data-i18n="clientsDescription">依今日權杖身分統計。</p>
-              </div>
-            </div>
-            <div id="clientList" class="miniTable"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panelHeader compact">
-              <div>
-                <h2 data-i18n="modelsTitle">模型</h2>
-                <p data-i18n="modelsDescription">別名與請求次數。</p>
-              </div>
-            </div>
-            <div id="modelList" class="miniTable"></div>
-          </section>
         </section>
       </section>
 
@@ -190,16 +136,60 @@
             <button class="button primary" type="submit" data-i18n="saveUsageSettings">儲存重置時間</button>
           </form>
         </section>
-        <section class="lowerGrid">
+
+        <aside class="panel eventPanel">
+          <div class="panelHeader compact">
+            <div>
+              <h2 data-i18n="eventsTitle">事件</h2>
+              <p data-i18n="eventsDescription">近期代理與金鑰活動。</p>
+            </div>
+          </div>
+          <div class="filters">
+            <select id="eventLevel" aria-label="事件層級" data-i18n-aria-label="eventLevelLabel">
+              <option value="" data-i18n="allLevels">所有層級</option>
+              <option value="debug" data-i18n="levelDebug">除錯</option>
+              <option value="info" data-i18n="levelInfo">資訊</option>
+              <option value="warn" data-i18n="levelWarn">警告</option>
+              <option value="error" data-i18n="levelError">錯誤</option>
+            </select>
+            <select id="eventType" aria-label="事件類型" data-i18n-aria-label="eventTypeLabel">
+              <option value="" data-i18n="allTypes">所有類型</option>
+            </select>
+          </div>
+          <div id="eventList" class="eventList"></div>
+        </aside>
+
+        <section class="panel">
+          <div class="panelHeader compact">
+            <div>
+              <h2 data-i18n="proxyActivityTitle">代理活動</h2>
+              <p data-i18n="usageOverviewDescription">proxy 活動紀錄與今日模型分布。</p>
+            </div>
+          </div>
+          <div id="usageProxyActivity" class="usageOverview"></div>
+        </section>
+
+        <section class="lowerGrid cols3">
           <section class="panel">
             <div class="panelHeader compact">
               <div>
-                <h2 data-i18n="usageTitle">用量與快取</h2>
-                <p data-i18n="usageDescription">依目前可保存的資料顯示請求、token 與模型清單快取。</p>
+                <h2 data-i18n="clientsTitle">客戶端</h2>
+                <p data-i18n="clientsDescription">依今日權杖身分統計。</p>
               </div>
             </div>
-            <div id="usageList" class="miniTable"></div>
+            <div id="clientList" class="miniTable"></div>
           </section>
+
+          <section class="panel">
+            <div class="panelHeader compact">
+              <div>
+                <h2 data-i18n="modelsTitle">模型</h2>
+                <p data-i18n="modelsDescription">別名與請求次數。</p>
+              </div>
+            </div>
+            <div id="modelList" class="miniTable"></div>
+          </section>
+
           <section class="panel">
             <div class="panelHeader compact">
               <div>
@@ -209,6 +199,16 @@
             </div>
             <div id="cacheList" class="miniTable"></div>
           </section>
+        </section>
+
+        <section class="panel" style="margin-top: 14px;">
+          <div class="panelHeader compact">
+            <div>
+              <h2 data-i18n="usageTitle">用量與快取</h2>
+              <p data-i18n="usageDescription">依目前可保存的資料顯示請求、token 與模型清單快取。</p>
+            </div>
+          </div>
+          <div id="usageList" class="miniTable"></div>
         </section>
       </section>
 
