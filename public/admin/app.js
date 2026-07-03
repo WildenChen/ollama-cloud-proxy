@@ -1045,14 +1045,20 @@ function renderCombinedQuotaCard(totals, keyCards) {
 }
 
 function aggregateOfficialWindow(cards, key) {
-  const windows = (cards || [])
-    .filter(isOfficialKeyIncludedInPool)
-    .map((card) => card[key])
-    .filter(Boolean);
-  const capacity = windows.length * 100;
-  const used = windows.reduce((sum, window) => sum + Number(window.usedPercent || 0), 0);
-  const remainingPercent = capacity > 0 ? Math.max(0, Math.min(100, ((capacity - used) / capacity) * 100)) : null;
+  const includedCards = (cards || []).filter(isOfficialKeyIncludedInPool);
+  const capacity = includedCards.length * 100;
+  const remaining = includedCards.reduce((sum, card) => sum + aggregateWindowRemaining(card, key), 0);
+  const used = capacity > 0 ? capacity - remaining : 0;
+  const remainingPercent = capacity > 0 ? Math.max(0, Math.min(100, (remaining / capacity) * 100)) : null;
   return { capacity, used, remainingPercent };
+}
+
+function aggregateWindowRemaining(card, key) {
+  if (!card?.enabled || card.status === "disabled") return 0;
+  if (["invalid", "weekly_blocked"].includes(card.status)) return 0;
+  if (key === "session" && card.status === "session_blocked") return 0;
+  const window = card[key];
+  return Math.max(0, Math.min(100, Number(window?.remainingPercent || 0)));
 }
 
 function aggregateUsageMeter(label, window, resetAt) {
