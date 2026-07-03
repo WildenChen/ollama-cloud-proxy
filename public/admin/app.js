@@ -1114,7 +1114,7 @@ function renderOfficialKeyUsage(card) {
         </div>
         <div class="quotaActionsSecondary">
           <button class="button" type="button" data-action="test">${escapeHtml(mapText("action", "test"))}</button>
-          <button class="button" type="button" data-action="reset-cooldown" ${card.status === "cooling_down" || card.status === "session_blocked" || card.status === "weekly_blocked" ? "" : "disabled"}>${escapeHtml(mapText("action", "reset-cooldown"))}</button>
+          <button class="button" type="button" data-action="reset-cooldown" ${card.status === "cooling_down" || card.status === "session_blocked" || card.status === "weekly_blocked" || card.status === "invalid" ? "" : "disabled"}>${escapeHtml(mapText("action", "reset-cooldown"))}</button>
           <button class="button danger" type="button" data-action="delete">${escapeHtml(mapText("action", "delete"))}</button>
         </div>
       </div>

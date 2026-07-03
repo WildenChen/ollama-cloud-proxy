@@ -188,11 +188,13 @@ export class KeyPoolManager {
 
   resetCooldown(id: string) {
     const current = this.store.getKeyOrThrow(id, true);
+    const resettableStatus = current.enabled && current.status !== "disabled";
     const key = this.store.patchKey(id, {
       cooldownUntil: null,
       nextEligibleAt: null,
-      status: current.enabled && current.status !== "invalid" ? "available" : current.status,
-      blockReason: current.enabled && current.status !== "invalid" ? "none" : current.blockReason,
+      status: resettableStatus ? "available" : current.status,
+      blockReason: resettableStatus ? "none" : current.blockReason,
+      consecutiveFailures: resettableStatus ? 0 : current.consecutiveFailures,
     });
     this.events.emit({ level: "info", type: "key_cooldown_reset", message: `Key ${key.name} cooldown reset`, keyId: key.id, keyName: key.name });
     return publicKey(key);

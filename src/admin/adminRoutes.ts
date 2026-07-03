@@ -121,9 +121,20 @@ export class AdminRoutes {
     if (!key) return openAiError(404, "key_not_found", "Key not found");
     const official = await this.officialUsageForKey(key, true);
     const currentKey = this.store.getKey(id, false) ?? key;
+    let probeResult: unknown = null;
+    if (currentKey.status === "invalid") {
+      const probeResponse = await this.testKey(id);
+      try {
+        probeResult = await probeResponse.clone().json();
+      } catch {
+        probeResult = { ok: false };
+      }
+    }
+    const refreshedKey = this.store.getKey(id, false) ?? currentKey;
     return json({
       key: this.keyPool.getPublic(id),
-      usage: this.officialUsageCardForKey(currentKey, official ?? this.parseUsageSnapshot(currentKey.ollamaUsageJson)),
+      usage: this.officialUsageCardForKey(refreshedKey, official ?? this.parseUsageSnapshot(refreshedKey.ollamaUsageJson)),
+      probe: probeResult,
     });
   }
 

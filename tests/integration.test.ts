@@ -308,6 +308,50 @@ describe("proxy integration", () => {
     expect(JSON.stringify(body)).not.toContain("second-cookie");
   });
 
+  test("Per-key usage refresh probes and restores an invalid key when the key works", async () => {
+    const seen: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      const url = new URL(req.url);
+      seen.push(`${url.pathname}:${req.headers.get("authorization") || req.headers.get("cookie") || ""}`);
+      if (url.pathname === "/settings") {
+        return new Response(
+          [
+            '<div data-usage-track aria-label="10% used"></div>',
+            '<div data-usage-track aria-label="20% used"></div>',
+          ].join(""),
+          { headers: { "content-type": "text/html" } }
+        );
+      }
+      if (url.pathname === "/v1/models") {
+        return Response.json({ object: "list", data: [{ id: "llama", object: "model" }] });
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
+    const app = createApp(config({ upstreamBaseUrl, ollamaCloudUsageUrl: `${upstreamBaseUrl}/settings` }));
+    const key = app.keyPool.create({ name: "stored-invalid", apiKey: "good-key", ollamaUsageCookie: "cookie-value" });
+    app.store.patchKey(key.id, {
+      status: "invalid",
+      blockReason: "invalid_api_key",
+      consecutiveFailures: 2,
+    });
+
+    const refresh = await fetch(`${app.baseUrl}/admin/keys/${key.id}/usage-refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const body = await refresh.json();
+    const updated = app.store.getKey(key.id, true)!;
+
+    expect(refresh.status).toBe(200);
+    expect(seen).toContain("/settings:__Secure-session=cookie-value");
+    expect(seen).toContain("/v1/models:Bearer good-key");
+    expect(body.key.status).toBe("available");
+    expect(body.probe.ok).toBe(true);
+    expect(updated.status).toBe("available");
+    expect(updated.blockReason).toBe("none");
+    expect(updated.consecutiveFailures).toBe(0);
+  });
+
   test("Admin delete key hides it from the active key list", async () => {
     const app = createApp(config());
     const createResponse = await fetch(`${app.baseUrl}/admin/keys`, {
@@ -383,6 +427,31 @@ describe("proxy integration", () => {
     expect(keysBody.keys[0].cooldownUntil).toBeNull();
     expect(statsBody.keys.availableKeys).toBe(1);
     expect(statsBody.keys.coolingDownKeys).toBe(0);
+  });
+
+  test("Admin reset cooldown can manually restore an invalid key", async () => {
+    const app = createApp(config());
+    const key = app.keyPool.create({ name: "invalid-stored", apiKey: "good-key" });
+    app.store.patchKey(key.id, {
+      status: "invalid",
+      blockReason: "invalid_api_key",
+      consecutiveFailures: 3,
+      lastFailureAt: new Date().toISOString(),
+    });
+
+    const response = await fetch(`${app.baseUrl}/admin/keys/${key.id}/reset-cooldown`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const body = await response.json();
+    const updated = app.store.getKey(key.id, true)!;
+
+    expect(response.status).toBe(200);
+    expect(body.key.status).toBe("available");
+    expect(updated.status).toBe("available");
+    expect(updated.blockReason).toBe("none");
+    expect(updated.consecutiveFailures).toBe(0);
+    expect(app.keyPool.selectableCount()).toBe(1);
   });
 
   test("Admin key list keeps active cooldown visible", async () => {
@@ -1009,7 +1078,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.2.3");
+    expect(body.proxy_version).toBe("1.2.4");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
