@@ -58,6 +58,9 @@ export type ProxyEventType =
   | "key_rotated"
   | "key_deleted"
   | "key_tested"
+  | "official_usage_refreshed"
+  | "official_usage_refresh_failed"
+  | "official_usage_blocked"
   | "no_available_key"
   | "upstream_error"
   | "upstream_timeout"
@@ -73,6 +76,7 @@ export type KeyRecord = {
   notes: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
+  encryptedOllamaUsageCookie: string | null;
   enabled: boolean;
   status: KeyStatus;
   blockReason: BlockReason;
@@ -90,6 +94,9 @@ export type KeyRecord = {
   estimatedWeeklyDurationMs: number;
   sessionWindowStartedAt: string | null;
   weeklyWindowStartedAt: string | null;
+  ollamaUsageJson: string | null;
+  ollamaUsageLastRefreshAt: string | null;
+  ollamaUsageLastError: string | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;
@@ -99,7 +106,9 @@ export type KeyRecord = {
   deletedAt: string | null;
 };
 
-export type PublicKeyRecord = Omit<KeyRecord, "encryptedApiKey">;
+export type PublicKeyRecord = Omit<KeyRecord, "encryptedApiKey" | "encryptedOllamaUsageCookie"> & {
+  hasOllamaUsageCookie: boolean;
+};
 
 export type ClientIdentity = {
   clientName: string;

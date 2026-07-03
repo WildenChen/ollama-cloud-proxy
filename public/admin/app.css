@@ -730,6 +730,17 @@ svg {
   background: linear-gradient(90deg, var(--accent), var(--green));
 }
 
+.usageMeterTrack.official span {
+  background: linear-gradient(90deg, var(--green), var(--accent));
+}
+
+.usageError {
+  display: block;
+  margin-top: 8px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
 .accountUsageMeta {
   flex-wrap: wrap;
   justify-content: flex-start;

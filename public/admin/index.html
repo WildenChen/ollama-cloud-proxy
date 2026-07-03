@@ -137,6 +137,7 @@
               <h2 data-i18n="usageOverviewTitle">全部帳號用量</h2>
               <p data-i18n="usageOverviewDescription">依全部金鑰與帳號分組彙總代理估算用量。</p>
             </div>
+            <button id="refreshUsageButton" class="button primary" type="button" data-i18n="refreshOfficialUsage">刷新官方用量</button>
           </div>
           <div id="usageOverview" class="usageOverview"></div>
         </section>
@@ -239,6 +240,14 @@
         <label>
           <span data-i18n="apiKeyLabel">API 金鑰</span>
           <input name="apiKey" required type="password" autocomplete="off" placeholder="ollama_xxxxxxxxx" />
+        </label>
+        <label>
+          <span data-i18n="accountLabelLabel">帳號標籤</span>
+          <input name="accountLabel" autocomplete="off" placeholder="personal-pro" />
+        </label>
+        <label>
+          <span data-i18n="usageCookieLabel">Ollama 用量 Cookie</span>
+          <input name="ollamaUsageCookie" type="password" autocomplete="off" placeholder="__Secure-session=..." />
         </label>
         <label>
           <span data-i18n="notesLabel">備註</span>

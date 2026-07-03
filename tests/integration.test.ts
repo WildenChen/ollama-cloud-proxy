@@ -10,6 +10,7 @@ import { proxyReadableStream } from "../src/proxy/stream";
 import { Router } from "../src/server/router";
 import { KeyCipher } from "../src/security/encryption";
 import { DatabaseStore } from "../src/storage/database";
+import { normalizeOllamaUsageCookie, parseOllamaCloudSettingsHtml } from "../src/usage/ollamaCloudUsage";
 import { WebService } from "../src/web/webService";
 
 const servers: Array<{ stop: (force?: boolean) => void }> = [];
@@ -31,6 +32,9 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     ollamaWebSearchPath: "/api/web_search",
     ollamaWebFetchPath: "/api/web_fetch",
     ollamaWebTimeoutMs: 30000,
+    ollamaCloudUsageUrl: "http://127.0.0.1:1/settings",
+    ollamaUsageCookie: null,
+    ollamaUsageRefreshTtlSeconds: 300,
     maxConcurrentRequests: 5,
     maxConcurrentRequestsPerKey: 1,
     requestQueueMax: 30,
@@ -84,6 +88,30 @@ function createMockUpstream(handler: (req: Request) => Response | Promise<Respon
 }
 
 describe("proxy integration", () => {
+  test("Ollama Cloud usage parser normalizes cookies and extracts quota tracks", () => {
+    expect(normalizeOllamaUsageCookie("__Secure-session=abc123")).toEqual({ ok: true, value: "abc123" });
+    expect(normalizeOllamaUsageCookie("abc123")).toEqual({ ok: true, value: "abc123" });
+    expect(normalizeOllamaUsageCookie("bad\ncookie").ok).toBe(false);
+
+    const parsed = parseOllamaCloudSettingsHtml(
+      [
+        '<span class="capitalize">pro</span>',
+        '<div data-usage-track aria-label="34% used" style="width: 1%">',
+        '<span class="local-time" data-time="2026-06-22T15:00:00.000Z"></span>',
+        "</div>",
+        '<div data-usage-track style="width: 67%">',
+        '<span class="local-time" data-time="2026-06-29T15:00:00.000Z"></span>',
+        "</div>",
+      ].join("")
+    );
+
+    expect(parsed?.plan).toBe("Ollama Cloud pro");
+    expect(parsed?.session?.usedPercent).toBe(34);
+    expect(parsed?.session?.remainingPercent).toBe(66);
+    expect(parsed?.session?.resetAt).toBe("2026-06-22T15:00:00.000Z");
+    expect(parsed?.weekly?.usedPercent).toBe(67);
+  });
+
   test("Admin create key hides full API key", async () => {
     const app = createApp(config());
     const response = await fetch(`${app.baseUrl}/admin/keys`, {
@@ -96,6 +124,78 @@ describe("proxy integration", () => {
     expect(response.status).toBe(201);
     expect(JSON.stringify(body)).not.toContain("ollama_secret_abcdef");
     expect(body.key.apiKeyPreview).toBe("ollama_sec...cdef");
+  });
+
+  test("Admin create key stores usage cookie encrypted and never returns it", async () => {
+    const settingsBaseUrl = createMockUpstream((req) => {
+      expect(req.headers.get("cookie")).toBe("__Secure-session=test-cookie");
+      return new Response(
+        [
+          '<span class="capitalize">pro</span>',
+          '<div data-usage-track aria-label="12% used"><span class="local-time" data-time="2026-06-22T15:00:00.000Z"></span></div>',
+          '<div data-usage-track style="width: 45%"><span class="local-time" data-time="2026-06-29T15:00:00.000Z"></span></div>',
+        ].join(""),
+        { headers: { "content-type": "text/html" } }
+      );
+    });
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const response = await fetch(`${app.baseUrl}/admin/keys`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "free-01",
+        accountLabel: "acct",
+        apiKey: "ollama_secret_abcdef",
+        ollamaUsageCookie: "__Secure-session=test-cookie",
+      }),
+    });
+    const created = await response.json();
+    const stored = app.store.getKey(created.key.id, true)!;
+
+    expect(response.status).toBe(201);
+    expect(created.key.hasOllamaUsageCookie).toBe(true);
+    expect(JSON.stringify(created)).not.toContain("test-cookie");
+    expect(stored.encryptedOllamaUsageCookie).not.toContain("test-cookie");
+
+    const refresh = await fetch(`${app.baseUrl}/admin/usage-overview/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const overview = await refresh.json();
+
+    expect(refresh.status).toBe(200);
+    expect(overview.source).toBe("ollama_cloud_settings");
+    expect(overview.totals.official.session.usedPercent).toBe(12);
+    expect(overview.totals.official.weekly.remainingPercent).toBe(55);
+    expect(JSON.stringify(overview)).not.toContain("test-cookie");
+  });
+
+  test("Official exhausted usage blocks the key from selection until reset", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const settingsBaseUrl = createMockUpstream(() =>
+      new Response(
+        [
+          '<div data-usage-track aria-label="99% used">',
+          `<span class="local-time" data-time="${resetAt}"></span>`,
+          "</div>",
+          '<div data-usage-track style="width: 10%"></div>',
+        ].join(""),
+        { headers: { "content-type": "text/html" } }
+      )
+    );
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    app.keyPool.create({ name: "blocked", apiKey: "good-key", ollamaUsageCookie: "cookie-value" });
+
+    const refresh = await fetch(`${app.baseUrl}/admin/usage-overview/refresh`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const key = app.store.listKeys(false)[0];
+
+    expect(refresh.status).toBe(200);
+    expect(key.status).toBe("session_blocked");
+    expect(key.cooldownUntil).toBe(resetAt);
+    expect(app.keyPool.selectableCount()).toBe(0);
   });
 
   test("Admin delete key hides it from the active key list", async () => {
@@ -1087,6 +1187,71 @@ describe("proxy integration", () => {
       { query: "what is ollama?", max_results: 3 },
       { query: "ollama cloud", max_results: 5 },
     ]);
+  });
+
+  test("/v1/search lists and executes OmniRoute-style Ollama Search", async () => {
+    const upstreamBaseUrl = createMockUpstream(async (req) => {
+      expect(new URL(req.url).pathname).toBe("/api/web_search");
+      expect(req.headers.get("authorization")).toBe("Bearer good-key");
+      expect(await req.json()).toEqual({ query: "what is ollama?", max_results: 2 });
+      return Response.json({ results: [{ title: "Ollama", url: "https://ollama.com", content: "Run models" }] });
+    });
+    const app = createApp(config({ ollamaWebBaseUrl: upstreamBaseUrl }));
+    app.keyPool.create({ name: "good", apiKey: "good-key" });
+
+    const list = await fetch(`${app.baseUrl}/v1/search`);
+    const listed = await list.json();
+    const response = await fetch(`${app.baseUrl}/v1/search`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ query: " what   is ollama? ", provider: "ollama-search", max_results: 2, search_type: "web" }),
+    });
+    const body = await response.json();
+
+    expect(list.status).toBe(200);
+    expect(listed.data[0].id).toBe("ollama-search");
+    expect(response.status).toBe(200);
+    expect(body.provider).toBe("ollama-search");
+    expect(body.query).toBe("what is ollama?");
+    expect(body.results[0]).toMatchObject({
+      title: "Ollama",
+      url: "https://ollama.com",
+      display_url: "ollama.com",
+      snippet: "Run models",
+      position: 1,
+    });
+    expect(body.results[0].citation.provider).toBe("ollama-search");
+    expect(body.usage.search_cost_usd).toBe(0);
+  });
+
+  test("/v1/search rejects unsupported options and invalid query", async () => {
+    const app = createApp(config());
+    const headers = { authorization: "Bearer client-token", "content-type": "application/json" };
+    const unsupportedProvider = await fetch(`${app.baseUrl}/v1/search`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: "ollama", provider: "brave-search" }),
+    });
+    const news = await fetch(`${app.baseUrl}/v1/search`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: "ollama", search_type: "news" }),
+    });
+    const control = await fetch(`${app.baseUrl}/v1/search`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: "bad\u0001query" }),
+    });
+    const tooMany = await fetch(`${app.baseUrl}/v1/search`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: "ollama", max_results: 11 }),
+    });
+
+    expect(unsupportedProvider.status).toBe(400);
+    expect(news.status).toBe(400);
+    expect(control.status).toBe(400);
+    expect(tooMany.status).toBe(400);
   });
 
   test("/v1/web/fetch validates url", async () => {

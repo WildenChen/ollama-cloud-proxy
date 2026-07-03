@@ -73,6 +73,16 @@ export class Router {
       return this.web.handleFetch(req, auth.identity);
     }
 
+    if (path === "/v1/search" && req.method === "GET") {
+      return this.web.listSearchProviders();
+    }
+
+    if (path === "/v1/search" && req.method === "POST") {
+      const auth = authenticateClient(req, this.config);
+      if ("response" in auth) return auth.response;
+      return this.web.handleOmniSearch(req, auth.identity);
+    }
+
     if (
       path.startsWith("/v1/") ||
       path === "/api/tags" ||

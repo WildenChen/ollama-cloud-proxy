@@ -36,6 +36,12 @@ type WebAttemptFailure = {
 
 type WebAttemptResult = WebAttemptSuccess | WebAttemptFailure;
 
+const CONTROL_CHAR_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+
+function displayUrl(value: string): string {
+  return value.replace(/^https?:\/\/(www\.)?/i, "").split("?")[0];
+}
+
 export class WebService {
   constructor(
     private readonly config: AppConfig,
@@ -49,14 +55,89 @@ export class WebService {
     const parsed = await this.parseJsonBody(req);
     if ("response" in parsed) return parsed.response;
 
-    const query = this.stringField(parsed.body, "query") ?? this.stringField(parsed.body, "q");
-    if (query === null) return openAiError(400, "invalid_request", "query or q is required");
-    if (!query.trim()) return openAiError(400, "invalid_request", "query cannot be empty");
+    const rawQuery = this.stringField(parsed.body, "query") ?? this.stringField(parsed.body, "q");
+    if (rawQuery === null) return openAiError(400, "invalid_request", "query or q is required");
+    const query = this.sanitizeQuery(rawQuery);
+    if ("response" in query) return query.response;
 
     const maxResults = this.parseMaxResults(parsed.body.max_results);
     if ("response" in maxResults) return maxResults.response;
 
-    return this.searchWeb({ query: query.trim(), maxResults: maxResults.value }, client, req.signal);
+    return this.searchWeb({ query: query.value, maxResults: maxResults.value }, client, req.signal);
+  }
+
+  listSearchProviders(): Response {
+    const created = Math.floor(Date.now() / 1000);
+    return Response.json({
+      object: "list",
+      data: [
+        {
+          id: "ollama-search",
+          object: "search_provider",
+          created,
+          name: "Ollama Search",
+          search_types: ["web"],
+        },
+      ],
+    });
+  }
+
+  async handleOmniSearch(req: Request, client: ClientIdentity): Promise<Response> {
+    const parsed = await this.parseJsonBody(req);
+    if ("response" in parsed) return parsed.response;
+
+    const provider = this.stringField(parsed.body, "provider") || "ollama-search";
+    if (provider !== "ollama-search") {
+      return openAiError(400, "invalid_request", `Unsupported search provider: ${provider}`);
+    }
+    const searchType = this.stringField(parsed.body, "search_type") || "web";
+    if (searchType !== "web") {
+      return openAiError(400, "invalid_request", `Ollama Search does not support search_type: ${searchType}`);
+    }
+    const rawQuery = this.stringField(parsed.body, "query");
+    if (rawQuery === null) return openAiError(400, "invalid_request", "query is required");
+    const query = this.sanitizeQuery(rawQuery);
+    if ("response" in query) return query.response;
+    const maxResults = this.parseMaxResults(parsed.body.max_results);
+    if ("response" in maxResults) return maxResults.response;
+
+    const response = await this.searchWeb({ query: query.value, maxResults: maxResults.value }, client, req.signal);
+    if (!response.ok) return response;
+    const legacy = (await response.json()) as { results?: Array<{ title?: string; url?: string; content?: string }>; duration_ms?: number };
+    const now = new Date().toISOString();
+    const results = Array.isArray(legacy.results)
+      ? legacy.results.map((item, index) => {
+          const url = typeof item.url === "string" ? item.url : "";
+          const snippet = typeof item.content === "string" ? item.content : "";
+          return {
+            title: typeof item.title === "string" ? item.title : "",
+            url,
+            display_url: url ? displayUrl(url) : "",
+            snippet,
+            position: index + 1,
+            score: null,
+            published_at: null,
+            favicon_url: null,
+            content: snippet ? { format: "text", text: snippet, length: snippet.length } : null,
+            metadata: null,
+            citation: { provider: "ollama-search", retrieved_at: now, rank: index + 1 },
+            provider_raw: null,
+          };
+        })
+      : [];
+    return Response.json({
+      provider: "ollama-search",
+      query: query.value,
+      results,
+      answer: null,
+      usage: { queries_used: 1, search_cost_usd: 0 },
+      metrics: {
+        response_time_ms: Number(legacy.duration_ms || 0),
+        upstream_latency_ms: Number(legacy.duration_ms || 0),
+        total_results_available: results.length,
+      },
+      errors: [],
+    });
   }
 
   async handleFetch(req: Request, client: ClientIdentity): Promise<Response> {
@@ -339,6 +420,15 @@ export class WebService {
       return { response: openAiError(400, "invalid_request", "max_results must be less than or equal to 10") };
     }
     return { value };
+  }
+
+  private sanitizeQuery(value: string): { value: string } | { response: Response } {
+    if (CONTROL_CHAR_RE.test(value)) {
+      return { response: openAiError(400, "invalid_request", "query contains invalid control characters") };
+    }
+    const clean = value.normalize("NFKC").trim().replace(/\s+/g, " ");
+    if (!clean) return { response: openAiError(400, "invalid_request", "query cannot be empty") };
+    return { value: clean };
   }
 
   private validateUrl(value: string): { value: string } | { response: Response } {

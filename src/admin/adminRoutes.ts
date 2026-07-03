@@ -8,6 +8,7 @@ import { publicKey } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore, UsageSettingsPatch } from "../storage/database";
 import type { KeyRecord } from "../types/domain";
+import { fetchOllamaCloudUsage, type OllamaCloudUsageSnapshot } from "../usage/ollamaCloudUsage";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
 
@@ -32,8 +33,9 @@ export class AdminRoutes {
   ) {}
 
   async handle(req: Request, path: string): Promise<Response> {
-    if (path === "/admin/stats" && req.method === "GET") return json(this.stats());
-    if (path === "/admin/usage-overview" && req.method === "GET") return json(this.usageOverview());
+    if (path === "/admin/stats" && req.method === "GET") return json(await this.stats());
+    if (path === "/admin/usage-overview" && req.method === "GET") return json(await this.usageOverview(false));
+    if (path === "/admin/usage-overview/refresh" && req.method === "POST") return json(await this.usageOverview(true));
     if (path === "/admin/usage-settings" && req.method === "GET") return json(this.usageSettings());
     if (path === "/admin/usage-settings" && req.method === "PATCH") return this.patchUsageSettings(req);
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
@@ -75,6 +77,7 @@ export class AdminRoutes {
         accountLabel: body.accountLabel ? String(body.accountLabel) : null,
         notes: body.notes ? String(body.notes) : null,
         apiKey: String(body.apiKey || ""),
+        ollamaUsageCookie: body.ollamaUsageCookie ? String(body.ollamaUsageCookie) : null,
       });
       return json({ key }, 201);
     } catch (error) {
@@ -349,7 +352,7 @@ export class AdminRoutes {
     }
   }
 
-  private stats() {
+  private async stats() {
     const settings = this.store.getUsageSettings(this.config);
     const nextSessionResetAt = getNextAnchoredIntervalResetAt(
       new Date(),
@@ -401,7 +404,7 @@ export class AdminRoutes {
       keys: keySummary,
       usage: {
         note: "Session and weekly usage are estimated by this proxy unless an official usage API is configured.",
-        overview: this.usageOverview(),
+        overview: await this.usageOverview(false),
         windows: {
           session: {
             durationHours: 5,
@@ -456,7 +459,7 @@ export class AdminRoutes {
     });
   }
 
-  private usageOverview() {
+  private async usageOverview(forceRefresh: boolean) {
     const settings = this.store.getUsageSettings(this.config);
     const keys = this.store.listKeys(false);
     const now = new Date();
@@ -464,20 +467,27 @@ export class AdminRoutes {
     const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
 
     for (const key of keys) {
+      const official = await this.officialUsageForKey(key, forceRefresh);
       const accountId = key.accountLabel?.trim() || `key:${key.id}`;
       const accountName = key.accountLabel?.trim() || key.name;
       const account = accounts.get(accountId) ?? this.emptyAccountUsage(accountId, accountName);
       this.addKeyUsage(totals, key, now, settings);
       this.addKeyUsage(account, key, now, settings);
+      this.addOfficialUsage(totals, key, official);
+      this.addOfficialUsage(account, key, official);
       accounts.set(accountId, account);
     }
 
     return {
-      source: "estimated_by_proxy",
+      source: totals.official.available > 0 ? "ollama_cloud_settings" : "estimated_by_proxy",
       accountGrouping: "accountLabel",
-      note: "Totals cover all keys known to this proxy. Keys without accountLabel are treated as separate accounts.",
+      note: "Official Ollama Cloud usage is shown when a usage cookie is configured. Proxy request/token stats are local activity only.",
       totals,
-      accounts: Array.from(accounts.values()).sort((a, b) => b.weekly.estimatedRequests - a.weekly.estimatedRequests),
+      accounts: Array.from(accounts.values()).sort((a, b) => {
+        const aRemaining = a.official.weekly?.remainingPercent ?? -1;
+        const bRemaining = b.official.weekly?.remainingPercent ?? -1;
+        return bRemaining - aRemaining;
+      }),
       topModelsToday: this.store.getTodayModelStats().map((row) => ({
         model: String(row.model),
         totalRequests: Number(row.totalRequests || 0),
@@ -529,7 +539,161 @@ export class AdminRoutes {
         totalSuccesses: 0,
         totalFailures: 0,
       },
+      official: {
+        available: 0,
+        missing: 0,
+        stale: 0,
+        errors: 0,
+        source: null as string | null,
+        plan: null as string | null,
+        fetchedAt: null as string | null,
+        lastError: null as string | null,
+        session: null as { usedPercent: number; remainingPercent: number; resetAt: string | null } | null,
+        weekly: null as { usedPercent: number; remainingPercent: number; resetAt: string | null } | null,
+        keys: [] as Array<{
+          id: string;
+          name: string;
+          hasCookie: boolean;
+          fetchedAt: string | null;
+          lastError: string | null;
+          session: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null;
+          weekly: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null;
+        }>,
+      },
     };
+  }
+
+  private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
+    const cookie = this.keyPool.decryptOllamaUsageCookie(key) || this.config.ollamaUsageCookie;
+    const snapshot = this.parseUsageSnapshot(key.ollamaUsageJson);
+    const lastRefreshMs = key.ollamaUsageLastRefreshAt ? Date.parse(key.ollamaUsageLastRefreshAt) : 0;
+    const stale = !lastRefreshMs || Date.now() - lastRefreshMs > this.config.ollamaUsageRefreshTtlSeconds * 1000;
+    if (!forceRefresh && snapshot && !stale) return snapshot;
+
+    if (!cookie) {
+      this.store.patchKey(key.id, {
+        ollamaUsageLastError: "Ollama Cloud usage cookie is not configured.",
+        ollamaUsageLastRefreshAt: new Date().toISOString(),
+      });
+      return snapshot;
+    }
+
+    const result = await fetchOllamaCloudUsage({
+      cookie,
+      usageUrl: this.config.ollamaCloudUsageUrl,
+      timeoutMs: Math.min(this.config.upstreamTotalTimeoutMs, 10_000),
+    });
+    if (!result.ok) {
+      this.store.patchKey(key.id, {
+        ollamaUsageLastError: result.message,
+        ollamaUsageLastRefreshAt: new Date().toISOString(),
+      });
+      this.events.emit({
+        level: "warn",
+        type: "official_usage_refresh_failed",
+        message: result.message,
+        keyId: key.id,
+        keyName: key.name,
+        details: { status: result.status },
+      });
+      return snapshot;
+    }
+
+    const next = result.snapshot;
+    this.store.patchKey(key.id, {
+      ollamaUsageJson: JSON.stringify(next),
+      ollamaUsageLastRefreshAt: next.fetchedAt,
+      ollamaUsageLastError: null,
+      usageSource: "dashboard_scraped",
+      resetSource: "dashboard_observed",
+    });
+    this.events.emit({
+      level: "info",
+      type: "official_usage_refreshed",
+      message: `Official Ollama Cloud usage refreshed for ${key.name}`,
+      keyId: key.id,
+      keyName: key.name,
+      details: { session: next.session, weekly: next.weekly, plan: next.plan },
+    });
+    this.applyOfficialUsageBlock(key, next);
+    return next;
+  }
+
+  private applyOfficialUsageBlock(key: KeyRecord, snapshot: OllamaCloudUsageSnapshot) {
+    const exhausted = (window: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null) =>
+      Boolean(window && (window.usedPercent >= 99 || window.remainingPercent <= 1));
+    if (exhausted(snapshot.session)) {
+      const settings = this.store.getUsageSettings(this.config);
+      const fallback = getNextAnchoredIntervalResetAt(new Date(), settings.sessionResetAnchor, settings.sessionResetIntervalHours).toISOString();
+      this.keyPool.markOfficialUsageBlocked(key.id, "session_blocked", snapshot.session?.resetAt || fallback);
+      return;
+    }
+    if (exhausted(snapshot.weekly)) {
+      const settings = this.store.getUsageSettings(this.config);
+      const fallback = getNextFixedWeeklyResetAt(new Date(), settings.usageTimezone, settings.weeklyResetDayOfWeek, settings.weeklyResetTime).toISOString();
+      this.keyPool.markOfficialUsageBlocked(key.id, "weekly_blocked", snapshot.weekly?.resetAt || fallback);
+      return;
+    }
+    if ((key.status === "session_blocked" || key.status === "weekly_blocked") && key.usageSource === "dashboard_scraped") {
+      this.store.patchKey(key.id, {
+        status: key.enabled ? "available" : "disabled",
+        blockReason: key.enabled ? "none" : key.blockReason,
+        cooldownUntil: null,
+        nextEligibleAt: null,
+      });
+    }
+  }
+
+  private parseUsageSnapshot(value: string | null): OllamaCloudUsageSnapshot | null {
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as OllamaCloudUsageSnapshot;
+      return parsed?.status === "ok" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private addOfficialUsage(
+    target: ReturnType<typeof this.emptyAccountUsage>,
+    key: KeyRecord,
+    official: OllamaCloudUsageSnapshot | null
+  ) {
+    const lastRefresh = key.ollamaUsageLastRefreshAt;
+    const stale = lastRefresh
+      ? Date.now() - Date.parse(lastRefresh) > this.config.ollamaUsageRefreshTtlSeconds * 1000
+      : false;
+    if (!key.encryptedOllamaUsageCookie && !this.config.ollamaUsageCookie) target.official.missing += 1;
+    if (key.ollamaUsageLastError) target.official.errors += 1;
+    if (stale) target.official.stale += 1;
+    target.official.keys.push({
+      id: key.id,
+      name: key.name,
+      hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
+      fetchedAt: key.ollamaUsageLastRefreshAt,
+      lastError: key.ollamaUsageLastError,
+      session: official?.session ?? null,
+      weekly: official?.weekly ?? null,
+    });
+    if (!official) {
+      target.official.lastError ??= key.ollamaUsageLastError;
+      return;
+    }
+    target.official.available += 1;
+    target.official.source = official.source;
+    target.official.plan ??= official.plan;
+    target.official.fetchedAt = this.latestIso(target.official.fetchedAt, official.fetchedAt);
+    target.official.session = this.worstWindow(target.official.session, official.session);
+    target.official.weekly = this.worstWindow(target.official.weekly, official.weekly);
+  }
+
+  private worstWindow(
+    current: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null,
+    next: { usedPercent: number; remainingPercent: number; resetAt: string | null } | null
+  ) {
+    if (!next) return current;
+    if (!current) return next;
+    return next.remainingPercent < current.remainingPercent ? next : current;
   }
 
   private addKeyUsage(
@@ -622,5 +786,11 @@ export class AdminRoutes {
     if (!next) return current;
     if (!current) return next;
     return Date.parse(next) < Date.parse(current) ? next : current;
+  }
+
+  private latestIso(current: string | null, next: string | null) {
+    if (!next) return current;
+    if (!current) return next;
+    return Date.parse(next) > Date.parse(current) ? next : current;
   }
 }

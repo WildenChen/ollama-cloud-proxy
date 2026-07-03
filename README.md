@@ -76,10 +76,24 @@ OLLAMA_WEB_TIMEOUT_MS=30000
 
 Proxy endpoints：
 
+- OmniRoute-style search：`GET /v1/search`、`POST /v1/search`
 - `POST /v1/web/search`
 - `POST /v1/web/fetch`
 - `POST /api/web_search`
 - `POST /api/web_fetch`
+
+`/v1/search` 是推薦給 agent / tool-facing 整合使用的搜尋介面：
+
+```json
+{
+  "query": "Hermes Agent plugin web search",
+  "provider": "ollama-search",
+  "max_results": 3,
+  "search_type": "web"
+}
+```
+
+目前 provider 固定為 `ollama-search`，`search_type` 固定支援 `web`。回傳會使用 OmniRoute-style normalized schema，包含 `provider`、`query`、`results`、`usage`、`metrics` 與 `errors`。
 
 `/v1/web/search` 和 `/api/web_search` 接受：
 
@@ -417,6 +431,10 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `OLLAMA_WEB_SEARCH_PATH` | `/api/web_search` | Ollama 官方 Web Search path |
 | `OLLAMA_WEB_FETCH_PATH` | `/api/web_fetch` | Ollama 官方 Web Fetch path |
 | `OLLAMA_WEB_TIMEOUT_MS` | `30000` | Web Search / Web Fetch 上游請求總逾時 |
+| `OLLAMA_CLOUD_USAGE_URL` | `https://ollama.com/settings` | Ollama Cloud settings page，用於官方用量擷取 |
+| `OLLAMA_USAGE_COOKIE` | 空 | 單帳號 fallback 用量 cookie，可填 `__Secure-session=...` 或純 cookie value |
+| `OLLAMA_CLOUD_USAGE_COOKIE` | 空 | `OLLAMA_USAGE_COOKIE` 的替代名稱 |
+| `OLLAMA_USAGE_REFRESH_TTL_SECONDS` | `300` | 官方用量 snapshot 快取秒數 |
 | `MAX_CONCURRENT_REQUESTS` | `5` | 全域同時送往上游的 request 數量 |
 | `MAX_CONCURRENT_REQUESTS_PER_KEY` | `1` | 單把 key 同時處理的 request 數量 |
 | `REQUEST_QUEUE_MAX` | `30` | 全域額度滿時最多排隊 request 數 |
@@ -442,7 +460,7 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 
 smart retry 會依錯誤類型決定是否換 key。同一請求不會重複使用同一把 key；如果某把 key 回 `401`、`403`、session limit、weekly limit 或 key-specific rate limit，proxy 會標記該 key 狀態並繼續嘗試下一把 selectable key，直到成功或 key pool 都試完。network timeout、`502`、`503` 等 network/provider 暫時錯誤最多嘗試 `MAX_NETWORK_RETRY_ATTEMPTS` 把 key。client payload、model、tool schema 或 unsupported parameter 類型的 `4xx` 錯誤不會被當成 key 失效，也不會盲目 retry。
 
-若 Ollama 官方未提供 usage API，本專案的 session/weekly usage 只能是 proxy estimated 或從錯誤 inferred，不代表官方精準 quota。`estimatedSession*` 與 `estimatedWeekly*` 會依 session/weekly window 重置；`totalRequests`、`totalSuccesses`、`totalFailures` 是 lifetime counters，不會重置。
+Admin 用量頁會優先使用 Ollama Cloud usage cookie 擷取官方 settings 頁面中的 5hr / weekly quota track。多帳號建議在 Admin UI 每把 key 或同帳號 key 填入對應 usage cookie；env cookie 只適合單帳號 fallback。若沒有 cookie 或擷取失敗，畫面會退回 proxy activity / estimated counters，並明確標示不是官方 quota。
 
 ## 新增第一把 Ollama Cloud key
 

@@ -37,6 +37,7 @@ export type KeyCreateInput = {
   notes?: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
+  encryptedOllamaUsageCookie?: string | null;
 };
 
 export type KeyMutationPatch = Partial<{
@@ -45,6 +46,7 @@ export type KeyMutationPatch = Partial<{
   notes: string | null;
   apiKeyPreview: string;
   encryptedApiKey: string;
+  encryptedOllamaUsageCookie: string | null;
   enabled: boolean;
   status: KeyStatus;
   blockReason: BlockReason;
@@ -62,6 +64,9 @@ export type KeyMutationPatch = Partial<{
   estimatedWeeklyDurationMs: number;
   sessionWindowStartedAt: string | null;
   weeklyWindowStartedAt: string | null;
+  ollamaUsageJson: string | null;
+  ollamaUsageLastRefreshAt: string | null;
+  ollamaUsageLastError: string | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;
@@ -110,6 +115,7 @@ function keyFromRow(row: Row): KeyRecord {
     notes: asString(row.notes),
     apiKeyPreview: String(row.apiKeyPreview),
     encryptedApiKey: String(row.encryptedApiKey),
+    encryptedOllamaUsageCookie: asString(row.encryptedOllamaUsageCookie),
     enabled: asBool(row.enabled),
     status: String(row.status) as KeyStatus,
     blockReason: String(row.blockReason) as BlockReason,
@@ -127,6 +133,9 @@ function keyFromRow(row: Row): KeyRecord {
     estimatedWeeklyDurationMs: asNumber(row.estimatedWeeklyDurationMs),
     sessionWindowStartedAt: asString(row.sessionWindowStartedAt),
     weeklyWindowStartedAt: asString(row.weeklyWindowStartedAt),
+    ollamaUsageJson: asString(row.ollamaUsageJson),
+    ollamaUsageLastRefreshAt: asString(row.ollamaUsageLastRefreshAt),
+    ollamaUsageLastError: asString(row.ollamaUsageLastError),
     totalRequests: asNumber(row.totalRequests),
     totalSuccesses: asNumber(row.totalSuccesses),
     totalFailures: asNumber(row.totalFailures),
@@ -158,6 +167,7 @@ export class DatabaseStore {
         notes TEXT,
         apiKeyPreview TEXT NOT NULL,
         encryptedApiKey TEXT NOT NULL,
+        encryptedOllamaUsageCookie TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'unknown',
         blockReason TEXT NOT NULL DEFAULT 'none',
@@ -175,6 +185,9 @@ export class DatabaseStore {
         estimatedWeeklyDurationMs INTEGER NOT NULL DEFAULT 0,
         sessionWindowStartedAt TEXT,
         weeklyWindowStartedAt TEXT,
+        ollamaUsageJson TEXT,
+        ollamaUsageLastRefreshAt TEXT,
+        ollamaUsageLastError TEXT,
         totalRequests INTEGER NOT NULL DEFAULT 0,
         totalSuccesses INTEGER NOT NULL DEFAULT 0,
         totalFailures INTEGER NOT NULL DEFAULT 0,
@@ -261,6 +274,10 @@ export class DatabaseStore {
     this.ensureColumn("model_stats", "completionTokens", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("model_stats", "totalTokens", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("model_stats", "cachedTokens", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("keys", "encryptedOllamaUsageCookie", "TEXT");
+    this.ensureColumn("keys", "ollamaUsageJson", "TEXT");
+    this.ensureColumn("keys", "ollamaUsageLastRefreshAt", "TEXT");
+    this.ensureColumn("keys", "ollamaUsageLastError", "TEXT");
   }
 
   private ensureColumn(table: string, column: string, definition: string) {
@@ -357,11 +374,11 @@ export class DatabaseStore {
     this.db
       .query(
         `INSERT INTO keys (
-          id, name, accountLabel, notes, apiKeyPreview, encryptedApiKey,
+          id, name, accountLabel, notes, apiKeyPreview, encryptedApiKey, encryptedOllamaUsageCookie,
           enabled, status, blockReason, activeRequests, usageSource, resetSource,
           createdAt, updatedAt
         ) VALUES (
-          $id, $name, $accountLabel, $notes, $apiKeyPreview, $encryptedApiKey,
+          $id, $name, $accountLabel, $notes, $apiKeyPreview, $encryptedApiKey, $encryptedOllamaUsageCookie,
           1, 'unknown', 'none', 0, 'not_available', 'fallback',
           $createdAt, $updatedAt
         )`
@@ -373,6 +390,7 @@ export class DatabaseStore {
         $notes: input.notes ?? null,
         $apiKeyPreview: input.apiKeyPreview,
         $encryptedApiKey: input.encryptedApiKey,
+        $encryptedOllamaUsageCookie: input.encryptedOllamaUsageCookie ?? null,
         $createdAt: now,
         $updatedAt: now,
       });

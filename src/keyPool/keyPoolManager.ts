@@ -7,8 +7,12 @@ import { cooldownUntilFromClassification } from "./errorClassifier";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, isoNow, parseIso } from "../utils/time";
 
 export function publicKey(key: KeyRecord): PublicKeyRecord {
-  const { encryptedApiKey: _encryptedApiKey, ...safe } = key;
-  return safe;
+  const {
+    encryptedApiKey: _encryptedApiKey,
+    encryptedOllamaUsageCookie,
+    ...safe
+  } = key;
+  return { ...safe, hasOllamaUsageCookie: Boolean(encryptedOllamaUsageCookie) };
 }
 
 function isCooldownActive(key: KeyRecord, now: number): boolean {
@@ -58,17 +62,23 @@ export class KeyPoolManager {
     return this.cipher.decrypt(key.encryptedApiKey);
   }
 
-  create(input: { name: string; accountLabel?: string | null; notes?: string | null; apiKey: string }) {
+  decryptOllamaUsageCookie(key: KeyRecord): string | null {
+    return key.encryptedOllamaUsageCookie ? this.cipher.decrypt(key.encryptedOllamaUsageCookie) : null;
+  }
+
+  create(input: { name: string; accountLabel?: string | null; notes?: string | null; apiKey: string; ollamaUsageCookie?: string | null }) {
     const name = input.name.trim();
     const apiKey = input.apiKey.trim();
     if (!name) throw new Error("name is required");
     if (!apiKey) throw new Error("apiKey is required");
+    const usageCookie = input.ollamaUsageCookie?.trim();
     const key = this.store.createKey({
       name,
       accountLabel: input.accountLabel ?? null,
       notes: input.notes ?? null,
       apiKeyPreview: apiKeyPreview(apiKey),
       encryptedApiKey: this.cipher.encrypt(apiKey),
+      encryptedOllamaUsageCookie: usageCookie ? this.cipher.encrypt(usageCookie) : null,
     });
     this.events.emit({
       level: "info",
@@ -89,6 +99,19 @@ export class KeyPoolManager {
     if ("accountLabel" in body) patch.accountLabel = body.accountLabel ? String(body.accountLabel) : null;
     if ("notes" in body) patch.notes = body.notes ? String(body.notes) : null;
     if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    if (typeof body.ollamaUsageCookie === "string") {
+      const value = body.ollamaUsageCookie.trim();
+      patch.encryptedOllamaUsageCookie = value ? this.cipher.encrypt(value) : null;
+      patch.ollamaUsageJson = null;
+      patch.ollamaUsageLastRefreshAt = null;
+      patch.ollamaUsageLastError = null;
+    }
+    if (body.clearOllamaUsageCookie === true) {
+      patch.encryptedOllamaUsageCookie = null;
+      patch.ollamaUsageJson = null;
+      patch.ollamaUsageLastRefreshAt = null;
+      patch.ollamaUsageLastError = null;
+    }
     const key = this.store.patchKey(id, patch);
     this.events.emit({
       level: "info",
@@ -153,6 +176,26 @@ export class KeyPoolManager {
       blockReason: current.enabled && current.status !== "invalid" ? "none" : current.blockReason,
     });
     this.events.emit({ level: "info", type: "key_cooldown_reset", message: `Key ${key.name} cooldown reset`, keyId: key.id, keyName: key.name });
+    return publicKey(key);
+  }
+
+  markOfficialUsageBlocked(id: string, status: "session_blocked" | "weekly_blocked", cooldownUntil: string | null) {
+    const key = this.store.patchKey(id, {
+      status,
+      blockReason: status === "session_blocked" ? "session_usage_inferred" : "weekly_usage_inferred",
+      cooldownUntil,
+      nextEligibleAt: cooldownUntil,
+      usageSource: "dashboard_scraped",
+      resetSource: cooldownUntil ? "dashboard_observed" : "fallback",
+    });
+    this.events.emit({
+      level: "warn",
+      type: "official_usage_blocked",
+      message: `Key ${key.name} blocked by official Ollama Cloud usage`,
+      keyId: key.id,
+      keyName: key.name,
+      details: { status, cooldownUntil },
+    });
     return publicKey(key);
   }
 

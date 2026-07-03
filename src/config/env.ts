@@ -10,6 +10,9 @@ export type AppConfig = {
   ollamaWebSearchPath: string;
   ollamaWebFetchPath: string;
   ollamaWebTimeoutMs: number;
+  ollamaCloudUsageUrl: string;
+  ollamaUsageCookie: string | null;
+  ollamaUsageRefreshTtlSeconds: number;
   maxConcurrentRequests: number;
   maxConcurrentRequestsPerKey: number;
   requestQueueMax: number;
@@ -137,6 +140,12 @@ export function loadConfig(): AppConfig {
     ollamaWebSearchPath: process.env.OLLAMA_WEB_SEARCH_PATH || "/api/web_search",
     ollamaWebFetchPath: process.env.OLLAMA_WEB_FETCH_PATH || "/api/web_fetch",
     ollamaWebTimeoutMs: numberEnv("OLLAMA_WEB_TIMEOUT_MS", 30_000),
+    ollamaCloudUsageUrl: process.env.OLLAMA_CLOUD_USAGE_URL || "https://ollama.com/settings",
+    ollamaUsageCookie:
+      process.env.OLLAMA_USAGE_COOKIE?.trim() ||
+      process.env.OLLAMA_CLOUD_USAGE_COOKIE?.trim() ||
+      null,
+    ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 300),
     maxConcurrentRequests: numberEnv("MAX_CONCURRENT_REQUESTS", 5),
     maxConcurrentRequestsPerKey: numberEnv("MAX_CONCURRENT_REQUESTS_PER_KEY", 1),
     requestQueueMax: numberEnv("REQUEST_QUEUE_MAX", 30),
