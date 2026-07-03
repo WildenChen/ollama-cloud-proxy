@@ -263,6 +263,13 @@ After the first GitHub Actions publish, make sure the package visibility in GitH
 
 ## 版本更新紀錄
 
+### 1.2.1 - 2026-07-03
+
+- Admin 首頁新增「總額度池」合體卡片，合計所有已接入官方用量的 5hr / weekly 額度。
+- 首頁 Key 卡片恢復用量燈號與左側狀態色條，啟用開關移到右上角，普通短暫冷卻不再用醒目黃色狀態誤導額度判讀。
+- 模型測試頁新增模型啟用開關；停用模型會從公開 `/v1/models` / `/api/tags` discovery 隱藏，推理請求也會回 `model_disabled`。
+- 未帶 token 的公開 `/v1/models` 會使用已保存的模型清單列出可用模型，方便無密碼 discovery；帶合法 token 的 `/v1/models` 仍可刷新上游清單。
+
 ### 1.1.10 - 2026-07-03
 
 - Admin 首頁第一屏整合 OmniRoute 風格的每 Key Ollama Cloud 用量卡片。
@@ -459,7 +466,7 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `MAX_NETWORK_RETRY_ATTEMPTS` | `3` | network/provider 暫時錯誤最多嘗試幾把 key，避免掃完整個 key pool |
 | `MODELS_CACHE_TTL_SECONDS` | `3600` | `/v1/models` cache 時間 |
 | `MODEL_ALIASES_JSON` | `{}` | model alias JSON，例如 `{"kilo-default":"actual-model"}` |
-| `OLLAMA_COMPAT_DISCOVERY_PUBLIC` | `true` | 是否公開 `/api/tags` 供 Ollama provider 做 discovery |
+| `OLLAMA_COMPAT_DISCOVERY_PUBLIC` | `true` | 是否公開 `/api/tags` 與未帶 token 的 `/v1/models` 供 provider 做 discovery |
 | `OLLAMA_NATIVE_APPLY_ALIASES` | `true` | 是否讓 `/api/chat`、`/api/generate` 套用 model alias |
 | `USAGE_TIMEZONE` | `Asia/Taipei` | weekly reset 顯示與推算時區 |
 | `WEEKLY_RESET_DAY_OF_WEEK` | `1` | weekly reset 星期，`1` 是星期一 |
@@ -468,7 +475,7 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `MAX_EVENTS` | `100000` | event 最大保留筆數 |
 | `DB_PATH` | `/data/ollama-cloud-proxy.sqlite` | SQLite DB 路徑 |
 
-如果 `CLIENT_API_KEYS` 有設定，`/v1/*`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token。`GET /api/version` 與 `GET /api/ps` 會公開回應，供 Ollama-compatible client 驗證服務；`GET /api/tags` 預設也公開，可用 `OLLAMA_COMPAT_DISCOVERY_PUBLIC=false` 改成需要 client token。若沒有設定 `CLIENT_API_KEYS`，proxy 會允許未驗證推理請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
+如果 `CLIENT_API_KEYS` 有設定，`/v1/chat/completions`、`/v1/completions`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token。`GET /api/version` 與 `GET /api/ps` 會公開回應，供 Ollama-compatible client 驗證服務；未帶 token 的 `GET /api/tags` 與 `GET /v1/models` 預設也公開，可用 `OLLAMA_COMPAT_DISCOVERY_PUBLIC=false` 改成需要 client token。若沒有設定 `CLIENT_API_KEYS`，proxy 會允許未驗證推理請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
 
 smart retry 會依錯誤類型決定是否換 key。同一請求不會重複使用同一把 key；如果某把 key 回 `401`、`403`、session limit、weekly limit 或 key-specific rate limit，proxy 會標記該 key 狀態並繼續嘗試下一把 selectable key，直到成功或 key pool 都試完。network timeout、`502`、`503` 等 network/provider 暫時錯誤最多嘗試 `MAX_NETWORK_RETRY_ATTEMPTS` 把 key。client payload、model、tool schema 或 unsupported parameter 類型的 `4xx` 錯誤不會被當成 key 失效，也不會盲目 retry。
 
@@ -500,14 +507,14 @@ API 回應不會包含完整 `apiKey`，只會回傳 `apiKeyPreview`。
 | --- | --- | --- |
 | OpenAI-compatible chat | `/v1/chat/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
 | OpenAI-compatible completion | `/v1/completions` | 會套用 model alias，回應維持 OpenAI 格式 |
-| OpenAI-compatible model list | `/v1/models` | 會 cache 上游 model list，並把 alias 加進列表 |
+| OpenAI-compatible model list | `/v1/models` | 未帶 token 時回已保存且啟用的模型清單；帶合法 token 時可刷新/cache 上游 model list，並把 alias 加進列表 |
 | Ollama native version | `/api/version` | 公開回傳 Ollama-compatible 版本，供 client 偵測服務 |
 | Ollama native running models | `/api/ps` | 公開回傳空執行中模型清單 |
 | Ollama native model list | `/api/tags` | 未帶 token 時可回 compatibility model list；帶合法 token 時原樣 pass-through 到上游 |
 | Ollama native chat | `/api/chat` | 預設套用 model alias，其他 native 欄位與 tool call payload 不改 |
 | Ollama native generate | `/api/generate` | 預設套用 model alias，其他 native 欄位不改 |
 
-`/api/version`、`/api/ps` 與未帶 token 時預設公開的 `/api/tags` 是 discovery endpoint，不會消耗 Ollama Cloud key。若 `/api/tags` 帶合法 Bearer token，proxy 會改走上游 pass-through，保留 Ollama native model list 原樣回應。`/api/chat` 和 `/api/generate` 會保持 Ollama native payload 結構；預設只改寫 `body.model` 的 alias，避免工具呼叫、streaming chunk 或其他 Ollama 原生欄位被改寫。它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
+`/api/version`、`/api/ps`、未帶 token 時預設公開的 `/api/tags` 與 `/v1/models` 是 discovery endpoint，不會消耗 Ollama Cloud key。若 `/api/tags` 帶合法 Bearer token，proxy 會改走上游 pass-through，保留 Ollama native model list 原樣回應。`/api/chat` 和 `/api/generate` 會保持 Ollama native payload 結構；預設只改寫 `body.model` 的 alias，避免工具呼叫、streaming chunk 或其他 Ollama 原生欄位被改寫。它們在設定 `CLIENT_API_KEYS` 時仍一定要帶合法 Bearer token。如果你的 client 走 Ollama native protocol，請設定到 proxy root 或 `/api` 類路徑；如果 client 是 OpenAI-compatible provider，請設定 base URL 到 `/v1`。
 
 ## 應用範例：同時支援兩種 client 格式
 
