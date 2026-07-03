@@ -66,9 +66,9 @@ dialog {
 }
 
 .topbar {
-  min-height: 82px;
+  min-height: 64px;
   border-radius: 8px;
-  padding: 18px;
+  padding: 14px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -82,7 +82,7 @@ p {
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1.2;
   font-weight: 720;
   letter-spacing: 0;
@@ -500,11 +500,15 @@ svg {
 
 .usageOverview {
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px;
 }
 
 .usageHeroPanel {
+  margin-top: 10px;
+}
+
+.authPanel {
   margin-top: 14px;
 }
 
@@ -516,13 +520,13 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 14px;
+  padding: 10px 12px;
 }
 
 .officialUsageLead strong {
   display: block;
-  margin-top: 5px;
-  font-size: 19px;
+  margin-top: 3px;
+  font-size: 15px;
   line-height: 1.25;
 }
 
@@ -546,19 +550,19 @@ svg {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   color: #dce9f6;
-  min-height: 24px;
+  min-height: 20px;
   display: inline-flex;
   align-items: center;
-  padding: 0 9px;
-  font-size: 13px;
+  padding: 0 7px;
+  font-size: 11px;
   font-weight: 760;
   white-space: nowrap;
 }
 
 .officialQuotaGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+  gap: 10px;
 }
 
 .officialQuotaCard {
@@ -569,9 +573,9 @@ svg {
   background: linear-gradient(180deg, rgba(19, 29, 43, 0.84), rgba(16, 24, 36, 0.76));
   display: flex;
   flex-direction: column;
-  min-height: 270px;
+  min-height: 0;
   min-width: 0;
-  padding: 22px;
+  padding: 12px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -597,14 +601,14 @@ svg {
 
 .officialQuotaHeader {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto auto;
-  gap: 14px;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
 }
 
 .officialQuotaHeader strong {
   display: block;
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -615,7 +619,7 @@ svg {
 .officialQuotaFooter,
 .quotaWindow small {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .officialQuotaHeader small {
@@ -631,9 +635,9 @@ svg {
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 36px;
-  min-width: 36px;
-  height: 20px;
+  width: 30px;
+  min-width: 30px;
+  height: 16px;
   cursor: pointer;
 }
 
@@ -657,8 +661,8 @@ svg {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   background: #fff;
   transition: transform 0.2s;
@@ -669,7 +673,7 @@ svg {
 }
 
 .toggleSwitch input:checked + .toggleSlider::before {
-  transform: translateX(16px);
+  transform: translateX(14px);
 }
 
 .toggleSwitch input:disabled + .toggleSlider {
@@ -691,23 +695,23 @@ svg {
 
 .quotaStatusDot {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   background: var(--green);
-  box-shadow: 0 0 0 5px rgba(110, 231, 168, 0.12);
+  box-shadow: 0 0 0 4px rgba(110, 231, 168, 0.12);
   align-self: center;
   justify-self: center;
 }
 
 .officialQuotaCard.warning .quotaStatusDot {
   background: var(--amber);
-  box-shadow: 0 0 0 5px rgba(245, 200, 106, 0.14);
+  box-shadow: 0 0 0 4px rgba(245, 200, 106, 0.14);
 }
 
 .officialQuotaCard.critical .quotaStatusDot {
   background: var(--red);
-  box-shadow: 0 0 0 5px rgba(255, 122, 144, 0.14);
+  box-shadow: 0 0 0 4px rgba(255, 122, 144, 0.14);
 }
 
 .officialQuotaCard.missing .quotaStatusDot,
@@ -723,13 +727,13 @@ svg {
 
 .quotaWindows {
   display: grid;
-  gap: 13px;
-  margin: 18px 0 14px;
+  gap: 8px;
+  margin: 10px 0 8px;
 }
 
 .quotaWindow {
   display: grid;
-  gap: 7px;
+  gap: 4px;
 }
 
 .quotaWindowLabel {
@@ -741,13 +745,13 @@ svg {
 
 .quotaWindowLabel span {
   color: var(--text);
-  font-size: 17px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .quotaWindowLabel strong {
   color: var(--green);
-  font-size: 17px;
+  font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -770,7 +774,7 @@ svg {
 }
 
 .quotaTrack {
-  height: 10px;
+  height: 7px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.09);
@@ -799,9 +803,9 @@ svg {
 .officialQuotaFooter {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 5px 9px;
   border-top: 1px solid rgba(180, 205, 235, 0.1);
-  padding-top: 11px;
+  padding-top: 7px;
 }
 
 .usageState.good {
@@ -814,15 +818,15 @@ svg {
 
 .quotaActions {
   display: grid;
-  gap: 8px;
+  gap: 5px;
   margin-top: auto;
-  padding-top: 11px;
+  padding-top: 7px;
 }
 
 .quotaActionsPrimary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 5px;
 }
 
 .quotaActionsSecondary {
@@ -833,9 +837,9 @@ svg {
 }
 
 .quotaActions .button {
-  min-height: 42px;
-  padding: 0 12px;
-  font-size: 14px;
+  min-height: 29px;
+  padding: 0 7px;
+  font-size: 11px;
   white-space: normal;
   line-height: 1.2;
 }
@@ -846,7 +850,7 @@ svg {
   background:
     linear-gradient(135deg, rgba(76, 201, 240, 0.12), transparent 38%),
     linear-gradient(180deg, rgba(19, 29, 43, 0.88), rgba(10, 18, 29, 0.78));
-  padding: 18px;
+  padding: 12px;
 }
 
 .combinedQuotaHeader {
@@ -859,7 +863,7 @@ svg {
 .combinedQuotaHeader strong {
   display: block;
   margin-top: 5px;
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .combinedQuotaWindows {

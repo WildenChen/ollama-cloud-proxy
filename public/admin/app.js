@@ -92,14 +92,16 @@ const dictionaries = {
     levelError: "錯誤",
     clientsTitle: "客戶端",
     clientsDescription: "依今日權杖身分統計。",
+    authSettingsTitle: "管理存取",
+    authSettingsDescription: "設定管理權杖與語言偏好。",
     modelsTitle: "模型",
     modelsDescription: "別名與請求次數。",
     overviewPageTitle: "金鑰用量總覽",
     usageOverviewTitle: "金鑰用量總覽",
     usageOverviewDescription: "管理金鑰與檢視 Ollama Cloud 官方剩餘用量。",
     combinedQuotaTitle: "總額度池",
-    combinedQuotaDescription: "只合計目前可用金鑰的官方剩餘額度。",
-    quotaPoolAccounts: (count, total) => `${count}/${total} 把可用`,
+    combinedQuotaDescription: "合計所有已啟用金鑰的官方剩餘額度。",
+    quotaPoolAccounts: (count, total) => `${count}/${total} 把計入`,
     quotaUnavailableLabel: "目前不可用",
     refreshOfficialUsage: "刷新官方用量",
     officialUsageTitle: "官方用量",
@@ -395,14 +397,16 @@ const dictionaries = {
     levelError: "Error",
     clientsTitle: "Clients",
     clientsDescription: "Today by client token identity.",
+    authSettingsTitle: "Admin Access",
+    authSettingsDescription: "Set admin token and language preference.",
     modelsTitle: "Models",
     modelsDescription: "Aliases and request counts.",
     overviewPageTitle: "Key Usage Overview",
     usageOverviewTitle: "Key Usage Overview",
     usageOverviewDescription: "Manage keys and view Ollama Cloud official remaining usage.",
     combinedQuotaTitle: "Total Quota Pool",
-    combinedQuotaDescription: "Only counts official quota from currently usable keys.",
-    quotaPoolAccounts: (count, total) => `${count}/${total} usable`,
+    combinedQuotaDescription: "Counts official quota from every enabled key.",
+    quotaPoolAccounts: (count, total) => `${count}/${total} included`,
     quotaUnavailableLabel: "Currently unavailable",
     refreshOfficialUsage: "Refresh Official Usage",
     officialUsageTitle: "Official Usage",
@@ -1022,7 +1026,7 @@ function renderUsageOverview() {
 function renderCombinedQuotaCard(totals, keyCards) {
   const session = aggregateOfficialWindow(keyCards, "session");
   const weekly = aggregateOfficialWindow(keyCards, "weekly");
-  const usableCount = (keyCards || []).filter(isOfficialKeyUsable).length;
+  const includedCount = (keyCards || []).filter(isOfficialKeyIncludedInPool).length;
   return `
     <article class="combinedQuotaCard">
       <div class="combinedQuotaHeader">
@@ -1030,7 +1034,7 @@ function renderCombinedQuotaCard(totals, keyCards) {
           <span class="eyebrow">${escapeHtml(t("combinedQuotaTitle"))}</span>
           <strong>${escapeHtml(t("combinedQuotaDescription"))}</strong>
         </div>
-        <span class="quotaBadge">${escapeHtml(t("quotaPoolAccounts")(usableCount, totals.keyCount || 0))}</span>
+        <span class="quotaBadge">${escapeHtml(t("quotaPoolAccounts")(includedCount, totals.keyCount || 0))}</span>
       </div>
       <div class="combinedQuotaWindows">
         ${aggregateUsageMeter(t("sessionUsageLabel"), session, totals.official.session?.resetAt)}
@@ -1042,7 +1046,7 @@ function renderCombinedQuotaCard(totals, keyCards) {
 
 function aggregateOfficialWindow(cards, key) {
   const windows = (cards || [])
-    .filter(isOfficialKeyUsable)
+    .filter(isOfficialKeyIncludedInPool)
     .map((card) => card[key])
     .filter(Boolean);
   const capacity = windows.length * 100;
@@ -1062,7 +1066,8 @@ function aggregateUsageMeter(label, window, resetAt) {
     `;
   }
   const remaining = Math.max(0, Math.min(100, Number(window.remainingPercent || 0)));
-  const state = remaining <= 1 ? "critical" : remaining <= 25 ? "warning" : "ok";
+  const used = Math.max(0, Number(window.used || 0));
+  const state = remaining <= 1 ? "critical" : used > 0 ? "warning" : "ok";
   return `
     <div class="quotaWindow ${state}">
       <div class="quotaWindowLabel">
@@ -1141,6 +1146,10 @@ function isOfficialKeyUsable(card) {
   return officialQuotaStatus(card) !== "critical";
 }
 
+function isOfficialKeyIncludedInPool(card) {
+  return Boolean(card?.enabled && card.status !== "disabled" && card.session && card.weekly);
+}
+
 function officialRuntimeStatusLabel(card) {
   const status = card.enabled ? card.status : "disabled";
   if (status === "available" || status === "unknown") return "";
@@ -1161,7 +1170,8 @@ function officialUsageMeter(label, window, threshold = 1, options = {}) {
     `;
   }
   const remaining = Math.min(100, Math.max(0, Number(window.remainingPercent || 0)));
-  const state = options.blocked ? "blocked" : remaining <= Number(threshold || 1) ? "critical" : remaining <= 25 ? "warning" : "ok";
+  const used = Math.min(100, Math.max(0, Number(window.usedPercent || 0)));
+  const state = options.blocked ? "blocked" : remaining <= Number(threshold || 1) ? "critical" : used > 0 ? "warning" : "ok";
   return `
     <div class="quotaWindow ${state}">
       <div class="quotaWindowLabel">
@@ -1238,6 +1248,10 @@ function officialQuotaStatus(official) {
   const weeklyThreshold = Number(official.weeklyRemainingThresholdPercent ?? 1);
   if (official.session && Number(official.session.remainingPercent) <= sessionThreshold) return "critical";
   if (official.weekly && Number(official.weekly.remainingPercent) <= weeklyThreshold) return "critical";
+  const used = [official.session?.usedPercent, official.weekly?.usedPercent]
+    .filter((value) => value !== null && value !== undefined)
+    .map(Number);
+  if (used.some((value) => Number.isFinite(value) && value > 0)) return "warning";
   const remaining = [official.session?.remainingPercent, official.weekly?.remainingPercent]
     .filter((value) => value !== null && value !== undefined)
     .map(Number);
