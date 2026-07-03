@@ -115,6 +115,8 @@ const dictionaries = {
     clearUsageCookie: "清除用量 Cookie",
     cookieReadyLabel: "Cookie 已設定",
     cookieMissingLabel: "未設定 Cookie",
+    usageSyncedLabel: "用量已同步",
+    usageReadFailedLabel: "用量讀取失敗",
     officialUnavailable: "尚無官方用量資料",
     quotaOkLabel: "正常",
     quotaWarningLabel: "接近用盡",
@@ -416,6 +418,8 @@ const dictionaries = {
     clearUsageCookie: "Clear Usage Cookie",
     cookieReadyLabel: "Cookie set",
     cookieMissingLabel: "Cookie missing",
+    usageSyncedLabel: "Usage synced",
+    usageReadFailedLabel: "Usage read failed",
     officialUnavailable: "No official usage data yet",
     quotaOkLabel: "OK",
     quotaWarningLabel: "Running low",
@@ -1076,7 +1080,7 @@ function aggregateUsageMeter(label, window, resetAt) {
 function renderOfficialKeyUsage(card) {
   const status = officialQuotaStatus(card);
   const subtitle = card.apiKeyPreview;
-  const cookieLabel = card.hasCookie ? t("cookieReadyLabel") : t("cookieMissingLabel");
+  const usageState = officialUsageStateLabel(card);
   const usable = isOfficialKeyUsable(card);
   return `
     <article class="officialQuotaCard ${status} ${card.enabled ? "" : "disabled"}" data-key-id="${escapeHtml(card.id)}">
@@ -1099,7 +1103,7 @@ function renderOfficialKeyUsage(card) {
       ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}
       <div class="officialQuotaFooter">
         <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
-        <span>${escapeHtml(cookieLabel)}</span>
+        <span class="usageState ${usageState.className}">${escapeHtml(usageState.text)}</span>
         ${officialRuntimeStatusLabel(card)}
       </div>
       <div class="quotaActions">
@@ -1116,6 +1120,19 @@ function renderOfficialKeyUsage(card) {
       </div>
     </article>
   `;
+}
+
+function officialUsageStateLabel(card) {
+  if (card.lastError) {
+    return { text: t("usageReadFailedLabel"), className: "bad" };
+  }
+  if (card.fetchedAt) {
+    return { text: t("usageSyncedLabel"), className: "good" };
+  }
+  if (card.hasCookie) {
+    return { text: t("cookieReadyLabel"), className: "" };
+  }
+  return { text: t("cookieMissingLabel"), className: "bad" };
 }
 
 function isOfficialKeyUsable(card) {

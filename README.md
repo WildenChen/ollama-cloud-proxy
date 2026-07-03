@@ -263,6 +263,12 @@ After the first GitHub Actions publish, make sure the package visibility in GitH
 
 ## 版本更新紀錄
 
+### 1.2.3 - 2026-07-03
+
+- 手機版首頁用量卡片調整為更細緻的字級、間距、燈號與按鈕高度，避免卡片在小螢幕上顯得過大。
+- 官方用量 footer 拆分「用量已同步 / 用量讀取失敗」與 key runtime 狀態，避免 invalid 或 weekly blocked 被誤解成 Cookie 讀取失敗。
+- 保留 weekly/session 受限金鑰不列入總額度池的邏輯，實際不可用額度不再被算入可用剩餘。
+
 ### 1.2.2 - 2026-07-03
 
 - 總額度池改成只合計目前可用金鑰，不再把 weekly/session 已受限的 key 算進 5hr 或 weekly 可用額度。

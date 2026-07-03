@@ -804,6 +804,14 @@ svg {
   padding-top: 11px;
 }
 
+.usageState.good {
+  color: var(--green);
+}
+
+.usageState.bad {
+  color: var(--red);
+}
+
 .quotaActions {
   display: grid;
   gap: 8px;
@@ -1174,6 +1182,108 @@ dialog::backdrop {
     padding-top: 10px;
   }
 
+  p,
+  small,
+  label,
+  select,
+  input,
+  textarea,
+  button {
+    font-size: 13px;
+  }
+
+  .officialUsageChips span,
+  .quotaBadge {
+    min-height: 21px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 720;
+  }
+
+  .officialQuotaGrid {
+    gap: 10px;
+  }
+
+  .officialQuotaCard {
+    min-height: 0;
+    padding: 12px;
+    border-left-width: 4px;
+  }
+
+  .officialQuotaHeader {
+    grid-template-columns: 28px minmax(0, 1fr) auto auto;
+    gap: 8px;
+  }
+
+  .officialQuotaHeader strong {
+    font-size: 13px;
+  }
+
+  .officialQuotaHeader small,
+  .officialQuotaFooter,
+  .quotaWindow small {
+    font-size: 11px;
+  }
+
+  .quotaStatusDot {
+    width: 16px;
+    height: 16px;
+    box-shadow: 0 0 0 4px rgba(110, 231, 168, 0.12);
+  }
+
+  .toggleSwitch {
+    width: 32px;
+    min-width: 32px;
+    height: 18px;
+  }
+
+  .toggleSlider::before {
+    width: 14px;
+    height: 14px;
+  }
+
+  .toggleSwitch input:checked + .toggleSlider::before {
+    transform: translateX(14px);
+  }
+
+  .quotaWindows {
+    gap: 8px;
+    margin: 12px 0 9px;
+  }
+
+  .quotaWindow {
+    gap: 5px;
+  }
+
+  .quotaWindowLabel span,
+  .quotaWindowLabel strong {
+    font-size: 13px;
+  }
+
+  .quotaTrack {
+    height: 8px;
+  }
+
+  .officialQuotaFooter {
+    gap: 6px 10px;
+    padding-top: 9px;
+  }
+
+  .quotaActions {
+    gap: 7px;
+    padding-top: 9px;
+  }
+
+  .quotaActionsPrimary {
+    gap: 6px;
+  }
+
+  .quotaActions .button {
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
   .topbar {
     align-items: stretch;
     flex-direction: column;
@@ -1238,6 +1348,17 @@ dialog::backdrop {
 
   .officialUsageChips {
     justify-content: flex-start;
+  }
+
+  .officialQuotaCard .quotaWindowLabel,
+  .combinedQuotaCard .quotaWindowLabel {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .officialQuotaCard .quotaWindowLabel strong,
+  .combinedQuotaCard .quotaWindowLabel strong {
+    text-align: right;
   }
 }
 
