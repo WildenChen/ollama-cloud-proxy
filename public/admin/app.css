@@ -508,11 +508,15 @@ svg {
 .usageOverview {
   display: grid;
   gap: 10px;
-  padding: 10px;
+  padding: 0;
 }
 
 .usageHeroPanel {
   margin-top: 10px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .authPanel {
@@ -549,6 +553,13 @@ svg {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.officialUsageChips .button.compact {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 720;
 }
 
 .officialUsageChips span,

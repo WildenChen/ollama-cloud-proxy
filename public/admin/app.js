@@ -1010,6 +1010,11 @@ function renderUsageOverview() {
         <span>${escapeHtml(t("planLabel"))} ${escapeHtml(totals.official.plan || "-")}</span>
         <span>${escapeHtml(t("usageCookieState"))} ${formatNumber(totals.official.available || 0)}/${formatNumber(totals.keyCount || 0)}</span>
         <span>${escapeHtml(t("blockedKeysLabel"))} ${formatNumber(blockedKeys)}</span>
+        <button id="addKeyButton" class="button compact" type="button" title="${escapeHtml(t("addKeyTitle"))}" aria-label="${escapeHtml(t("addKeyAria"))}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          <span>${escapeHtml(t("addKey"))}</span>
+        </button>
+        <button id="refreshUsageButton" class="button compact" type="button">${escapeHtml(t("refreshOfficialUsage"))}</button>
       </div>
     </div>
     ${renderCombinedQuotaCard(totals, keyCards)}
@@ -1559,7 +1564,8 @@ async function refreshOfficialUsage() {
     return;
   }
   try {
-    $("refreshUsageButton").disabled = true;
+    const refreshButton = $("refreshUsageButton");
+    if (refreshButton) refreshButton.disabled = true;
     const overview = await api("/admin/usage-overview/refresh", { method: "POST" });
     state.stats = state.stats || {};
     state.stats.usage = state.stats.usage || {};
@@ -1570,7 +1576,8 @@ async function refreshOfficialUsage() {
   } catch (error) {
     showNotice(error.message, "error");
   } finally {
-    $("refreshUsageButton").disabled = false;
+    const refreshButton = $("refreshUsageButton");
+    if (refreshButton) refreshButton.disabled = false;
   }
 }
 
@@ -1807,7 +1814,6 @@ function bindEvents() {
   });
   $("eventLevel").addEventListener("change", () => refresh({ showErrors: true }));
   $("eventType").addEventListener("change", () => refresh({ showErrors: true }));
-  $("addKeyButton").addEventListener("click", () => $("keyDialog").showModal());
   $("cancelKeyButton").addEventListener("click", closeKeyDialog);
   $("closeKeyDialogButton").addEventListener("click", closeKeyDialog);
   $("cancelKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
@@ -1854,6 +1860,16 @@ function bindEvents() {
     }
   });
   $("usageOverview").addEventListener("click", (event) => {
+    const addButton = event.target.closest("#addKeyButton");
+    if (addButton) {
+      $("keyDialog").showModal();
+      return;
+    }
+    const refreshButton = event.target.closest("#refreshUsageButton");
+    if (refreshButton) {
+      refreshOfficialUsage();
+      return;
+    }
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const card = button.closest("[data-key-id]");
@@ -1869,7 +1885,6 @@ function bindEvents() {
     actionForKey(card.dataset.keyId, action);
   });
   $("refreshModelsButton").addEventListener("click", refreshModels);
-  $("refreshUsageButton").addEventListener("click", refreshOfficialUsage);
   $("usageSettingsForm").addEventListener("submit", saveUsageSettings);
   $("modelTestList").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-model-test]");
