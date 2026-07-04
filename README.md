@@ -31,7 +31,11 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - Admin UI：`GET /admin`
 - Admin UI i18n：支援繁體中文與英文切換，語言偏好保存在瀏覽器 localStorage
 - Admin JSON API：keys、stats、events、test、rotate、enable/disable
-- SQLite：保存 keys、events、client stats、model stats、models cache
+- Admin 密碼管理：Web 首次設定密碼、變更密碼（PBKDF2-SHA256），`ADMIN_TOKEN` 退為 bootstrap/fallback
+- Client API key 管理：在 DB 內建立、輪替、啟停、刪除命名 client token，加密儲存、支援服務級連線追蹤
+- YAML 整體匯入/匯出：把 Ollama Cloud key、用量 Cookie、client token、用量重置設定打包成單一 YAML，方便備份與跨機遷移
+- 事件分類篩選與 token 用量紀錄：事件可依 `success | failure | quota | auth | network | provider | client` 分類查詢；非串流請求可看到輸入、輸出、總 token 與 cache token
+- SQLite：保存 keys、events、client stats、model stats、models cache、client API keys、admin password hash
 - 事件紀錄會過濾敏感資訊，不保存完整 prompt、response 或完整 API key
 
 ## Project Status
@@ -263,19 +267,24 @@ After the first GitHub Actions publish, make sure the package visibility in GitH
 
 ## 版本更新紀錄
 
+### 1.3.1 - 2026-07-04
+
+- Docker build 改用 `bun.lockb` 鎖定依賴版本，避免 `bun install` 在不同時間點拉入不同 transitive 套件，確保 image 可重現。
+
 ### 1.3.0 - 2026-07-04
 
-- Admin 新增首次設定管理密碼與 Web 變更管理密碼，既有 `ADMIN_TOKEN` 保留為 bootstrap/fallback。
-- 新增 Client API key 管理，可在 Web 建立、輪替、啟停與刪除命名 token，方便依服務追蹤連線紀錄。
-- 新增單一 YAML 匯入/匯出，支援 Ollama upstream key、用量 Cookie、client token 與用量重置設定的合併覆蓋遷移。
-- 事件紀錄新增分類篩選與單次非串流 token 用量細節，包含輸入、輸出、總 token 與 cache token。
+- Admin 新增首次設定管理密碼與 Web 變更管理密碼（`POST /admin/auth/setup` 與 `POST /admin/auth/change-password`），密碼以 PBKDF2-SHA256 hash 存於 SQLite；既有 `ADMIN_TOKEN` 保留為 bootstrap/fallback。
+- 新增 Client API key 管理（`/admin/client-keys`），可在 Web 建立、輪替、啟停與刪除命名 token（token 加密儲存），方便依服務追蹤連線紀錄。
+- 新增單一 YAML 匯入/匯出（`GET /admin/export.yaml` 與 `POST /admin/import.yaml`），支援 Ollama upstream key、用量 Cookie、client token 與用量重置設定的合併覆蓋遷移。
+- 事件紀錄新增分類篩選（`?category=success|failure|quota|auth|network|provider|client` 與 `?hasUsage=1`）與單次非串流 token 用量細節，包含輸入、輸出、總 token 與 cache token。
 
 ### 1.2.5 - 2026-07-03
 
 - 首頁管理權杖移到用量頁的管理存取區，首頁保留用量視覺本體。
 - 桌面版官方用量卡片改為更緊湊的多欄版型，接近 OmniRoute 的卡片密度。
-- 總額度池改為計入所有已啟用金鑰，只有手動停用的金鑰排除在總計之外。
+- 總額度池改為計入所有已啟用金鑰，只有手動停用的金鑰排除在總計之外；後續修正 weekly/session 受限金鑰被誤算進 5hr 可用剩餘的問題。
 - 官方用量條新增橘黃狀態，標示已使用但仍可用的額度。
+- 精簡首頁用量操作區、調整用量警示門檻與首頁操作按鈕、調整首頁用量版型。
 
 ### 1.2.4 - 2026-07-03
 
@@ -440,9 +449,9 @@ cp .env.example .env
 至少要修改這三個值：
 
 ```env
-ADMIN_TOKEN=請換成很長的管理 token
 KEY_ENCRYPTION_SECRET=請換成很長的隨機 secret
-CLIENT_API_KEYS=openclaw:openclaw-token,kilo-company:kilo-token
+# ADMIN_TOKEN=請換成很長的管理 token (可省略；首次進 /admin 會要求設定管理密碼)
+# CLIENT_API_KEYS=openclaw:openclaw-token,kilo-company:kilo-token (可改在 Admin UI 管理)
 ```
 
 接著用 Docker 啟動：
@@ -464,7 +473,7 @@ curl http://localhost:11435/health
 http://localhost:11435/admin
 ```
 
-Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 localStorage，後續操作會用 Bearer token 呼叫 `/admin/*` API。
+Admin UI 第一次進入時，若 `ADMIN_TOKEN` 已設定在 `.env` 會要求輸入該 token；若 DB 尚未設定管理密碼，會要求設定第一組管理密碼（至少 8 字元，PBKDF2-SHA256 雜湊儲存）。後續操作會以 Bearer token 呼叫 `/admin/*` API，可在 Admin UI 隨時變更密碼。
 
 ## 重要設定
 
@@ -500,10 +509,17 @@ Admin UI 會要求輸入 `.env` 裡的 `ADMIN_TOKEN`。Token 只存在瀏覽器 
 | `OLLAMA_COMPAT_DISCOVERY_PUBLIC` | `true` | 是否公開 `/api/tags` 與未帶 token 的 `/v1/models` 供 provider 做 discovery |
 | `OLLAMA_NATIVE_APPLY_ALIASES` | `true` | 是否讓 `/api/chat`、`/api/generate` 套用 model alias |
 | `USAGE_TIMEZONE` | `Asia/Taipei` | weekly reset 顯示與推算時區 |
+| `SESSION_RESET_MODE` | `fixed_anchor` | 5hr session reset 推算模式（`fixed_anchor`） |
+| `SESSION_RESET_ANCHOR` | `2026-06-06T20:00:00.000Z` | 5hr session reset 錨點時間（ISO 8601 UTC） |
+| `SESSION_RESET_INTERVAL_HOURS` | `5` | 5hr session reset 間隔 |
+| `WEEKLY_RESET_MODE` | `fixed_weekly` | weekly reset 推算模式（`fixed_weekly`） |
 | `WEEKLY_RESET_DAY_OF_WEEK` | `1` | weekly reset 星期，`1` 是星期一 |
 | `WEEKLY_RESET_TIME` | `08:30` | weekly reset 時間 |
+| `WEEKLY_RESET_GRACE_MINUTES` | `5` | weekly reset 後寬限分鐘數 |
+| `WEEKLY_REACTIVATION_JITTER_SECONDS` | `180` | weekly 解凍隨機抖動秒數，避免雪崩重試 |
 | `EVENT_RETENTION_DAYS` | `14` | event 保留天數 |
 | `MAX_EVENTS` | `100000` | event 最大保留筆數 |
+| `LOG_LEVEL` | `info` | log 等級（`debug` / `info` / `warn` / `error`） |
 | `DB_PATH` | `/data/ollama-cloud-proxy.sqlite` | SQLite DB 路徑 |
 
 如果 `CLIENT_API_KEYS` 有設定，`/v1/chat/completions`、`/v1/completions`、`POST /api/chat` 與 `POST /api/generate` 都必須帶合法 Bearer token。`GET /api/version` 與 `GET /api/ps` 會公開回應，供 Ollama-compatible client 驗證服務；未帶 token 的 `GET /api/tags` 與 `GET /v1/models` 預設也公開，可用 `OLLAMA_COMPAT_DISCOVERY_PUBLIC=false` 改成需要 client token。若沒有設定 `CLIENT_API_KEYS`，proxy 會允許未驗證推理請求，clientName 會使用 `x-client-name` header，沒有 header 時是 `anonymous`。外網使用時務必設定 `CLIENT_API_KEYS`。
@@ -805,7 +821,53 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 # recent events
 curl -H "Authorization: Bearer $ADMIN_TOKEN" \
   "http://localhost:11435/admin/events?limit=100"
-```
+
+# Admin 認證狀態查詢
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/auth/status
+
+# 首次設定管理密碼（DB 還沒有管理密碼時才能呼叫）
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"password":"new-admin-password"}' \
+  http://localhost:11435/admin/auth/setup
+
+# 變更管理密碼
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"currentPassword":"old","password":"new"}' \
+  http://localhost:11435/admin/auth/change-password
+
+# 列出 / 建立 Client API key
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/client-keys
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"openclaw","token":"new-client-token","notes":"optional"}' \
+  http://localhost:11435/admin/client-keys
+
+# 啟停 / 輪替 / 編輯 / 刪除 Client API key
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/client-keys/<id>/disable
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"rotated-client-token"}' \
+  http://localhost:11435/admin/client-keys/<id>/rotate
+curl -X PATCH -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":false,"notes":"maintenance"}' \
+  http://localhost:11435/admin/client-keys/<id>
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/client-keys/<id>
+
+# 整體 YAML 匯出 / 匯入
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -o ollama-cloud-proxy-export.yaml \
+  http://localhost:11435/admin/export.yaml
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/yaml" \
+  --data-binary @backup.yaml \
+  http://localhost:11435/admin/import.yaml
 
 管理單一 key：
 
@@ -825,6 +887,10 @@ curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
 # clear cooldown
 curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://localhost:11435/admin/keys/<id>/reset-cooldown
+
+# 單 key 官方用量刷新（會觸發 settings 抓取；若 key 為 invalid 會自動用 /v1/models 探測並恢復）
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:11435/admin/keys/<id>/usage-refresh
 ```
 
 Rotate key：
