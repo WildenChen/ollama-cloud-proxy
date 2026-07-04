@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type {
   BlockReason,
+  ClientApiKeyRecord,
   EventLevel,
   KeyRecord,
   KeyStatus,
@@ -151,6 +152,20 @@ function keyFromRow(row: Row): KeyRecord {
   };
 }
 
+function clientApiKeyFromRow(row: Row): ClientApiKeyRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    tokenPreview: String(row.tokenPreview),
+    encryptedToken: String(row.encryptedToken),
+    enabled: asBool(row.enabled),
+    notes: asString(row.notes),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    deletedAt: asString(row.deletedAt),
+  };
+}
+
 export class DatabaseStore {
   readonly db: Database;
 
@@ -281,6 +296,25 @@ export class DatabaseStore {
         value TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS client_api_keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        tokenPreview TEXT NOT NULL,
+        encryptedToken TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        deletedAt TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_client_api_keys_name_live
+        ON client_api_keys(name)
+        WHERE deletedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_client_api_keys_deleted ON client_api_keys(deletedAt);
+      CREATE INDEX IF NOT EXISTS idx_events_request ON events(requestId);
+      CREATE INDEX IF NOT EXISTS idx_events_model ON events(model);
     `);
     this.ensureColumn("model_stats", "promptTokens", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("model_stats", "completionTokens", "INTEGER NOT NULL DEFAULT 0");
@@ -302,6 +336,22 @@ export class DatabaseStore {
 
   private resetStaleActiveRequests() {
     this.db.query("UPDATE keys SET activeRequests = 0").run();
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.query("SELECT value FROM settings WHERE key = $key").get({ $key: key }) as Row | null;
+    return row ? String(row.value) : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    const now = isoNow();
+    this.db
+      .query(
+        `INSERT INTO settings (key, value, updatedAt)
+         VALUES ($key, $value, $updatedAt)
+         ON CONFLICT(key) DO UPDATE SET value = $value, updatedAt = $updatedAt`
+      )
+      .run({ $key: key, $value: value, $updatedAt: now });
   }
 
   getUsageSettings(config: AppConfig): UsageSettings {
@@ -501,6 +551,10 @@ export class DatabaseStore {
     type?: string;
     level?: string;
     since?: string;
+    category?: string;
+    requestId?: string;
+    model?: string;
+    hasUsage?: boolean;
   }): Row[] {
     const clauses: string[] = [];
     const params: Record<string, unknown> = { $limit: Math.min(Math.max(filters.limit, 1), 1000) };
@@ -524,10 +578,46 @@ export class DatabaseStore {
       clauses.push("createdAt >= $since");
       params.$since = filters.since;
     }
+    if (filters.requestId) {
+      clauses.push("requestId = $requestId");
+      params.$requestId = filters.requestId;
+    }
+    if (filters.model) {
+      clauses.push("model = $model");
+      params.$model = filters.model;
+    }
+    if (filters.hasUsage) {
+      clauses.push("json_extract(detailsJson, '$.totalTokens') IS NOT NULL");
+    }
+    if (filters.category) {
+      const categoryClauses = this.eventCategoryClauses(filters.category);
+      if (categoryClauses.length > 0) clauses.push(`(${categoryClauses.join(" OR ")})`);
+    }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     return this.db
       .query(`SELECT * FROM events ${where} ORDER BY createdAt DESC LIMIT $limit`)
       .all(params as any) as Row[];
+  }
+
+  private eventCategoryClauses(category: string): string[] {
+    switch (category) {
+      case "success":
+        return ["type IN ('request_finished', 'key_success')"];
+      case "failure":
+        return ["level IN ('warn', 'error')", "type IN ('request_failed', 'key_failure', 'no_available_key')"];
+      case "quota":
+        return ["type IN ('key_session_blocked', 'key_weekly_blocked', 'official_usage_blocked')"];
+      case "auth":
+        return ["type IN ('key_invalid', 'client_key_created', 'client_key_updated', 'client_key_rotated', 'client_key_deleted')"];
+      case "network":
+        return ["json_extract(detailsJson, '$.errorType') IN ('network_error', 'upstream_timeout', 'client_aborted')"];
+      case "provider":
+        return ["type = 'upstream_error'", "json_extract(detailsJson, '$.errorType') LIKE 'upstream_%'"];
+      case "client":
+        return ["type IN ('client_aborted', 'queue_timeout', 'queue_rejected')"];
+      default:
+        return [];
+    }
   }
 
   cleanupEvents(retentionDays: number, maxEvents: number): void {
@@ -692,5 +782,86 @@ export class DatabaseStore {
       )
       .run({ $model: normalized, $enabled: enabled ? 1 : 0, $updatedAt: now });
     return this.db.query("SELECT * FROM model_settings WHERE model = $model").get({ $model: normalized }) as Row;
+  }
+
+  createClientApiKey(input: {
+    name: string;
+    tokenPreview: string;
+    encryptedToken: string;
+    notes?: string | null;
+  }): ClientApiKeyRecord {
+    const now = isoNow();
+    const id = crypto.randomUUID();
+    this.db
+      .query(
+        `INSERT INTO client_api_keys (
+          id, name, tokenPreview, encryptedToken, enabled, notes, createdAt, updatedAt
+        ) VALUES (
+          $id, $name, $tokenPreview, $encryptedToken, 1, $notes, $createdAt, $updatedAt
+        )`
+      )
+      .run({
+        $id: id,
+        $name: input.name,
+        $tokenPreview: input.tokenPreview,
+        $encryptedToken: input.encryptedToken,
+        $notes: input.notes ?? null,
+        $createdAt: now,
+        $updatedAt: now,
+      });
+    return this.getClientApiKeyOrThrow(id, true);
+  }
+
+  listClientApiKeys(includeDeleted = false): ClientApiKeyRecord[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM client_api_keys ${includeDeleted ? "" : "WHERE deletedAt IS NULL"} ORDER BY createdAt ASC`
+      )
+      .all() as Row[];
+    return rows.map(clientApiKeyFromRow);
+  }
+
+  getClientApiKey(id: string, includeDeleted = false): ClientApiKeyRecord | null {
+    const row = this.db
+      .query(`SELECT * FROM client_api_keys WHERE id = $id ${includeDeleted ? "" : "AND deletedAt IS NULL"}`)
+      .get({ $id: id }) as Row | null;
+    return row ? clientApiKeyFromRow(row) : null;
+  }
+
+  getClientApiKeyByName(name: string): ClientApiKeyRecord | null {
+    const row = this.db
+      .query("SELECT * FROM client_api_keys WHERE name = $name AND deletedAt IS NULL")
+      .get({ $name: name }) as Row | null;
+    return row ? clientApiKeyFromRow(row) : null;
+  }
+
+  getClientApiKeyOrThrow(id: string, includeDeleted = false): ClientApiKeyRecord {
+    const key = this.getClientApiKey(id, includeDeleted);
+    if (!key) throw new Error("Client API key not found");
+    return key;
+  }
+
+  patchClientApiKey(
+    id: string,
+    patch: Partial<{
+      name: string;
+      tokenPreview: string;
+      encryptedToken: string;
+      enabled: boolean;
+      notes: string | null;
+      deletedAt: string | null;
+    }>
+  ): ClientApiKeyRecord {
+    const entries = Object.entries(patch);
+    if (entries.length === 0) return this.getClientApiKeyOrThrow(id, true);
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { $id: id, $updatedAt: isoNow() };
+    for (const [key, value] of entries) {
+      sets.push(`${key} = $${key}`);
+      params[`$${key}`] = typeof value === "boolean" ? (value ? 1 : 0) : value;
+    }
+    sets.push("updatedAt = $updatedAt");
+    this.db.query(`UPDATE client_api_keys SET ${sets.join(", ")} WHERE id = $id`).run(params as any);
+    return this.getClientApiKeyOrThrow(id, true);
   }
 }

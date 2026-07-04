@@ -5,6 +5,7 @@ LABEL org.opencontainers.image.source="https://github.com/WildenChen/ollama-clou
 WORKDIR /app
 
 COPY package.json tsconfig.json ./
+RUN bun install --production
 COPY src ./src
 COPY public ./public
 

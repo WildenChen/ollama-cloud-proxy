@@ -8,7 +8,7 @@ Ollama Cloud Proxy 是一個把 Ollama Cloud 包成穩定代理服務的 key poo
 - **同時支援 Ollama 格式與 OpenAI-compatible 格式**：Ollama native client 可以走 `/api/version`、`/api/ps`、`/api/tags`、`/api/chat`、`/api/generate`；OpenAI-compatible client 可以走 `/v1/chat/completions`、`/v1/models`。
 - **適合 OpenClaw / Kilo Code 這類工具集中接入**：client 只需要設定 proxy base URL 和 client token，不需要直接持有 Ollama Cloud key。
 
-目前版本：`1.1.10`
+目前版本：`1.3.0`
 
 可以把它想成一個放在工具與 Ollama Cloud 中間的流量管理層：
 
@@ -262,6 +262,13 @@ If you want to build from local source instead, use the default `docker-compose.
 After the first GitHub Actions publish, make sure the package visibility in GitHub Packages is set to public if you want unauthenticated users to pull the image.
 
 ## 版本更新紀錄
+
+### 1.3.0 - 2026-07-04
+
+- Admin 新增首次設定管理密碼與 Web 變更管理密碼，既有 `ADMIN_TOKEN` 保留為 bootstrap/fallback。
+- 新增 Client API key 管理，可在 Web 建立、輪替、啟停與刪除命名 token，方便依服務追蹤連線紀錄。
+- 新增單一 YAML 匯入/匯出，支援 Ollama upstream key、用量 Cookie、client token 與用量重置設定的合併覆蓋遷移。
+- 事件紀錄新增分類篩選與單次非串流 token 用量細節，包含輸入、輸出、總 token 與 cache token。
 
 ### 1.2.5 - 2026-07-03
 

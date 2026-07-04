@@ -72,10 +72,10 @@ function createApp(appConfig: AppConfig) {
   const concurrency = new ConcurrencyManager(appConfig, events);
   const keyPool = new KeyPoolManager(appConfig, store, events, new KeyCipher(appConfig.keyEncryptionSecret));
   const models = new ModelManager(appConfig, store);
-  const admin = new AdminRoutes(appConfig, store, keyPool, concurrency, events, models);
+  const admin = new AdminRoutes(appConfig, store, keyPool, concurrency, events, models, new KeyCipher(appConfig.keyEncryptionSecret));
   const proxy = new ProxyHandler(appConfig, concurrency, keyPool, models, events, store);
   const web = new WebService(appConfig, concurrency, keyPool, events, store);
-  const router = new Router(appConfig, admin, proxy, concurrency, keyPool, web);
+  const router = new Router(appConfig, admin, proxy, concurrency, keyPool, web, store, new KeyCipher(appConfig.keyEncryptionSecret));
   const server = Bun.serve({ port: 0, fetch: (req) => router.handle(req) });
   servers.push(server);
   return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool, concurrency, events };
@@ -1078,7 +1078,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.2.5");
+    expect(body.proxy_version).toBe("1.3.0");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1600,6 +1600,123 @@ describe("proxy integration", () => {
     expect(rateLimitedBody.error.type).toBe("rate_limited");
     expect(provider.status).toBe(502);
     expect(providerBody.error.type).toBe("provider_error");
+  });
+
+  test("admin password can be initialized without ADMIN_TOKEN and then required", async () => {
+    const app = createApp(config({ adminToken: null }));
+
+    const status = await fetch(`${app.baseUrl}/admin/auth/status`);
+    expect(status.status).toBe(200);
+    expect((await status.json()).initialized).toBe(false);
+
+    const unauthorized = await fetch(`${app.baseUrl}/admin/stats`);
+    expect(unauthorized.status).toBe(401);
+
+    const setup = await fetch(`${app.baseUrl}/admin/auth/setup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "new-admin-password" }),
+    });
+    expect(setup.status).toBe(201);
+
+    const denied = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer wrong-password" },
+    });
+    const allowed = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer new-admin-password" },
+    });
+    expect(denied.status).toBe(401);
+    expect(allowed.status).toBe(200);
+  });
+
+  test("DB client API keys authenticate requests and request events include token usage", async () => {
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      expect(req.headers.get("authorization")).toBe("Bearer upstream-key");
+      return Response.json({
+        id: "chatcmpl-test",
+        choices: [{ message: { role: "assistant", content: "OK" } }],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 3,
+          total_tokens: 14,
+          prompt_tokens_details: { cached_tokens: 5 },
+        },
+      });
+    });
+    const app = createApp(config({ upstreamBaseUrl, clientApiKeys: new Map() }));
+    app.keyPool.create({ name: "upstream", apiKey: "upstream-key" });
+
+    const createdClient = await fetch(`${app.baseUrl}/admin/client-keys`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ name: "agent-a", token: "client-secret-a" }),
+    });
+    expect(createdClient.status).toBe(201);
+    expect(JSON.stringify(await createdClient.clone().json())).not.toContain("client-secret-a");
+
+    const denied = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-oss", messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(denied.status).toBe(401);
+
+    const completion = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-secret-a", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-oss", messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(completion.status).toBe(200);
+
+    const eventsResponse = await fetch(`${app.baseUrl}/admin/events?hasUsage=1&category=success`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const events = await eventsResponse.json();
+    expect(events.events[0].clientName).toBe("agent-a");
+    expect(events.events[0].details.totalTokens).toBe(14);
+    expect(events.events[0].details.cachedTokens).toBe(5);
+  });
+
+  test("YAML export and merge import restore upstream and client keys", async () => {
+    const source = createApp(config({ clientApiKeys: new Map() }));
+    source.keyPool.create({
+      name: "free-01",
+      apiKey: "ollama_upstream_secret",
+      ollamaUsageCookie: "__Secure-session=session-secret",
+      notes: "source note",
+    });
+    const clientCreate = await fetch(`${source.baseUrl}/admin/client-keys`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ name: "agent-import", token: "imported-client-token", notes: "client note" }),
+    });
+    expect(clientCreate.status).toBe(201);
+
+    const exported = await fetch(`${source.baseUrl}/admin/export.yaml`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const yaml = await exported.text();
+    expect(exported.status).toBe(200);
+    expect(yaml).toContain("ollama_upstream_secret");
+    expect(yaml).toContain("imported-client-token");
+
+    const importedUpstream = createMockUpstream(() => Response.json({ data: [] }));
+    const target = createApp(config({ upstreamBaseUrl: importedUpstream, clientApiKeys: new Map() }));
+    const importResponse = await fetch(`${target.baseUrl}/admin/import.yaml`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/yaml" },
+      body: yaml,
+    });
+    const importBody = await importResponse.json();
+    expect(importResponse.status).toBe(200);
+    expect(importBody.upstreamKeysImported).toBe(1);
+    expect(importBody.clientApiKeysImported).toBe(1);
+    expect(target.store.listKeys(false)[0].apiKeyPreview).toBe("ollama_ups...cret");
+
+    const authCheck = await fetch(`${target.baseUrl}/v1/models`, {
+      headers: { authorization: "Bearer imported-client-token" },
+    });
+    expect(authCheck.status).toBe(200);
   });
 
 });

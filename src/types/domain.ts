@@ -67,7 +67,14 @@ export type ProxyEventType =
   | "client_aborted"
   | "retry_started"
   | "retry_finished"
-  | "key_attempt";
+  | "key_attempt"
+  | "admin_password_changed"
+  | "client_key_created"
+  | "client_key_updated"
+  | "client_key_rotated"
+  | "client_key_enabled"
+  | "client_key_disabled"
+  | "client_key_deleted";
 
 export type KeyRecord = {
   id: string;
@@ -110,6 +117,20 @@ export type KeyRecord = {
 export type PublicKeyRecord = Omit<KeyRecord, "encryptedApiKey" | "encryptedOllamaUsageCookie"> & {
   hasOllamaUsageCookie: boolean;
 };
+
+export type ClientApiKeyRecord = {
+  id: string;
+  name: string;
+  tokenPreview: string;
+  encryptedToken: string;
+  enabled: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type PublicClientApiKeyRecord = Omit<ClientApiKeyRecord, "encryptedToken">;
 
 export type ClientIdentity = {
   clientName: string;

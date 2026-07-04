@@ -1,6 +1,9 @@
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "../config/env";
+import type { DatabaseStore } from "../storage/database";
 import type { ClientIdentity } from "../types/domain";
 import { openAiError } from "../errors/responses";
+import { apiKeyPreview, KeyCipher } from "./encryption";
 
 function bearerToken(req: Request): string | null {
   const auth = req.headers.get("authorization") || "";
@@ -8,9 +11,52 @@ function bearerToken(req: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-export function requireAdmin(req: Request, config: AppConfig): Response | null {
+const ADMIN_PASSWORD_SETTING = "auth.adminPasswordHash";
+const HASH_ITERATIONS = 210_000;
+
+export function hashPassword(password: string): string {
+  const value = password.trim();
+  if (value.length < 8) throw new Error("Admin password must be at least 8 characters");
+  const salt = randomBytes(16);
+  const hash = pbkdf2Sync(value, salt, HASH_ITERATIONS, 32, "sha256");
+  return `pbkdf2-sha256:${HASH_ITERATIONS}:${salt.toString("base64")}:${hash.toString("base64")}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [algorithm, iterationsText, saltText, hashText] = stored.split(":");
+  if (algorithm !== "pbkdf2-sha256" || !iterationsText || !saltText || !hashText) return false;
+  const iterations = Number(iterationsText);
+  if (!Number.isInteger(iterations) || iterations < 1) return false;
+  const expected = Buffer.from(hashText, "base64");
+  const actual = pbkdf2Sync(password.trim(), Buffer.from(saltText, "base64"), iterations, expected.length, "sha256");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function isAdminInitialized(store: DatabaseStore): boolean {
+  return Boolean(store.getSetting(ADMIN_PASSWORD_SETTING));
+}
+
+export function setAdminPassword(store: DatabaseStore, password: string): void {
+  store.setSetting(ADMIN_PASSWORD_SETTING, hashPassword(password));
+}
+
+export function adminAuthStatus(config: AppConfig, store: DatabaseStore) {
+  return {
+    initialized: isAdminInitialized(store),
+    envAdminTokenAvailable: Boolean(config.adminToken),
+  };
+}
+
+export function requireAdmin(req: Request, config: AppConfig, store: DatabaseStore): Response | null {
   const token = bearerToken(req);
-  if (token !== config.adminToken) {
+  const stored = store.getSetting(ADMIN_PASSWORD_SETTING);
+  if (stored) {
+    if (!token || !verifyPassword(token, stored)) {
+      return openAiError(401, "unauthorized", "Admin password required");
+    }
+    return null;
+  }
+  if (!config.adminToken || token !== config.adminToken) {
     return openAiError(401, "unauthorized", "Admin token required");
   }
   return null;
@@ -18,10 +64,26 @@ export function requireAdmin(req: Request, config: AppConfig): Response | null {
 
 export function authenticateClient(
   req: Request,
-  config: AppConfig
+  config: AppConfig,
+  store: DatabaseStore,
+  cipher: KeyCipher
 ): { identity: ClientIdentity } | { response: Response } {
   const token = bearerToken(req);
-  if (config.clientApiKeys.size > 0) {
+  const dbKeys = store.listClientApiKeys(false);
+  const hasDbClientKeys = dbKeys.some((key) => key.enabled);
+  if (token) {
+    for (const key of dbKeys) {
+      if (!key.enabled) continue;
+      try {
+        if (cipher.decrypt(key.encryptedToken) === token) {
+          return { identity: { clientName: key.name, authenticated: true } };
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  if (config.clientApiKeys.size > 0 || hasDbClientKeys) {
     const clientName = token ? config.clientApiKeys.get(token) : null;
     if (!clientName) {
       return { response: openAiError(401, "unauthorized", "Valid client token required") };
@@ -35,4 +97,8 @@ export function authenticateClient(
       authenticated: false,
     },
   };
+}
+
+export function publicTokenPreview(token: string): string {
+  return apiKeyPreview(token);
 }

@@ -5,9 +5,11 @@ const state = {
     (navigator.language?.toLowerCase().startsWith("zh") ? "zh-Hant" : "en"),
   stats: null,
   keys: [],
+  clientKeys: [],
   events: [],
   modelOverview: null,
   usageSettings: null,
+  authStatus: null,
   page: "overview",
   testingModels: new Set(),
   loaded: false,
@@ -19,6 +21,8 @@ const state = {
   savingKeySettings: false,
   savingThresholds: false,
 };
+
+const eventCategories = ["success", "failure", "quota", "auth", "network", "provider", "client"];
 
 const eventTypes = [
   "request_started",
@@ -50,6 +54,13 @@ const eventTypes = [
   "client_aborted",
   "retry_started",
   "retry_finished",
+  "admin_password_changed",
+  "client_key_created",
+  "client_key_updated",
+  "client_key_rotated",
+  "client_key_enabled",
+  "client_key_disabled",
+  "client_key_deleted",
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -94,6 +105,27 @@ const dictionaries = {
     clientsDescription: "依今日權杖身分統計。",
     authSettingsTitle: "管理存取",
     authSettingsDescription: "設定管理權杖與語言偏好。",
+    newAdminPasswordLabel: "新管理密碼",
+    currentAdminPasswordLabel: "目前管理密碼",
+    setupAdminPassword: "設定管理密碼",
+    changeAdminPassword: "變更管理密碼",
+    adminPasswordSaved: "管理密碼已更新。",
+    backupTitle: "匯入匯出",
+    backupDescription: "將金鑰、Cookie 與 client token 匯出或匯入單一 YAML。",
+    exportYaml: "匯出 YAML",
+    importYaml: "匯入 YAML",
+    importDone: "YAML 已匯入。",
+    clientKeysTitle: "Client API 金鑰",
+    clientKeysDescription: "替不同服務建立命名 token，用於連線紀錄追蹤。",
+    clientTokenLabel: "Client token",
+    createClientKey: "建立 Client Key",
+    clientKeyCreated: "Client key 已建立。",
+    rotateClientKeyPrompt: "新的 client token",
+    confirmClientKeyDelete: "確定要刪除這個 client key 嗎？",
+    noClientKeys: "目前沒有 client API key。",
+    eventCategoryLabel: "事件分類",
+    allCategories: "所有分類",
+    hasUsageOnly: "只看 token 紀錄",
     modelsTitle: "模型",
     modelsDescription: "別名與請求次數。",
     overviewPageTitle: "金鑰用量總覽",
@@ -358,6 +390,22 @@ const dictionaries = {
       client_aborted: "客戶端中止",
       retry_started: "開始重試",
       retry_finished: "重試完成",
+      admin_password_changed: "管理密碼已變更",
+      client_key_created: "Client key 已建立",
+      client_key_updated: "Client key 已更新",
+      client_key_rotated: "Client key 已輪替",
+      client_key_enabled: "Client key 已啟用",
+      client_key_disabled: "Client key 已停用",
+      client_key_deleted: "Client key 已刪除",
+    },
+    eventCategory: {
+      success: "成功",
+      failure: "失敗",
+      quota: "額度",
+      auth: "權限",
+      network: "網路",
+      provider: "上游",
+      client: "客戶端",
     },
   },
   en: {
@@ -399,6 +447,27 @@ const dictionaries = {
     clientsDescription: "Today by client token identity.",
     authSettingsTitle: "Admin Access",
     authSettingsDescription: "Set admin token and language preference.",
+    newAdminPasswordLabel: "New admin password",
+    currentAdminPasswordLabel: "Current admin password",
+    setupAdminPassword: "Set Admin Password",
+    changeAdminPassword: "Change Admin Password",
+    adminPasswordSaved: "Admin password updated.",
+    backupTitle: "Import / Export",
+    backupDescription: "Export or import keys, cookies, and client tokens as one YAML file.",
+    exportYaml: "Export YAML",
+    importYaml: "Import YAML",
+    importDone: "YAML imported.",
+    clientKeysTitle: "Client API Keys",
+    clientKeysDescription: "Create named service tokens for connection log tracking.",
+    clientTokenLabel: "Client token",
+    createClientKey: "Create Client Key",
+    clientKeyCreated: "Client key created.",
+    rotateClientKeyPrompt: "New client token",
+    confirmClientKeyDelete: "Delete this client key?",
+    noClientKeys: "No client API keys yet.",
+    eventCategoryLabel: "Event category",
+    allCategories: "All categories",
+    hasUsageOnly: "Usage only",
     modelsTitle: "Models",
     modelsDescription: "Aliases and request counts.",
     overviewPageTitle: "Key Usage Overview",
@@ -663,6 +732,22 @@ const dictionaries = {
       client_aborted: "Client Aborted",
       retry_started: "Retry Started",
       retry_finished: "Retry Finished",
+      admin_password_changed: "Admin Password Changed",
+      client_key_created: "Client Key Created",
+      client_key_updated: "Client Key Updated",
+      client_key_rotated: "Client Key Rotated",
+      client_key_enabled: "Client Key Enabled",
+      client_key_disabled: "Client Key Disabled",
+      client_key_deleted: "Client Key Deleted",
+    },
+    eventCategory: {
+      success: "Success",
+      failure: "Failure",
+      quota: "Quota",
+      auth: "Auth",
+      network: "Network",
+      provider: "Provider",
+      client: "Client",
     },
   },
 };
@@ -717,6 +802,15 @@ async function api(path, options = {}) {
     throw new Error(data?.error?.message || t("requestFailed")(response.status));
   }
   return data;
+}
+
+async function loadAuthStatus() {
+  try {
+    const response = await fetch("/admin/auth/status", { headers: { "cache-control": "no-store" } });
+    state.authStatus = response.ok ? await response.json() : null;
+  } catch {
+    state.authStatus = null;
+  }
 }
 
 function formatNumber(value) {
@@ -904,11 +998,21 @@ function renderEvents() {
 
   root.innerHTML = state.events
     .map((event) => {
+      const usage = event.details && event.details.totalTokens !== undefined
+        ? [
+            `${t("tokenMetrics").prompt} ${formatNumber(event.details.promptTokens)}`,
+            `${t("tokenMetrics").completion} ${formatNumber(event.details.completionTokens)}`,
+            `${t("tokenMetrics").cached} ${formatNumber(event.details.cachedTokens)}`,
+            `${t("tokenMetrics").total} ${formatNumber(event.details.totalTokens)}`,
+          ].join(" · ")
+        : "";
+      const errorType = event.details?.errorType ? ` · ${event.details.errorType}` : "";
       const meta = [
         relativeDate(event.createdAt),
         mapText("level", event.level),
         event.clientName,
         event.keyName,
+        event.model,
         event.statusCode ? `HTTP ${event.statusCode}` : null,
         event.durationMs ? t("durationMs")(event.durationMs) : null,
       ]
@@ -918,10 +1022,44 @@ function renderEvents() {
         <article class="eventRow ${event.level}">
           <strong>${escapeHtml(mapText("eventType", event.type) || t("otherEvent"))}</strong>
           <div>${escapeHtml(translateEventMessage(event))}</div>
-          <div class="eventMeta">${escapeHtml(meta)}</div>
+          <div class="eventMeta">${escapeHtml(meta)}${escapeHtml(errorType)}</div>
+          ${usage ? `<div class="eventMeta">${escapeHtml(usage)}</div>` : ""}
         </article>
       `;
     })
+    .join("");
+}
+
+function renderAuthState() {
+  const setupForm = $("setupPasswordForm");
+  const changeForm = $("changePasswordForm");
+  if (!setupForm || !changeForm) return;
+  const initialized = state.authStatus?.initialized ?? true;
+  setupForm.classList.toggle("hidden", initialized);
+  changeForm.classList.toggle("hidden", !initialized && !state.authStatus?.envAdminTokenAvailable);
+}
+
+function renderClientKeys() {
+  const root = $("clientKeyList");
+  if (!root) return;
+  if (!state.clientKeys.length) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("noClientKeys"))}</div>`;
+    return;
+  }
+  root.innerHTML = state.clientKeys
+    .map(
+      (key) => `
+        <div class="miniRow" data-client-key-id="${escapeHtml(key.id)}">
+          <strong>${escapeHtml(key.name)}</strong>
+          <span>${escapeHtml(key.tokenPreview)}</span>
+          <span>${key.enabled ? escapeHtml(mapText("status", "available")) : escapeHtml(mapText("status", "disabled"))}</span>
+          <span>${escapeHtml(key.notes || "")}</span>
+          <button class="button" type="button" data-client-action="${key.enabled ? "disable" : "enable"}">${escapeHtml(key.enabled ? mapText("action", "disable") : mapText("action", "enable"))}</button>
+          <button class="button" type="button" data-client-action="rotate">${escapeHtml(mapText("action", "rotate"))}</button>
+          <button class="button danger" type="button" data-client-action="delete">${escapeHtml(mapText("action", "delete"))}</button>
+        </div>
+      `
+    )
     .join("");
 }
 
@@ -1411,6 +1549,7 @@ function renderPages() {
 function renderAll() {
   applyLocale();
   renderPages();
+  renderAuthState();
   renderStats();
   renderEvents();
   renderClients();
@@ -1420,12 +1559,14 @@ function renderAll() {
   renderUsageSettings();
   renderUsage();
   renderCache();
+  renderClientKeys();
   renderModelTests();
 }
 
 async function refresh(options = {}) {
   const showErrors = options.showErrors ?? true;
   const preserveOnError = options.preserveOnError ?? false;
+  await loadAuthStatus();
   if (!state.token) {
     state.loaded = false;
     state.loading = false;
@@ -1440,21 +1581,26 @@ async function refresh(options = {}) {
     if (!preserveOnError) renderAll();
     const level = $("eventLevel").value;
     const type = $("eventType").value;
+    const category = $("eventCategory").value;
     const eventQuery = new URLSearchParams({ limit: "80" });
     if (level) eventQuery.set("level", level);
     if (type) eventQuery.set("type", type);
-    const [stats, keys, events, models, usageSettings] = await Promise.all([
+    if (category) eventQuery.set("category", category);
+    if ($("eventHasUsage").checked) eventQuery.set("hasUsage", "1");
+    const [stats, keys, events, models, usageSettings, clientKeys] = await Promise.all([
       api("/admin/stats"),
       api("/admin/keys"),
       api(`/admin/events?${eventQuery.toString()}`),
       api("/admin/models"),
       api("/admin/usage-settings"),
+      api("/admin/client-keys"),
     ]);
     state.stats = stats;
     state.keys = keys.keys || [];
     state.events = events.events || [];
     state.modelOverview = models;
     state.usageSettings = usageSettings;
+    state.clientKeys = clientKeys.clientKeys || [];
     state.loaded = true;
     state.loading = false;
     state.loadNotice = null;
@@ -1734,6 +1880,137 @@ async function saveUsageSettings(event) {
   }
 }
 
+async function setupAdminPassword(event) {
+  event.preventDefault();
+  const password = String(new FormData(event.currentTarget).get("password") || "");
+  try {
+    const response = await fetch("/admin/auth/setup", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+      body: JSON.stringify({ password }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body?.error?.message || t("requestFailed")(response.status));
+    state.token = password.trim();
+    localStorage.setItem("ollamaProxyAdminToken", state.token);
+    $("adminToken").value = state.token;
+    event.currentTarget.reset();
+    showNotice(t("adminPasswordSaved"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function changeAdminPassword(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    await api("/admin/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        currentPassword: String(form.get("currentPassword") || ""),
+        newPassword: String(form.get("newPassword") || ""),
+      }),
+    });
+    state.token = String(form.get("newPassword") || "").trim();
+    localStorage.setItem("ollamaProxyAdminToken", state.token);
+    $("adminToken").value = state.token;
+    event.currentTarget.reset();
+    showNotice(t("adminPasswordSaved"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function exportYaml() {
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  try {
+    const response = await fetch("/admin/export.yaml", { headers: headers(false) });
+    const text = await response.text();
+    if (!response.ok) {
+      let message = t("requestFailed")(response.status);
+      try {
+        message = JSON.parse(text)?.error?.message || message;
+      } catch {}
+      throw new Error(message);
+    }
+    const blob = new Blob([text], { type: "application/yaml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ollama-cloud-proxy-export.yaml";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function importYaml(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  if (!state.token) {
+    showNotice(t("tokenRequired"), "error");
+    return;
+  }
+  try {
+    const text = await file.text();
+    await api("/admin/import.yaml", {
+      method: "POST",
+      headers: { "content-type": "application/yaml" },
+      body: text,
+    });
+    showNotice(t("importDone"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function createClientKey(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    await api("/admin/client-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: String(form.get("name") || ""),
+        token: String(form.get("token") || ""),
+        notes: String(form.get("notes") || ""),
+      }),
+    });
+    event.currentTarget.reset();
+    showNotice(t("clientKeyCreated"));
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function actionForClientKey(id, action) {
+  if (action === "delete" && !confirm(t("confirmClientKeyDelete"))) return;
+  try {
+    if (action === "rotate") {
+      const token = prompt(t("rotateClientKeyPrompt"));
+      if (!token) return;
+      await api(`/admin/client-keys/${id}/rotate`, { method: "POST", body: JSON.stringify({ token }) });
+    } else if (action === "delete") {
+      await api(`/admin/client-keys/${id}`, { method: "DELETE" });
+    } else {
+      await api(`/admin/client-keys/${id}/${action}`, { method: "POST" });
+    }
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1769,6 +2046,7 @@ function applyLocale() {
     if (typeof value === "string") element.setAttribute("aria-label", value);
   });
   renderEventTypeOptions();
+  renderEventCategoryOptions();
   renderWeeklyDayOptions();
 }
 
@@ -1779,6 +2057,16 @@ function renderEventTypeOptions() {
     ...eventTypes.map((type) => `<option value="${type}">${escapeHtml(mapText("eventType", type) || t("otherEvent"))}</option>`),
   ].join("");
   $("eventType").value = selected;
+}
+
+function renderEventCategoryOptions() {
+  const selected = $("eventCategory")?.value || "";
+  if (!$("eventCategory")) return;
+  $("eventCategory").innerHTML = [
+    `<option value="">${escapeHtml(t("allCategories"))}</option>`,
+    ...eventCategories.map((category) => `<option value="${category}">${escapeHtml(mapText("eventCategory", category))}</option>`),
+  ].join("");
+  $("eventCategory").value = selected;
 }
 
 function renderWeeklyDayOptions() {
@@ -1814,6 +2102,20 @@ function bindEvents() {
   });
   $("eventLevel").addEventListener("change", () => refresh({ showErrors: true }));
   $("eventType").addEventListener("change", () => refresh({ showErrors: true }));
+  $("eventCategory").addEventListener("change", () => refresh({ showErrors: true }));
+  $("eventHasUsage").addEventListener("change", () => refresh({ showErrors: true }));
+  $("setupPasswordForm").addEventListener("submit", setupAdminPassword);
+  $("changePasswordForm").addEventListener("submit", changeAdminPassword);
+  $("exportYamlButton").addEventListener("click", exportYaml);
+  $("importYamlInput").addEventListener("change", importYaml);
+  $("clientKeyForm").addEventListener("submit", createClientKey);
+  $("clientKeyList").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-client-action]");
+    if (!button) return;
+    const row = button.closest("[data-client-key-id]");
+    if (!row) return;
+    actionForClientKey(row.dataset.clientKeyId, button.dataset.clientAction);
+  });
   $("cancelKeyButton").addEventListener("click", closeKeyDialog);
   $("closeKeyDialogButton").addEventListener("click", closeKeyDialog);
   $("cancelKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
@@ -1900,4 +2202,7 @@ function bindEvents() {
 
 bindEvents();
 renderAll();
-if (state.token) refresh({ showErrors: false });
+loadAuthStatus().then(() => {
+  renderAll();
+  if (state.token) refresh({ showErrors: false });
+});

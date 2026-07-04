@@ -390,6 +390,31 @@ svg {
   border-bottom: 1px solid var(--border);
 }
 
+.fileButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.fileButton input {
+  display: none;
+}
+
+.inlineCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--muted);
+}
+
 .eventList {
   max-height: 676px;
   overflow: auto;

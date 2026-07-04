@@ -17,10 +17,10 @@ const cipher = new KeyCipher(config.keyEncryptionSecret);
 const concurrency = new ConcurrencyManager(config, events);
 const keyPool = new KeyPoolManager(config, store, events, cipher);
 const models = new ModelManager(config, store);
-const admin = new AdminRoutes(config, store, keyPool, concurrency, events, models);
+const admin = new AdminRoutes(config, store, keyPool, concurrency, events, models, cipher);
 const proxy = new ProxyHandler(config, concurrency, keyPool, models, events, store);
 const web = new WebService(config, concurrency, keyPool, events, store);
-const router = new Router(config, admin, proxy, concurrency, keyPool, web);
+const router = new Router(config, admin, proxy, concurrency, keyPool, web, store, cipher);
 
 events.cleanup(config.eventRetentionDays, config.maxEvents);
 setInterval(() => events.cleanup(config.eventRetentionDays, config.maxEvents), 60 * 60 * 1000);

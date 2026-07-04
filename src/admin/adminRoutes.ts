@@ -1,3 +1,4 @@
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AppConfig } from "../config/env";
 import type { ConcurrencyManager } from "../concurrency/concurrencyManager";
 import { json, openAiError } from "../errors/responses";
@@ -11,6 +12,15 @@ import type { KeyRecord } from "../types/domain";
 import { fetchOllamaCloudUsage, type OllamaCloudUsageSnapshot } from "../usage/ollamaCloudUsage";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
+import {
+  adminAuthStatus,
+  hashPassword,
+  isAdminInitialized,
+  publicTokenPreview,
+  setAdminPassword,
+  verifyPassword,
+} from "../security/auth";
+import type { KeyCipher } from "../security/encryption";
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {
   const text = await req.text();
@@ -49,10 +59,16 @@ export class AdminRoutes {
     private readonly keyPool: KeyPoolManager,
     private readonly concurrency: ConcurrencyManager,
     private readonly events: EventStore,
-    private readonly models: ModelManager
+    private readonly models: ModelManager,
+    private readonly cipher: KeyCipher
   ) {}
 
   async handle(req: Request, path: string): Promise<Response> {
+    if (path === "/admin/auth/status" && req.method === "GET") return json(adminAuthStatus(this.config, this.store));
+    if (path === "/admin/auth/setup" && req.method === "POST") return this.setupAdminPassword(req);
+    if (path === "/admin/auth/change-password" && req.method === "POST") return this.changeAdminPassword(req);
+    if (path === "/admin/export.yaml" && req.method === "GET") return this.exportYaml();
+    if (path === "/admin/import.yaml" && req.method === "POST") return this.importYaml(req);
     if (path === "/admin/stats" && req.method === "GET") return json(await this.stats());
     if (path === "/admin/usage-overview" && req.method === "GET") return json(await this.usageOverview(false));
     if (path === "/admin/usage-overview/refresh" && req.method === "POST") return json(await this.usageOverview(true));
@@ -67,6 +83,13 @@ export class AdminRoutes {
     if (modelTestMatch && req.method === "POST") return this.testModel(decodeURIComponent(modelTestMatch[1]));
     if (path === "/admin/keys" && req.method === "GET") return json({ keys: this.keyPool.listPublic(false) });
     if (path === "/admin/keys" && req.method === "POST") return this.createKey(req);
+    if (path === "/admin/client-keys" && req.method === "GET") return json({ clientKeys: this.publicClientApiKeys() });
+    if (path === "/admin/client-keys" && req.method === "POST") return this.createClientApiKey(req);
+
+    const clientKeyMatch = path.match(/^\/admin\/client-keys\/([^/]+)(?:\/([^/]+))?$/);
+    if (clientKeyMatch) {
+      return this.handleClientApiKeyRoute(req, decodeURIComponent(clientKeyMatch[1]), clientKeyMatch[2]);
+    }
 
     const match = path.match(/^\/admin\/keys\/([^/]+)(?:\/([^/]+))?$/);
     if (!match) return openAiError(404, "not_found", "Admin endpoint not found");
@@ -90,6 +113,275 @@ export class AdminRoutes {
     if (action === "test") return this.testKey(id);
 
     return openAiError(404, "not_found", "Admin key action not found");
+  }
+
+  private async setupAdminPassword(req: Request) {
+    try {
+      if (isAdminInitialized(this.store)) {
+        return openAiError(409, "admin_already_initialized", "Admin password is already configured");
+      }
+      const auth = req.headers.get("authorization") || "";
+      const token = auth.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || null;
+      if (this.config.adminToken && token !== this.config.adminToken) {
+        return openAiError(401, "unauthorized", "Admin token required before password setup");
+      }
+      const body = await readJson(req);
+      setAdminPassword(this.store, String(body.password || ""));
+      this.events.emit({
+        level: "info",
+        type: "admin_password_changed",
+        message: "Admin password initialized",
+      });
+      return json({ ok: true, status: adminAuthStatus(this.config, this.store) }, 201);
+    } catch (error) {
+      return openAiError(400, "invalid_admin_password", (error as Error).message);
+    }
+  }
+
+  private async changeAdminPassword(req: Request) {
+    try {
+      const body = await readJson(req);
+      const current = String(body.currentPassword || "");
+      const next = String(body.newPassword || "");
+      const stored = this.store.getSetting("auth.adminPasswordHash");
+      if (stored && !verifyPassword(current, stored)) {
+        return openAiError(401, "invalid_current_password", "Current password is invalid");
+      }
+      if (!stored && this.config.adminToken && current !== this.config.adminToken) {
+        return openAiError(401, "invalid_current_password", "Current admin token is invalid");
+      }
+      this.store.setSetting("auth.adminPasswordHash", hashPassword(next));
+      this.events.emit({
+        level: "info",
+        type: "admin_password_changed",
+        message: "Admin password changed",
+      });
+      return json({ ok: true, status: adminAuthStatus(this.config, this.store) });
+    } catch (error) {
+      return openAiError(400, "invalid_admin_password", (error as Error).message);
+    }
+  }
+
+  private publicClientApiKeys() {
+    return this.store.listClientApiKeys(false).map(({ encryptedToken: _encryptedToken, ...safe }) => safe);
+  }
+
+  private async createClientApiKey(req: Request) {
+    try {
+      const body = await readJson(req);
+      const name = String(body.name || "").trim();
+      const token = String(body.token || "").trim();
+      if (!name) throw new Error("name is required");
+      if (!token) throw new Error("token is required");
+      const key = this.store.createClientApiKey({
+        name,
+        tokenPreview: publicTokenPreview(token),
+        encryptedToken: this.cipher.encrypt(token),
+        notes: body.notes ? String(body.notes) : null,
+      });
+      this.events.emit({
+        level: "info",
+        type: "client_key_created",
+        message: `Client key ${key.name} created`,
+        clientName: key.name,
+      });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe }, 201);
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private async handleClientApiKeyRoute(req: Request, id: string, action?: string): Promise<Response> {
+    if (!action && req.method === "PATCH") return this.patchClientApiKey(req, id);
+    if (!action && req.method === "DELETE") return this.deleteClientApiKey(id);
+    if (req.method !== "POST") return openAiError(405, "method_not_allowed", "Method not allowed");
+    if (action === "rotate") return this.rotateClientApiKey(req, id);
+    if (action === "enable") return this.setClientApiKeyEnabled(id, true);
+    if (action === "disable") return this.setClientApiKeyEnabled(id, false);
+    return openAiError(404, "not_found", "Admin client key action not found");
+  }
+
+  private async patchClientApiKey(req: Request, id: string) {
+    try {
+      const body = await readJson(req);
+      const patch: Parameters<DatabaseStore["patchClientApiKey"]>[1] = {};
+      if (typeof body.name === "string") {
+        if (!body.name.trim()) throw new Error("name cannot be empty");
+        patch.name = body.name.trim();
+      }
+      if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+      if ("notes" in body) patch.notes = body.notes ? String(body.notes) : null;
+      const key = this.store.patchClientApiKey(id, patch);
+      this.events.emit({ level: "info", type: "client_key_updated", message: `Client key ${key.name} updated`, clientName: key.name });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private async rotateClientApiKey(req: Request, id: string) {
+    try {
+      const body = await readJson(req);
+      const token = String(body.token || "").trim();
+      if (!token) throw new Error("token is required");
+      const key = this.store.patchClientApiKey(id, {
+        encryptedToken: this.cipher.encrypt(token),
+        tokenPreview: publicTokenPreview(token),
+      });
+      this.events.emit({ level: "info", type: "client_key_rotated", message: `Client key ${key.name} rotated`, clientName: key.name });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private setClientApiKeyEnabled(id: string, enabled: boolean) {
+    try {
+      const key = this.store.patchClientApiKey(id, { enabled });
+      this.events.emit({
+        level: "info",
+        type: enabled ? "client_key_enabled" : "client_key_disabled",
+        message: `Client key ${key.name} ${enabled ? "enabled" : "disabled"}`,
+        clientName: key.name,
+      });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private deleteClientApiKey(id: string) {
+    try {
+      const key = this.store.patchClientApiKey(id, { enabled: false, deletedAt: new Date().toISOString() });
+      this.events.emit({ level: "info", type: "client_key_deleted", message: `Client key ${key.name} deleted`, clientName: key.name });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private exportYaml() {
+    const usageSettings = this.store.getUsageSettings(this.config);
+    const upstreamKeys = this.store.listKeys(false).map((key) => ({
+      name: key.name,
+      apiKey: this.keyPool.decryptKey(key),
+      ollamaUsageCookie: this.keyPool.decryptOllamaUsageCookie(key),
+      notes: key.notes,
+      enabled: key.enabled,
+      sessionRemainingThresholdPercent: key.sessionRemainingThresholdPercent,
+      weeklyRemainingThresholdPercent: key.weeklyRemainingThresholdPercent,
+    }));
+    const clientApiKeys = this.store.listClientApiKeys(false).map((key) => ({
+      name: key.name,
+      token: this.cipher.decrypt(key.encryptedToken),
+      enabled: key.enabled,
+      notes: key.notes,
+    }));
+    const body = stringifyYaml({
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      upstreamKeys,
+      clientApiKeys,
+      usageSettings,
+    });
+    return new Response(body, {
+      headers: {
+        "content-type": "application/yaml; charset=utf-8",
+        "content-disposition": `attachment; filename="ollama-cloud-proxy-export.yaml"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
+
+  private async importYaml(req: Request) {
+    try {
+      const text = await req.text();
+      const parsed = parseYaml(text) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("YAML object expected");
+      let upstreamKeysImported = 0;
+      let clientApiKeysImported = 0;
+      const upstreamKeys = Array.isArray(parsed.upstreamKeys) ? parsed.upstreamKeys : [];
+      for (const item of upstreamKeys) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const key = item as Record<string, unknown>;
+        const name = String(key.name || "").trim();
+        const apiKey = String(key.apiKey || "").trim();
+        if (!name || !apiKey) continue;
+        const existing = this.store.listKeys(false).find((row) => row.name === name);
+        if (existing) {
+          const patch: Parameters<DatabaseStore["patchKey"]>[1] = {
+            name,
+            notes: key.notes ? String(key.notes) : null,
+            enabled: typeof key.enabled === "boolean" ? key.enabled : existing.enabled,
+            encryptedApiKey: this.cipher.encrypt(apiKey),
+            apiKeyPreview: publicTokenPreview(apiKey),
+            status: "unknown",
+            blockReason: "none",
+            cooldownUntil: null,
+            nextEligibleAt: null,
+            consecutiveFailures: 0,
+          };
+          const cookie = typeof key.ollamaUsageCookie === "string" ? key.ollamaUsageCookie.trim() : "";
+          patch.encryptedOllamaUsageCookie = cookie ? this.cipher.encrypt(cookie) : null;
+          if ("sessionRemainingThresholdPercent" in key) {
+            patch.sessionRemainingThresholdPercent =
+              key.sessionRemainingThresholdPercent === null ? null : Number(key.sessionRemainingThresholdPercent);
+          }
+          if ("weeklyRemainingThresholdPercent" in key) {
+            patch.weeklyRemainingThresholdPercent =
+              key.weeklyRemainingThresholdPercent === null ? null : Number(key.weeklyRemainingThresholdPercent);
+          }
+          this.store.patchKey(existing.id, patch);
+        } else {
+          this.keyPool.create({
+            name,
+            apiKey,
+            ollamaUsageCookie: typeof key.ollamaUsageCookie === "string" ? key.ollamaUsageCookie : null,
+            notes: key.notes ? String(key.notes) : null,
+          });
+        }
+        upstreamKeysImported += 1;
+      }
+
+      const clientApiKeys = Array.isArray(parsed.clientApiKeys) ? parsed.clientApiKeys : [];
+      for (const item of clientApiKeys) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const key = item as Record<string, unknown>;
+        const name = String(key.name || "").trim();
+        const token = String(key.token || "").trim();
+        if (!name || !token) continue;
+        const existing = this.store.getClientApiKeyByName(name);
+        if (existing) {
+          this.store.patchClientApiKey(existing.id, {
+            encryptedToken: this.cipher.encrypt(token),
+            tokenPreview: publicTokenPreview(token),
+            enabled: typeof key.enabled === "boolean" ? key.enabled : existing.enabled,
+            notes: key.notes ? String(key.notes) : null,
+          });
+        } else {
+          const created = this.store.createClientApiKey({
+            name,
+            tokenPreview: publicTokenPreview(token),
+            encryptedToken: this.cipher.encrypt(token),
+            notes: key.notes ? String(key.notes) : null,
+          });
+          if (typeof key.enabled === "boolean" && !key.enabled) this.store.patchClientApiKey(created.id, { enabled: false });
+        }
+        clientApiKeysImported += 1;
+      }
+
+      if (parsed.usageSettings && typeof parsed.usageSettings === "object" && !Array.isArray(parsed.usageSettings)) {
+        this.store.patchUsageSettings(this.config, parsed.usageSettings as UsageSettingsPatch);
+      }
+      return json({ ok: true, upstreamKeysImported, clientApiKeysImported });
+    } catch (error) {
+      return openAiError(400, "invalid_yaml_import", (error as Error).message);
+    }
   }
 
   private async createKey(req: Request) {
@@ -518,6 +810,10 @@ export class AdminRoutes {
       type: url.searchParams.get("type") || undefined,
       level: url.searchParams.get("level") || undefined,
       since: url.searchParams.get("since") || undefined,
+      category: url.searchParams.get("category") || undefined,
+      requestId: url.searchParams.get("requestId") || undefined,
+      model: url.searchParams.get("model") || undefined,
+      hasUsage: url.searchParams.get("hasUsage") === "1",
     });
   }
 

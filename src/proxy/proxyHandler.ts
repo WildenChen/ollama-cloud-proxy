@@ -365,6 +365,14 @@ export class ProxyHandler {
           originalModel,
           upstreamModel,
           durationMs,
+          details: usage
+            ? {
+                promptTokens: usage.promptTokens ?? 0,
+                completionTokens: usage.completionTokens ?? 0,
+                totalTokens: usage.totalTokens ?? 0,
+                cachedTokens: usage.cachedTokens ?? 0,
+              }
+            : null,
         });
       } else {
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, errorType || "upstream_error");
@@ -448,6 +456,20 @@ export class ProxyHandler {
         }
         slot.release();
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, classification.blockReason);
+        this.events.emit({
+          level: "error",
+          type: "request_failed",
+          message: "Request failed",
+          clientName: client.clientName,
+          requestId,
+          keyId: key.id,
+          keyName: key.name,
+          originalModel,
+          upstreamModel,
+          statusCode: upstream.status,
+          durationMs: Date.now() - startedAt,
+          details: { errorType: classification.blockReason },
+        });
         return {
           retry: false,
           response: openAiError(upstream.status, classification.blockReason, classification.message, {
@@ -532,6 +554,19 @@ export class ProxyHandler {
       }
       slot.release();
       this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, classification.blockReason);
+      this.events.emit({
+        level: "error",
+        type: "request_failed",
+        message: "Request failed",
+        clientName: client.clientName,
+        requestId,
+        keyId: key.id,
+        keyName: key.name,
+        originalModel,
+        upstreamModel,
+        durationMs: Date.now() - startedAt,
+        details: { errorType: classification.blockReason },
+      });
       return {
         retry: false,
         response: openAiError(503, classification.blockReason, classification.message),
