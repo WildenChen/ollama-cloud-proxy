@@ -41,6 +41,8 @@ type OfficialKeyUsageCard = {
   enabled: boolean;
   status: string;
   blockReason: string;
+  cooldownUntil: string | null;
+  nextEligibleAt: string | null;
   hasCookie: boolean;
   plan: string | null;
   fetchedAt: string | null;
@@ -937,6 +939,8 @@ export class AdminRoutes {
       enabled: key.enabled,
       status: key.status,
       blockReason: key.blockReason,
+      cooldownUntil: key.cooldownUntil,
+      nextEligibleAt: key.nextEligibleAt,
       hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
       plan: official?.plan ?? null,
       fetchedAt: key.ollamaUsageLastRefreshAt,

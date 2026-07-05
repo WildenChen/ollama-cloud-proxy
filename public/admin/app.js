@@ -156,6 +156,9 @@ const dictionaries = {
     quotaWarningLabel: "接近用盡",
     quotaCriticalLabel: "即將耗盡",
     quotaMissingLabel: "待設定",
+    requestCooldownLabel: "請求冷卻中",
+    cooldownUntilLabel: "冷卻到",
+    cooldownReasonLabel: "原因",
     keySettingsTitle: "Key 設定",
     closeKeySettingsTitle: "關閉 Key 設定",
     saveKeySettings: "儲存設定",
@@ -298,7 +301,7 @@ const dictionaries = {
     status: {
       available: "可用",
       unknown: "未知",
-      cooling_down: "冷卻中",
+      cooling_down: "請求冷卻中",
       session_blocked: "單次額度受限",
       weekly_blocked: "每週額度受限",
       invalid: "無效",
@@ -359,6 +362,18 @@ const dictionaries = {
       manual_anchor: "手動基準",
       dashboard_observed: "後台觀察",
       official_api: "官方 API",
+    },
+    blockReason: {
+      none: "無",
+      session_usage_inferred: "5hr 額度推斷",
+      weekly_usage_inferred: "每週額度推斷",
+      rate_limited: "上游限流",
+      invalid_api_key: "API key 無效",
+      auth_failed: "認證失敗",
+      network_error: "網路錯誤",
+      provider_error: "上游暫時錯誤",
+      manual_disabled: "手動停用",
+      unknown: "未知",
     },
     eventType: {
       request_started: "請求開始",
@@ -498,6 +513,9 @@ const dictionaries = {
     quotaWarningLabel: "Running low",
     quotaCriticalLabel: "Almost exhausted",
     quotaMissingLabel: "Needs setup",
+    requestCooldownLabel: "Request cooldown",
+    cooldownUntilLabel: "Until",
+    cooldownReasonLabel: "Reason",
     keySettingsTitle: "Key Settings",
     closeKeySettingsTitle: "Close key settings",
     saveKeySettings: "Save Settings",
@@ -640,7 +658,7 @@ const dictionaries = {
     status: {
       available: "Available",
       unknown: "Unknown",
-      cooling_down: "Cooling down",
+      cooling_down: "Request cooldown",
       session_blocked: "Session blocked",
       weekly_blocked: "Weekly blocked",
       invalid: "Invalid",
@@ -701,6 +719,18 @@ const dictionaries = {
       manual_anchor: "Manual anchor",
       dashboard_observed: "Dashboard observed",
       official_api: "Official API",
+    },
+    blockReason: {
+      none: "None",
+      session_usage_inferred: "5h usage inferred",
+      weekly_usage_inferred: "Weekly usage inferred",
+      rate_limited: "Upstream rate limit",
+      invalid_api_key: "Invalid API key",
+      auth_failed: "Auth failed",
+      network_error: "Network error",
+      provider_error: "Temporary upstream error",
+      manual_disabled: "Manually disabled",
+      unknown: "Unknown",
     },
     eventType: {
       request_started: "Request Started",
@@ -1303,7 +1333,13 @@ function officialRuntimeStatusLabel(card) {
   const status = card.enabled ? card.status : "disabled";
   if (status === "available" || status === "unknown") return "";
   if (status === "cooling_down" && officialQuotaStatus(card) !== "critical") {
-    return `<span class="status quiet">${escapeHtml(mapText("status", status))}</span>`;
+    const details = [
+      card.blockReason ? `${t("cooldownReasonLabel")} ${mapText("blockReason", card.blockReason)}` : null,
+      card.cooldownUntil ? `${t("cooldownUntilLabel")} ${formatResetTime(card.cooldownUntil)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return `<span class="status quiet" title="${escapeHtml(details)}">${escapeHtml(t("requestCooldownLabel"))}${details ? ` · ${escapeHtml(details)}` : ""}</span>`;
   }
   return `<span class="status ${status}">${escapeHtml(mapText("status", status))}</span>`;
 }
