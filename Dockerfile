@@ -1,4 +1,4 @@
-FROM oven/bun:1.1.42-slim
+FROM oven/bun:1.2.19-slim
 
 LABEL org.opencontainers.image.source="https://github.com/WildenChen/ollama-cloud-proxy"
 
