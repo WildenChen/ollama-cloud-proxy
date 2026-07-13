@@ -64,6 +64,10 @@ OLLAMA_USAGE_COOKIE=__Secure-session=...
 | `REQUEST_QUEUE_TIMEOUT_MS` | `120000` | 排隊最多等待毫秒 |
 | `UPSTREAM_TOTAL_TIMEOUT_MS` | `900000` | 單次上游請求總逾時 |
 | `UPSTREAM_IDLE_TIMEOUT_MS` | `180000` | streaming idle 逾時 |
+| `KEY_SELECTION_MODE` | `ordered` | `ordered` 依建立順序使用第一把可用 key，5hr / weekly 額度受限後才切下一把；`balanced` 使用舊版分數排序與前三名隨機，較偏向均衡分散 |
+| `KEY_RETRY_POLICY` | `smart` | key/quota 類錯誤會在同一請求中嘗試下一把 selectable key |
+| `MAX_KEY_ATTEMPTS_PER_REQUEST` | `all` | 單一請求最多嘗試幾把 key；`all` 代表當下所有可用 key |
+| `MAX_NETWORK_RETRY_ATTEMPTS` | `3` | network/provider 類錯誤最多跨 key 重試次數 |
 
 ## Model alias
 

@@ -417,6 +417,7 @@ export class KeyPoolManager {
       .listKeys(false)
       .filter((key) => !excludedKeyIds.has(key.id) && this.isSelectable(key, now));
     if (candidates.length === 0) return null;
+    if (this.config.keySelectionMode === "ordered") return candidates[0];
     candidates.sort((a, b) => this.score(a, now) - this.score(b, now));
     const top = candidates.slice(0, Math.min(3, candidates.length));
     return top[Math.floor(Math.random() * top.length)] ?? null;

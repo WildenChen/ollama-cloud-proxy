@@ -43,6 +43,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     upstreamIdleTimeoutMs: 10000,
     maxRequestBodySizeBytes: 20 * 1024 * 1024,
     keyRetryPolicy: "smart",
+    keySelectionMode: "ordered",
     maxKeyAttemptsPerRequest: "all",
     maxNetworkRetryAttempts: 3,
     modelsCacheTtlSeconds: 3600,
@@ -693,6 +694,40 @@ describe("proxy integration", () => {
     expect(seenAuthHeaders.length).toBeLessThanOrEqual(3);
   });
 
+  test("ordered key selection keeps using the first key until a quota block", async () => {
+    const seenAuthHeaders: string[] = [];
+    const upstreamBaseUrl = createMockUpstream((req) => {
+      const auth = req.headers.get("authorization") || "";
+      seenAuthHeaders.push(auth);
+      if (auth === "Bearer first-key" && seenAuthHeaders.length === 3) {
+        return Response.json({ error: "usage limit reached for this 5-hour session" }, { status: 429 });
+      }
+      return Response.json({ choices: [{ message: { content: "ok" } }] });
+    });
+    const app = createApp(config({ upstreamBaseUrl }));
+    const first = app.keyPool.create({ name: "first", apiKey: "first-key" });
+    const second = app.keyPool.create({ name: "second", apiKey: "second-key" });
+    app.keyPool.create({ name: "third", apiKey: "third-key" });
+
+    for (let index = 0; index < 3; index++) {
+      const response = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+        body: JSON.stringify({ model: "llama", messages: [{ role: "user", content: "hi" }] }),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    expect(seenAuthHeaders).toEqual([
+      "Bearer first-key",
+      "Bearer first-key",
+      "Bearer first-key",
+      "Bearer second-key",
+    ]);
+    expect(app.store.getKey(first.id, true)?.status).toBe("session_blocked");
+    expect(app.store.getKey(second.id, true)?.status).toBe("available");
+  });
+
   test("session-limited keys are tried until a later selectable key succeeds", async () => {
     const seenAuthHeaders: string[] = [];
     const upstreamBaseUrl = createMockUpstream((req) => {
@@ -1078,7 +1113,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.2");
+    expect(body.proxy_version).toBe("1.3.3");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

@@ -21,6 +21,7 @@ export type AppConfig = {
   upstreamIdleTimeoutMs: number;
   maxRequestBodySizeBytes: number;
   keyRetryPolicy: "smart";
+  keySelectionMode: "ordered" | "balanced";
   maxKeyAttemptsPerRequest: "all" | number;
   maxNetworkRetryAttempts: number;
   modelsCacheTtlSeconds: number;
@@ -129,6 +130,10 @@ export function loadConfig(): AppConfig {
   maybeLoadDotEnv();
   const keyRetryPolicy = process.env.KEY_RETRY_POLICY || "smart";
   if (keyRetryPolicy !== "smart") throw new Error("KEY_RETRY_POLICY currently supports only smart");
+  const keySelectionMode = process.env.KEY_SELECTION_MODE || "ordered";
+  if (keySelectionMode !== "ordered" && keySelectionMode !== "balanced") {
+    throw new Error("KEY_SELECTION_MODE must be ordered or balanced");
+  }
 
   return {
     port: numberEnv("PORT", 11435),
@@ -154,6 +159,7 @@ export function loadConfig(): AppConfig {
     upstreamIdleTimeoutMs: numberEnv("UPSTREAM_IDLE_TIMEOUT_MS", 180000),
     maxRequestBodySizeBytes: numberEnv("MAX_REQUEST_BODY_SIZE_MB", 20) * 1024 * 1024,
     keyRetryPolicy,
+    keySelectionMode,
     maxKeyAttemptsPerRequest: keyAttemptsEnv("MAX_KEY_ATTEMPTS_PER_REQUEST", "all"),
     maxNetworkRetryAttempts: numberEnv("MAX_NETWORK_RETRY_ATTEMPTS", 3),
     modelsCacheTtlSeconds: numberEnv("MODELS_CACHE_TTL_SECONDS", 3600),
