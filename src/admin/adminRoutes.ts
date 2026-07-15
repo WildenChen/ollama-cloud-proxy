@@ -76,6 +76,8 @@ export class AdminRoutes {
     if (path === "/admin/usage-overview/refresh" && req.method === "POST") return json(await this.usageOverview(true));
     if (path === "/admin/usage-settings" && req.method === "GET") return json(this.usageSettings());
     if (path === "/admin/usage-settings" && req.method === "PATCH") return this.patchUsageSettings(req);
+    if (path === "/admin/system-settings" && req.method === "GET") return json(this.systemSettings());
+    if (path === "/admin/system-settings" && req.method === "PATCH") return this.patchSystemSettings(req);
     if (path === "/admin/events" && req.method === "GET") return json({ events: this.eventsFor(req) });
     if (path === "/admin/models" && req.method === "GET") return json(this.modelsOverview());
     if (path === "/admin/models/refresh" && req.method === "POST") return this.refreshModels();
@@ -684,6 +686,26 @@ export class AdminRoutes {
         settings.weeklyResetTime
       ).toISOString(),
     };
+  }
+
+  private systemSettings() {
+    return {
+      keySelectionMode: this.keyPool.selectionMode(),
+      keySelectionModeDefault: this.config.keySelectionMode,
+    };
+  }
+
+  private async patchSystemSettings(req: Request) {
+    try {
+      const body = await readJson(req);
+      if (typeof body.keySelectionMode !== "string") {
+        throw new Error("keySelectionMode is required");
+      }
+      this.keyPool.setSelectionMode(body.keySelectionMode.trim());
+      return json(this.systemSettings());
+    } catch (error) {
+      return openAiError(400, "invalid_system_settings", (error as Error).message);
+    }
   }
 
   private async patchUsageSettings(req: Request) {

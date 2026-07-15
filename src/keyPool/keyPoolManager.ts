@@ -75,6 +75,19 @@ export class KeyPoolManager {
     return key.encryptedOllamaUsageCookie ? this.cipher.decrypt(key.encryptedOllamaUsageCookie) : null;
   }
 
+  selectionMode(): AppConfig["keySelectionMode"] {
+    const saved = this.store.getSetting("keyPool.selectionMode");
+    return saved === "ordered" || saved === "balanced" ? saved : this.config.keySelectionMode;
+  }
+
+  setSelectionMode(mode: string): AppConfig["keySelectionMode"] {
+    if (mode !== "ordered" && mode !== "balanced") {
+      throw new Error("keySelectionMode must be ordered or balanced");
+    }
+    this.store.setSetting("keyPool.selectionMode", mode);
+    return mode;
+  }
+
   create(input: { name: string; notes?: string | null; apiKey: string; ollamaUsageCookie?: string | null }) {
     const name = input.name.trim();
     const apiKey = input.apiKey.trim();
@@ -417,7 +430,7 @@ export class KeyPoolManager {
       .listKeys(false)
       .filter((key) => !excludedKeyIds.has(key.id) && this.isSelectable(key, now));
     if (candidates.length === 0) return null;
-    if (this.config.keySelectionMode === "ordered") return candidates[0];
+    if (this.selectionMode() === "ordered") return candidates[0];
     candidates.sort((a, b) => this.score(a, now) - this.score(b, now));
     const top = candidates.slice(0, Math.min(3, candidates.length));
     return top[Math.floor(Math.random() * top.length)] ?? null;

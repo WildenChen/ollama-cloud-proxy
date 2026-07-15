@@ -233,7 +233,49 @@ svg {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
+}
+
+.authGate {
+  width: min(620px, 100%);
+  margin: 28px auto 0;
+  padding: 22px;
+}
+
+.authGateHeader {
+  margin-bottom: 18px;
+}
+
+.authGateHeader h2 {
+  margin-top: 12px;
+  font-size: 20px;
+}
+
+.authGateHeader p,
+.authHint,
+.credentialStatus p {
+  margin-top: 7px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.authGateForm {
+  display: grid;
+  gap: 14px;
+}
+
+.authGateForm label {
+  display: grid;
+  gap: 7px;
+}
+
+.authGateForm .button {
+  justify-self: start;
+  min-width: 120px;
+}
+
+.authHint {
+  min-height: 22px;
 }
 
 .tabs {
@@ -546,6 +588,16 @@ svg {
 
 .authPanel {
   margin-top: 14px;
+}
+
+#settingsPage > .panel + .panel,
+#usagePage > .panel + .panel,
+#usagePage > .lowerGrid {
+  margin-top: 14px;
+}
+
+.credentialStatus {
+  padding: 12px 12px 0;
 }
 
 .officialUsageLead {

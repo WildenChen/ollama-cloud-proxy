@@ -728,6 +728,33 @@ describe("proxy integration", () => {
     expect(app.store.getKey(second.id, true)?.status).toBe("available");
   });
 
+  test("admin can persist the key selection mode without restarting", async () => {
+    const app = createApp(config({ keySelectionMode: "ordered" }));
+
+    const initial = await fetch(`${app.baseUrl}/admin/system-settings`, {
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(initial.status).toBe(200);
+    expect((await initial.json()).keySelectionMode).toBe("ordered");
+
+    const updated = await fetch(`${app.baseUrl}/admin/system-settings`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ keySelectionMode: "balanced" }),
+    });
+    expect(updated.status).toBe(200);
+    expect((await updated.json()).keySelectionMode).toBe("balanced");
+    expect(app.keyPool.selectionMode()).toBe("balanced");
+    expect(app.store.getSetting("keyPool.selectionMode")).toBe("balanced");
+
+    const invalid = await fetch(`${app.baseUrl}/admin/system-settings`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ keySelectionMode: "random" }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
   test("session-limited keys are tried until a later selectable key succeeds", async () => {
     const seenAuthHeaders: string[] = [];
     const upstreamBaseUrl = createMockUpstream((req) => {
@@ -1113,7 +1140,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.3");
+    expect(body.proxy_version).toBe("1.3.4");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1662,6 +1689,30 @@ describe("proxy integration", () => {
     });
     expect(denied.status).toBe(401);
     expect(allowed.status).toBe(200);
+  });
+
+  test("ADMIN_TOKEN is bootstrap-only after an admin password is configured", async () => {
+    const app = createApp(config({ adminToken: "bootstrap-admin-token" }));
+
+    const setup = await fetch(`${app.baseUrl}/admin/auth/setup`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer bootstrap-admin-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ password: "daily-admin-password" }),
+    });
+    expect(setup.status).toBe(201);
+
+    const bootstrapDenied = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer bootstrap-admin-token" },
+    });
+    const passwordAllowed = await fetch(`${app.baseUrl}/admin/stats`, {
+      headers: { authorization: "Bearer daily-admin-password" },
+    });
+
+    expect(bootstrapDenied.status).toBe(401);
+    expect(passwordAllowed.status).toBe(200);
   });
 
   test("DB client API keys authenticate requests and request events include token usage", async () => {

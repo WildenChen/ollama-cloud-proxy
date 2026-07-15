@@ -1,5 +1,14 @@
+const credentialStorageKey = "ollamaProxyAdminCredential";
+const legacyCredentialStorageKey = "ollamaProxyAdminToken";
+const savedCredential =
+  localStorage.getItem(credentialStorageKey) || localStorage.getItem(legacyCredentialStorageKey) || "";
+if (savedCredential && !localStorage.getItem(credentialStorageKey)) {
+  localStorage.setItem(credentialStorageKey, savedCredential);
+  localStorage.removeItem(legacyCredentialStorageKey);
+}
+
 const state = {
-  token: localStorage.getItem("ollamaProxyAdminToken") || "",
+  token: savedCredential,
   locale:
     localStorage.getItem("ollamaProxyAdminLocale") ||
     (navigator.language?.toLowerCase().startsWith("zh") ? "zh-Hant" : "en"),
@@ -9,7 +18,9 @@ const state = {
   events: [],
   modelOverview: null,
   usageSettings: null,
+  systemSettings: null,
   authStatus: null,
+  authMessage: null,
   page: "overview",
   testingModels: new Set(),
   loaded: false,
@@ -73,10 +84,27 @@ const dictionaries = {
     adminPagesLabel: "管理頁面",
     overviewTab: "總覽",
     usageTab: "用量",
+    settingsTab: "設定",
     modelTestTab: "模型測試",
     languageLabel: "語言",
-    adminTokenLabel: "管理權杖",
-    adminTokenPlaceholder: "輸入管理權杖",
+    authChecking: "檢查登入狀態",
+    signInTitle: "登入管理台",
+    signInDescription: "輸入管理密碼以載入金鑰與用量資料。",
+    signIn: "登入",
+    signInReady: "需要登入",
+    signInHint: "管理密碼會保存在這個瀏覽器，登出後即移除。",
+    setupReady: "首次設定",
+    setupTitle: "建立管理密碼",
+    setupDescriptionWithToken: "這是第一次設定。請輸入 ADMIN_TOKEN，並建立日後登入使用的管理密碼。",
+    setupDescriptionWithoutToken: "這是第一次設定。建立管理密碼後即可進入管理台。",
+    setupHint: "ADMIN_TOKEN 只用於首次建立密碼；設定完成後，日常登入只需要管理密碼。",
+    authStatusUnavailable: "目前無法確認登入狀態，請確認服務是否正常。",
+    savedCredentialInvalid: "已保存的管理密碼無效或已變更，請重新登入。",
+    signedOutMessage: "已登出。請輸入管理密碼重新登入。",
+    adminPasswordLabel: "管理密碼",
+    bootstrapTokenLabel: "首次設定權杖",
+    bootstrapTokenHint: "只在第一次建立管理密碼時使用 ADMIN_TOKEN。",
+    confirmAdminPasswordLabel: "確認管理密碼",
     save: "儲存",
     saveTitle: "儲存管理權杖並載入後台資料",
     refreshTitle: "重新向後端載入最新狀態",
@@ -103,13 +131,27 @@ const dictionaries = {
     levelError: "錯誤",
     clientsTitle: "客戶端",
     clientsDescription: "依今日權杖身分統計。",
-    authSettingsTitle: "管理存取",
-    authSettingsDescription: "設定管理權杖與語言偏好。",
+    systemSettingsTitle: "系統設定",
+    systemSettingsDescription: "調整金鑰選取方式與介面偏好。",
+    keySelectionModeLabel: "金鑰選取模式",
+    keySelectionOrdered: "依序使用",
+    keySelectionBalanced: "平衡分散",
+    keySelectionOrderedHint: "固定從第一把可用金鑰開始，5hr 或每週額度受限後再換下一把。",
+    keySelectionBalancedHint: "依可用狀態與近期負載分散請求，避免流量集中在單一金鑰。",
+    saveSystemSettings: "儲存系統設定",
+    systemSettingsSaved: "系統設定已儲存。",
+    adminPasswordTitle: "管理密碼",
+    adminPasswordDescription: "日常登入只使用管理密碼；ADMIN_TOKEN 僅供首次設定。",
+    signOut: "登出",
+    signedIn: "已登入",
+    signedInDescription: "目前管理憑證只保存在這個瀏覽器。",
     newAdminPasswordLabel: "新管理密碼",
     currentAdminPasswordLabel: "目前管理密碼",
-    setupAdminPassword: "設定管理密碼",
+    confirmNewAdminPasswordLabel: "確認新管理密碼",
+    setupAdminPassword: "建立管理密碼",
     changeAdminPassword: "變更管理密碼",
     adminPasswordSaved: "管理密碼已更新。",
+    passwordMismatch: "兩次輸入的管理密碼不一致。",
     backupTitle: "匯入匯出",
     backupDescription: "將金鑰、Cookie 與 client token 匯出或匯入單一 YAML。",
     exportYaml: "匯出 YAML",
@@ -430,10 +472,27 @@ const dictionaries = {
     adminPagesLabel: "Admin pages",
     overviewTab: "Overview",
     usageTab: "Usage",
+    settingsTab: "Settings",
     modelTestTab: "Model Tests",
     languageLabel: "Language",
-    adminTokenLabel: "Admin token",
-    adminTokenPlaceholder: "Enter admin token",
+    authChecking: "Checking sign-in status",
+    signInTitle: "Sign in to Admin",
+    signInDescription: "Enter the admin password to load keys and usage data.",
+    signIn: "Sign In",
+    signInReady: "Sign-in required",
+    signInHint: "The admin password is saved in this browser and removed when you sign out.",
+    setupReady: "First-time setup",
+    setupTitle: "Create Admin Password",
+    setupDescriptionWithToken: "This is the first setup. Enter ADMIN_TOKEN and create the password used for future sign-ins.",
+    setupDescriptionWithoutToken: "This is the first setup. Create an admin password to enter the console.",
+    setupHint: "ADMIN_TOKEN is only used to create the first password. After setup, use the admin password to sign in.",
+    authStatusUnavailable: "The sign-in state could not be checked. Verify that the service is running.",
+    savedCredentialInvalid: "The saved admin password is invalid or has changed. Sign in again.",
+    signedOutMessage: "Signed out. Enter the admin password to sign in again.",
+    adminPasswordLabel: "Admin password",
+    bootstrapTokenLabel: "First-time setup token",
+    bootstrapTokenHint: "ADMIN_TOKEN is only used when creating the first admin password.",
+    confirmAdminPasswordLabel: "Confirm admin password",
     save: "Save",
     saveTitle: "Save admin token and load admin data",
     refreshTitle: "Reload latest backend status",
@@ -460,13 +519,27 @@ const dictionaries = {
     levelError: "Error",
     clientsTitle: "Clients",
     clientsDescription: "Today by client token identity.",
-    authSettingsTitle: "Admin Access",
-    authSettingsDescription: "Set admin token and language preference.",
+    systemSettingsTitle: "System Settings",
+    systemSettingsDescription: "Adjust key selection and interface preferences.",
+    keySelectionModeLabel: "Key selection mode",
+    keySelectionOrdered: "Use in order",
+    keySelectionBalanced: "Balance load",
+    keySelectionOrderedHint: "Start with the first available key, then move on when its 5-hour or weekly quota is blocked.",
+    keySelectionBalancedHint: "Spread requests using key availability and recent load instead of concentrating on one key.",
+    saveSystemSettings: "Save System Settings",
+    systemSettingsSaved: "System settings saved.",
+    adminPasswordTitle: "Admin Password",
+    adminPasswordDescription: "Daily sign-in uses only the admin password; ADMIN_TOKEN is for first-time setup.",
+    signOut: "Sign Out",
+    signedIn: "Signed in",
+    signedInDescription: "The current admin credential is stored only in this browser.",
     newAdminPasswordLabel: "New admin password",
     currentAdminPasswordLabel: "Current admin password",
-    setupAdminPassword: "Set Admin Password",
+    confirmNewAdminPasswordLabel: "Confirm new admin password",
+    setupAdminPassword: "Create Admin Password",
     changeAdminPassword: "Change Admin Password",
     adminPasswordSaved: "Admin password updated.",
+    passwordMismatch: "The two admin passwords do not match.",
     backupTitle: "Import / Export",
     backupDescription: "Export or import keys, cookies, and client tokens as one YAML file.",
     exportYaml: "Export YAML",
@@ -829,7 +902,9 @@ async function api(path, options = {}) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    throw new Error(data?.error?.message || t("requestFailed")(response.status));
+    const error = new Error(data?.error?.message || t("requestFailed")(response.status));
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
@@ -1061,12 +1136,44 @@ function renderEvents() {
 }
 
 function renderAuthState() {
+  const gate = $("authGate");
+  const app = $("adminApp");
+  const loginForm = $("loginForm");
   const setupForm = $("setupPasswordForm");
-  const changeForm = $("changePasswordForm");
-  if (!setupForm || !changeForm) return;
-  const initialized = state.authStatus?.initialized ?? true;
-  setupForm.classList.toggle("hidden", initialized);
-  changeForm.classList.toggle("hidden", !initialized && !state.authStatus?.envAdminTokenAvailable);
+  const bootstrapField = $("bootstrapTokenField");
+  const authenticated = state.loaded && Boolean(state.token);
+  const initialized = state.authStatus?.initialized;
+
+  gate.classList.toggle("hidden", authenticated);
+  app.classList.toggle("hidden", !authenticated);
+  loginForm.classList.toggle("hidden", initialized !== true || authenticated);
+  setupForm.classList.toggle("hidden", initialized !== false || authenticated);
+  bootstrapField.classList.toggle("hidden", !state.authStatus?.envAdminTokenAvailable);
+
+  const badge = $("authGateBadge");
+  const title = $("authGateTitle");
+  const description = $("authGateDescription");
+  const hint = $("authGateHint");
+  if (initialized === true) {
+    badge.textContent = t("signInReady");
+    title.textContent = t("signInTitle");
+    description.textContent = t("signInDescription");
+    hint.textContent = state.authMessage || t("signInHint");
+    return;
+  }
+  if (initialized === false) {
+    badge.textContent = t("setupReady");
+    title.textContent = t("setupTitle");
+    description.textContent = state.authStatus?.envAdminTokenAvailable
+      ? t("setupDescriptionWithToken")
+      : t("setupDescriptionWithoutToken");
+    hint.textContent = state.authMessage || t("setupHint");
+    return;
+  }
+  badge.textContent = t("authChecking");
+  title.textContent = t("signInTitle");
+  description.textContent = t("authStatusUnavailable");
+  hint.textContent = state.authMessage || "";
 }
 
 function renderClientKeys() {
@@ -1582,6 +1689,16 @@ function renderPages() {
   });
 }
 
+function renderSystemSettings() {
+  const form = $("systemSettingsForm");
+  if (!form || !state.systemSettings) return;
+  const mode = state.systemSettings.keySelectionMode || "ordered";
+  form.elements.keySelectionMode.value = mode;
+  $("keySelectionModeHint").textContent = t(
+    mode === "balanced" ? "keySelectionBalancedHint" : "keySelectionOrderedHint"
+  );
+}
+
 function renderAll() {
   applyLocale();
   renderPages();
@@ -1597,18 +1714,27 @@ function renderAll() {
   renderCache();
   renderClientKeys();
   renderModelTests();
+  renderSystemSettings();
 }
 
 async function refresh(options = {}) {
   const showErrors = options.showErrors ?? true;
   const preserveOnError = options.preserveOnError ?? false;
   await loadAuthStatus();
+  if (state.authStatus?.initialized === false) {
+    state.token = "";
+    state.loaded = false;
+    state.loading = false;
+    localStorage.removeItem(credentialStorageKey);
+    localStorage.removeItem(legacyCredentialStorageKey);
+    renderAll();
+    return false;
+  }
   if (!state.token) {
     state.loaded = false;
     state.loading = false;
     state.loadNotice = null;
     renderAll();
-    if (showErrors) showNotice(t("tokenRequired"), "error");
     return false;
   }
   try {
@@ -1623,13 +1749,14 @@ async function refresh(options = {}) {
     if (type) eventQuery.set("type", type);
     if (category) eventQuery.set("category", category);
     if ($("eventHasUsage").checked) eventQuery.set("hasUsage", "1");
-    const [stats, keys, events, models, usageSettings, clientKeys] = await Promise.all([
+    const [stats, keys, events, models, usageSettings, clientKeys, systemSettings] = await Promise.all([
       api("/admin/stats"),
       api("/admin/keys"),
       api(`/admin/events?${eventQuery.toString()}`),
       api("/admin/models"),
       api("/admin/usage-settings"),
       api("/admin/client-keys"),
+      api("/admin/system-settings"),
     ]);
     state.stats = stats;
     state.keys = keys.keys || [];
@@ -1637,13 +1764,24 @@ async function refresh(options = {}) {
     state.modelOverview = models;
     state.usageSettings = usageSettings;
     state.clientKeys = clientKeys.clientKeys || [];
+    state.systemSettings = systemSettings;
     state.loaded = true;
     state.loading = false;
     state.loadNotice = null;
+    state.authMessage = null;
     renderAll();
     return true;
   } catch (error) {
     state.loading = false;
+    if (error.status === 401) {
+      state.token = "";
+      state.loaded = false;
+      state.authMessage = t("savedCredentialInvalid");
+      localStorage.removeItem(credentialStorageKey);
+      localStorage.removeItem(legacyCredentialStorageKey);
+      renderAll();
+      return false;
+    }
     if (!preserveOnError) {
       state.loaded = false;
       state.loadNotice = t("loadNotice");
@@ -1916,21 +2054,68 @@ async function saveUsageSettings(event) {
   }
 }
 
+async function saveSystemSettings(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    state.systemSettings = await api("/admin/system-settings", {
+      method: "PATCH",
+      body: JSON.stringify({ keySelectionMode: String(form.get("keySelectionMode") || "ordered") }),
+    });
+    renderAll();
+    showNotice(t("systemSettingsSaved"));
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+async function loginAdmin(event) {
+  event.preventDefault();
+  state.token = String(new FormData(event.currentTarget).get("password") || "").trim();
+  state.authMessage = null;
+  localStorage.setItem(credentialStorageKey, state.token);
+  localStorage.removeItem(legacyCredentialStorageKey);
+  event.currentTarget.reset();
+  await refresh({ showErrors: true });
+}
+
+function logoutAdmin() {
+  state.token = "";
+  state.loaded = false;
+  state.authMessage = t("signedOutMessage");
+  localStorage.removeItem(credentialStorageKey);
+  localStorage.removeItem(legacyCredentialStorageKey);
+  renderAll();
+}
+
 async function setupAdminPassword(event) {
   event.preventDefault();
-  const password = String(new FormData(event.currentTarget).get("password") || "");
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const password = String(form.get("password") || "").trim();
+  const confirmPassword = String(form.get("confirmPassword") || "").trim();
+  const bootstrapToken = String(form.get("bootstrapToken") || "").trim();
+  if (password !== confirmPassword) {
+    state.authMessage = t("passwordMismatch");
+    renderAuthState();
+    return;
+  }
   try {
     const response = await fetch("/admin/auth/setup", {
       method: "POST",
-      headers: { "content-type": "application/json", ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+      headers: {
+        "content-type": "application/json",
+        ...(bootstrapToken ? { Authorization: `Bearer ${bootstrapToken}` } : {}),
+      },
       body: JSON.stringify({ password }),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body?.error?.message || t("requestFailed")(response.status));
-    state.token = password.trim();
-    localStorage.setItem("ollamaProxyAdminToken", state.token);
-    $("adminToken").value = state.token;
-    event.currentTarget.reset();
+    state.token = password;
+    state.authMessage = null;
+    localStorage.setItem(credentialStorageKey, state.token);
+    localStorage.removeItem(legacyCredentialStorageKey);
+    formElement.reset();
     showNotice(t("adminPasswordSaved"));
     await refresh({ showErrors: true });
   } catch (error) {
@@ -1940,19 +2125,25 @@ async function setupAdminPassword(event) {
 
 async function changeAdminPassword(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const newPassword = String(form.get("newPassword") || "").trim();
+  if (newPassword !== String(form.get("confirmNewPassword") || "").trim()) {
+    showNotice(t("passwordMismatch"), "error");
+    return;
+  }
   try {
     await api("/admin/auth/change-password", {
       method: "POST",
       body: JSON.stringify({
         currentPassword: String(form.get("currentPassword") || ""),
-        newPassword: String(form.get("newPassword") || ""),
+        newPassword,
       }),
     });
-    state.token = String(form.get("newPassword") || "").trim();
-    localStorage.setItem("ollamaProxyAdminToken", state.token);
-    $("adminToken").value = state.token;
-    event.currentTarget.reset();
+    state.token = newPassword;
+    localStorage.setItem(credentialStorageKey, state.token);
+    localStorage.removeItem(legacyCredentialStorageKey);
+    formElement.reset();
     showNotice(t("adminPasswordSaved"));
     await refresh({ showErrors: true });
   } catch (error) {
@@ -2117,17 +2308,18 @@ function renderWeeklyDayOptions() {
 
 function bindEvents() {
   applyLocale();
-  $("adminToken").value = state.token;
   $("localeSelect").addEventListener("change", () => {
     state.locale = $("localeSelect").value;
     localStorage.setItem("ollamaProxyAdminLocale", state.locale);
     renderAll();
   });
-  $("tokenForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    state.token = $("adminToken").value.trim();
-    localStorage.setItem("ollamaProxyAdminToken", state.token);
-    refresh({ showErrors: true });
+  $("loginForm").addEventListener("submit", loginAdmin);
+  $("logoutButton").addEventListener("click", logoutAdmin);
+  $("systemSettingsForm").addEventListener("submit", saveSystemSettings);
+  $("systemSettingsForm").elements.keySelectionMode.addEventListener("change", (event) => {
+    $("keySelectionModeHint").textContent = t(
+      event.target.value === "balanced" ? "keySelectionBalancedHint" : "keySelectionOrderedHint"
+    );
   });
   $("refreshButton").addEventListener("click", () => refresh({ showErrors: true }));
   document.querySelectorAll(".tab").forEach((button) => {
@@ -2240,5 +2432,5 @@ bindEvents();
 renderAll();
 loadAuthStatus().then(() => {
   renderAll();
-  if (state.token) refresh({ showErrors: false });
+  if (state.token && state.authStatus?.initialized) refresh({ showErrors: false });
 });
