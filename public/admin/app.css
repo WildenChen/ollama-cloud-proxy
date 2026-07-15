@@ -545,6 +545,11 @@ svg {
   min-height: 39px;
 }
 
+.clientKeyCreateForm {
+  grid-template-columns: minmax(220px, 420px) auto;
+  justify-content: start;
+}
+
 .miniRow {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) repeat(4, minmax(62px, auto));

@@ -14,6 +14,10 @@ function bearerToken(req: Request): string | null {
 const ADMIN_PASSWORD_SETTING = "auth.adminPasswordHash";
 const HASH_ITERATIONS = 210_000;
 
+export function generateClientToken(): string {
+  return `ocp_${randomBytes(32).toString("base64url")}`;
+}
+
 export function hashPassword(password: string): string {
   const value = password.trim();
   if (value.length < 8) throw new Error("Admin password must be at least 8 characters");

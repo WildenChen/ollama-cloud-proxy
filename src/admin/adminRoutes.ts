@@ -14,6 +14,7 @@ import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } f
 import { APP_VERSION } from "../config/version";
 import {
   adminAuthStatus,
+  generateClientToken,
   hashPassword,
   isAdminInitialized,
   publicTokenPreview,
@@ -166,9 +167,8 @@ export class AdminRoutes {
     try {
       const body = await readJson(req);
       const name = String(body.name || "").trim();
-      const token = String(body.token || "").trim();
+      const token = generateClientToken();
       if (!name) throw new Error("name is required");
-      if (!token) throw new Error("token is required");
       const key = this.store.createClientApiKey({
         name,
         tokenPreview: publicTokenPreview(token),
@@ -229,9 +229,8 @@ export class AdminRoutes {
 
   private async rotateClientApiKey(req: Request, id: string) {
     try {
-      const body = await readJson(req);
-      const token = String(body.token || "").trim();
-      if (!token) throw new Error("token is required");
+      await readJson(req);
+      const token = generateClientToken();
       const key = this.store.patchClientApiKey(id, {
         encryptedToken: this.cipher.encrypt(token),
         tokenPreview: publicTokenPreview(token),

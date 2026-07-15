@@ -154,14 +154,13 @@ const dictionaries = {
     importYaml: "匯入 YAML",
     importDone: "YAML 已匯入。",
     clientKeysTitle: "Client API 金鑰",
-    clientKeysDescription: "替不同服務建立命名 token，用於連線紀錄追蹤。",
-    clientTokenLabel: "Client token",
+    clientKeysDescription: "輸入服務名稱，系統會自動產生安全 token。",
     createClientKey: "建立 Client Key",
-    clientKeyCreated: "Client key 已建立。",
+    clientKeyCreated: "Client key 已建立，請按複製取得完整金鑰。",
     copyClientKey: "複製完整金鑰",
     clientKeyCopied: "Client API 金鑰已複製。",
     replaceClientKey: "更換金鑰",
-    replaceClientKeyPrompt: "輸入新的 Client token。儲存後舊 token 會立即失效。",
+    replaceClientKeyPrompt: "確定要產生新的 Client token 嗎？完成後舊 token 會立即失效。",
     confirmClientKeyDelete: "確定要刪除這個 client key 嗎？",
     noClientKeys: "目前沒有 client API key。",
     eventCategoryLabel: "事件分類",
@@ -541,14 +540,13 @@ const dictionaries = {
     importYaml: "Import YAML",
     importDone: "YAML imported.",
     clientKeysTitle: "Client API Keys",
-    clientKeysDescription: "Create named service tokens for connection log tracking.",
-    clientTokenLabel: "Client token",
+    clientKeysDescription: "Enter a service name and the system will generate a secure token.",
     createClientKey: "Create Client Key",
-    clientKeyCreated: "Client key created.",
+    clientKeyCreated: "Client key created. Use Copy to get the full key.",
     copyClientKey: "Copy full key",
     clientKeyCopied: "Client API key copied.",
     replaceClientKey: "Replace key",
-    replaceClientKeyPrompt: "Enter the new Client token. The old token stops working immediately after save.",
+    replaceClientKeyPrompt: "Generate a new Client token? The old token will stop working immediately.",
     confirmClientKeyDelete: "Delete this client key?",
     noClientKeys: "No client API keys yet.",
     eventCategoryLabel: "Event category",
@@ -2204,17 +2202,16 @@ async function importYaml(event) {
 
 async function createClientKey(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
   try {
     await api("/admin/client-keys", {
       method: "POST",
       body: JSON.stringify({
         name: String(form.get("name") || ""),
-        token: String(form.get("token") || ""),
-        notes: String(form.get("notes") || ""),
       }),
     });
-    event.currentTarget.reset();
+    formElement.reset();
     showNotice(t("clientKeyCreated"));
     await refresh({ showErrors: true });
   } catch (error) {
@@ -2231,9 +2228,8 @@ async function actionForClientKey(id, action) {
       showNotice(t("clientKeyCopied"));
       return;
     } else if (action === "rotate") {
-      const token = prompt(t("replaceClientKeyPrompt"));
-      if (!token) return;
-      await api(`/admin/client-keys/${id}/rotate`, { method: "POST", body: JSON.stringify({ token }) });
+      if (!confirm(t("replaceClientKeyPrompt"))) return;
+      await api(`/admin/client-keys/${id}/rotate`, { method: "POST" });
     } else if (action === "delete") {
       await api(`/admin/client-keys/${id}`, { method: "DELETE" });
     } else {

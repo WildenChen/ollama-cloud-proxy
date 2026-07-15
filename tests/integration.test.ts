@@ -1141,7 +1141,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.6");
+    expect(body.proxy_version).toBe("1.3.7");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1722,11 +1722,12 @@ describe("proxy integration", () => {
     const createdClient = await fetch(`${app.baseUrl}/admin/client-keys`, {
       method: "POST",
       headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
-      body: JSON.stringify({ name: "agent-a", token: "client-secret-a" }),
+      body: JSON.stringify({ name: "agent-a" }),
     });
     const createdClientBody = await createdClient.json();
     expect(createdClient.status).toBe(201);
-    expect(JSON.stringify(createdClientBody)).not.toContain("client-secret-a");
+    expect(createdClientBody.clientKey.token).toBeUndefined();
+    expect(createdClientBody.clientKey.encryptedToken).toBeUndefined();
 
     const revealDenied = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
       method: "POST",
@@ -1738,7 +1739,8 @@ describe("proxy integration", () => {
     });
     expect(revealDenied.status).toBe(401);
     expect(revealAllowed.status).toBe(200);
-    expect((await revealAllowed.json()).token).toBe("client-secret-a");
+    const generatedClientToken = (await revealAllowed.json()).token;
+    expect(generatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
 
     const denied = await fetch(`${app.baseUrl}/v1/chat/completions`, {
       method: "POST",
@@ -1749,7 +1751,7 @@ describe("proxy integration", () => {
 
     const completion = await fetch(`${app.baseUrl}/v1/chat/completions`, {
       method: "POST",
-      headers: { authorization: "Bearer client-secret-a", "content-type": "application/json" },
+      headers: { authorization: `Bearer ${generatedClientToken}`, "content-type": "application/json" },
       body: JSON.stringify({ model: "gpt-oss", messages: [{ role: "user", content: "hi" }] }),
     });
     expect(completion.status).toBe(200);
@@ -1761,6 +1763,28 @@ describe("proxy integration", () => {
     expect(events.events[0].clientName).toBe("agent-a");
     expect(events.events[0].details.totalTokens).toBe(14);
     expect(events.events[0].details.cachedTokens).toBe(5);
+
+    const rotated = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/rotate`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(rotated.status).toBe(200);
+    const revealRotated = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const rotatedClientToken = (await revealRotated.json()).token;
+    expect(rotatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
+    expect(rotatedClientToken).not.toBe(generatedClientToken);
+
+    const oldTokenDenied = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: `Bearer ${generatedClientToken}` },
+    });
+    const rotatedTokenAllowed = await fetch(`${app.baseUrl}/v1/models`, {
+      headers: { authorization: `Bearer ${rotatedClientToken}` },
+    });
+    expect(oldTokenDenied.status).toBe(401);
+    expect(rotatedTokenAllowed.status).toBe(200);
   });
 
   test("YAML export and merge import restore upstream and client keys", async () => {
@@ -1774,9 +1798,15 @@ describe("proxy integration", () => {
     const clientCreate = await fetch(`${source.baseUrl}/admin/client-keys`, {
       method: "POST",
       headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
-      body: JSON.stringify({ name: "agent-import", token: "imported-client-token", notes: "client note" }),
+      body: JSON.stringify({ name: "agent-import", notes: "client note" }),
     });
     expect(clientCreate.status).toBe(201);
+    const createdForExport = await clientCreate.json();
+    const revealForExport = await fetch(`${source.baseUrl}/admin/client-keys/${createdForExport.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const exportedClientToken = (await revealForExport.json()).token;
 
     const exported = await fetch(`${source.baseUrl}/admin/export.yaml`, {
       headers: { authorization: "Bearer admin-token" },
@@ -1784,7 +1814,7 @@ describe("proxy integration", () => {
     const yaml = await exported.text();
     expect(exported.status).toBe(200);
     expect(yaml).toContain("ollama_upstream_secret");
-    expect(yaml).toContain("imported-client-token");
+    expect(yaml).toContain(exportedClientToken);
 
     const importedUpstream = createMockUpstream(() => Response.json({ data: [] }));
     const target = createApp(config({ upstreamBaseUrl: importedUpstream, clientApiKeys: new Map() }));
@@ -1800,7 +1830,7 @@ describe("proxy integration", () => {
     expect(target.store.listKeys(false)[0].apiKeyPreview).toBe("ollama_ups...cret");
 
     const authCheck = await fetch(`${target.baseUrl}/v1/models`, {
-      headers: { authorization: "Bearer imported-client-token" },
+      headers: { authorization: `Bearer ${exportedClientToken}` },
     });
     expect(authCheck.status).toBe(200);
   });
