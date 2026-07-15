@@ -158,7 +158,10 @@ const dictionaries = {
     clientTokenLabel: "Client token",
     createClientKey: "建立 Client Key",
     clientKeyCreated: "Client key 已建立。",
-    rotateClientKeyPrompt: "新的 client token",
+    copyClientKey: "複製完整金鑰",
+    clientKeyCopied: "Client API 金鑰已複製。",
+    replaceClientKey: "更換金鑰",
+    replaceClientKeyPrompt: "輸入新的 Client token。儲存後舊 token 會立即失效。",
     confirmClientKeyDelete: "確定要刪除這個 client key 嗎？",
     noClientKeys: "目前沒有 client API key。",
     eventCategoryLabel: "事件分類",
@@ -542,7 +545,10 @@ const dictionaries = {
     clientTokenLabel: "Client token",
     createClientKey: "Create Client Key",
     clientKeyCreated: "Client key created.",
-    rotateClientKeyPrompt: "New client token",
+    copyClientKey: "Copy full key",
+    clientKeyCopied: "Client API key copied.",
+    replaceClientKey: "Replace key",
+    replaceClientKeyPrompt: "Enter the new Client token. The old token stops working immediately after save.",
     confirmClientKeyDelete: "Delete this client key?",
     noClientKeys: "No client API keys yet.",
     eventCategoryLabel: "Event category",
@@ -1174,14 +1180,26 @@ function renderClientKeys() {
   root.innerHTML = state.clientKeys
     .map(
       (key) => `
-        <div class="miniRow" data-client-key-id="${escapeHtml(key.id)}">
-          <strong>${escapeHtml(key.name)}</strong>
-          <span>${escapeHtml(key.tokenPreview)}</span>
-          <span>${key.enabled ? escapeHtml(mapText("status", "available")) : escapeHtml(mapText("status", "disabled"))}</span>
-          <span>${escapeHtml(key.notes || "")}</span>
-          <button class="button" type="button" data-client-action="${key.enabled ? "disable" : "enable"}">${escapeHtml(key.enabled ? mapText("action", "disable") : mapText("action", "enable"))}</button>
-          <button class="button" type="button" data-client-action="rotate">${escapeHtml(mapText("action", "rotate"))}</button>
-          <button class="button danger" type="button" data-client-action="delete">${escapeHtml(mapText("action", "delete"))}</button>
+        <div class="clientKeyRow" data-client-key-id="${escapeHtml(key.id)}">
+          <div class="clientKeyIdentity">
+            <strong>${escapeHtml(key.name)}</strong>
+            <code>${escapeHtml(key.tokenPreview)}</code>
+          </div>
+          <span class="status ${key.enabled ? "available" : "disabled"}">${key.enabled ? escapeHtml(mapText("status", "available")) : escapeHtml(mapText("status", "disabled"))}</span>
+          <span class="clientKeyNotes">${escapeHtml(key.notes || "")}</span>
+          <div class="clientKeyActions">
+            <button class="iconButton ghost" type="button" data-client-action="copy" title="${escapeHtml(t("copyClientKey"))}" aria-label="${escapeHtml(t("copyClientKey"))}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
+            </button>
+            <button class="button compact" type="button" data-client-action="rotate" title="${escapeHtml(t("replaceClientKeyPrompt"))}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.3 6.4M3 12A9 9 0 0 1 18.3 5.6M3 4v6h6M21 20v-6h-6"/></svg>
+              <span>${escapeHtml(t("replaceClientKey"))}</span>
+            </button>
+            <button class="button compact" type="button" data-client-action="${key.enabled ? "disable" : "enable"}">${escapeHtml(key.enabled ? mapText("action", "disable") : mapText("action", "enable"))}</button>
+            <button class="iconButton danger ghost" type="button" data-client-action="delete" title="${escapeHtml(mapText("actionTitle", "delete"))}" aria-label="${escapeHtml(mapText("actionTitle", "delete"))}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></svg>
+            </button>
+          </div>
         </div>
       `
     )
@@ -2207,8 +2225,13 @@ async function createClientKey(event) {
 async function actionForClientKey(id, action) {
   if (action === "delete" && !confirm(t("confirmClientKeyDelete"))) return;
   try {
-    if (action === "rotate") {
-      const token = prompt(t("rotateClientKeyPrompt"));
+    if (action === "copy") {
+      const response = await api(`/admin/client-keys/${id}/reveal`, { method: "POST" });
+      await copyText(response.token);
+      showNotice(t("clientKeyCopied"));
+      return;
+    } else if (action === "rotate") {
+      const token = prompt(t("replaceClientKeyPrompt"));
       if (!token) return;
       await api(`/admin/client-keys/${id}/rotate`, { method: "POST", body: JSON.stringify({ token }) });
     } else if (action === "delete") {
@@ -2220,6 +2243,22 @@ async function actionForClientKey(id, action) {
   } catch (error) {
     showNotice(error.message, "error");
   }
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
 }
 
 function escapeHtml(value) {

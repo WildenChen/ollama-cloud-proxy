@@ -192,10 +192,20 @@ export class AdminRoutes {
     if (!action && req.method === "PATCH") return this.patchClientApiKey(req, id);
     if (!action && req.method === "DELETE") return this.deleteClientApiKey(id);
     if (req.method !== "POST") return openAiError(405, "method_not_allowed", "Method not allowed");
+    if (action === "reveal") return this.revealClientApiKey(id);
     if (action === "rotate") return this.rotateClientApiKey(req, id);
     if (action === "enable") return this.setClientApiKeyEnabled(id, true);
     if (action === "disable") return this.setClientApiKeyEnabled(id, false);
     return openAiError(404, "not_found", "Admin client key action not found");
+  }
+
+  private revealClientApiKey(id: string) {
+    try {
+      const key = this.store.getClientApiKeyOrThrow(id);
+      return json({ token: this.cipher.decrypt(key.encryptedToken) });
+    } catch (error) {
+      return openAiError(404, "client_key_not_found", (error as Error).message);
+    }
   }
 
   private async patchClientApiKey(req: Request, id: string) {

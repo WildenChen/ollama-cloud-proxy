@@ -187,6 +187,12 @@ select:focus {
   color: #04121f;
 }
 
+.button.compact {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .button.danger,
 .iconButton.danger {
   color: #ffd7de;
@@ -552,6 +558,54 @@ svg {
 .miniRow span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.clientKeyRow {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.1fr) auto minmax(150px, 0.8fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.048);
+}
+
+.clientKeyIdentity {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.clientKeyIdentity strong,
+.clientKeyIdentity code,
+.clientKeyNotes {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clientKeyIdentity code {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.clientKeyNotes {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.clientKeyActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clientKeyActions .iconButton {
+  width: 32px;
+  min-height: 32px;
 }
 
 .usageRow,
@@ -1425,6 +1479,20 @@ dialog::backdrop {
 
   .miniRow {
     grid-template-columns: 1fr;
+  }
+
+  .clientKeyRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .clientKeyNotes {
+    grid-column: 1 / -1;
+  }
+
+  .clientKeyActions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .usageRow,

@@ -1141,7 +1141,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.5");
+    expect(body.proxy_version).toBe("1.3.6");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1724,8 +1724,21 @@ describe("proxy integration", () => {
       headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
       body: JSON.stringify({ name: "agent-a", token: "client-secret-a" }),
     });
+    const createdClientBody = await createdClient.json();
     expect(createdClient.status).toBe(201);
-    expect(JSON.stringify(await createdClient.clone().json())).not.toContain("client-secret-a");
+    expect(JSON.stringify(createdClientBody)).not.toContain("client-secret-a");
+
+    const revealDenied = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer wrong-password" },
+    });
+    const revealAllowed = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(revealDenied.status).toBe(401);
+    expect(revealAllowed.status).toBe(200);
+    expect((await revealAllowed.json()).token).toBe("client-secret-a");
 
     const denied = await fetch(`${app.baseUrl}/v1/chat/completions`, {
       method: "POST",
