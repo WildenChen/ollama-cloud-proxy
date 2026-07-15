@@ -95,18 +95,14 @@ const dictionaries = {
     signInHint: "管理密碼會保存在這個瀏覽器，登出後即移除。",
     setupReady: "首次設定",
     setupTitle: "建立管理密碼",
-    setupDescriptionWithToken: "這是第一次設定。請輸入 ADMIN_TOKEN，並建立日後登入使用的管理密碼。",
-    setupDescriptionWithoutToken: "這是第一次設定。建立管理密碼後即可進入管理台。",
-    setupHint: "ADMIN_TOKEN 只用於首次建立密碼；設定完成後，日常登入只需要管理密碼。",
+    setupDescription: "這是第一次設定。建立管理密碼後即可進入管理台。",
+    setupHint: "尚未建立密碼時，能連到管理頁的人都可以完成首次設定，請立即建立管理密碼。",
     authStatusUnavailable: "目前無法確認登入狀態，請確認服務是否正常。",
     savedCredentialInvalid: "已保存的管理密碼無效或已變更，請重新登入。",
     signedOutMessage: "已登出。請輸入管理密碼重新登入。",
     adminPasswordLabel: "管理密碼",
-    bootstrapTokenLabel: "首次設定權杖",
-    bootstrapTokenHint: "只在第一次建立管理密碼時使用 ADMIN_TOKEN。",
     confirmAdminPasswordLabel: "確認管理密碼",
     save: "儲存",
-    saveTitle: "儲存管理權杖並載入後台資料",
     refreshTitle: "重新向後端載入最新狀態",
     refreshAria: "重新整理後台狀態",
     systemMetrics: "系統指標",
@@ -141,7 +137,7 @@ const dictionaries = {
     saveSystemSettings: "儲存系統設定",
     systemSettingsSaved: "系統設定已儲存。",
     adminPasswordTitle: "管理密碼",
-    adminPasswordDescription: "日常登入只使用管理密碼；ADMIN_TOKEN 僅供首次設定。",
+    adminPasswordDescription: "管理頁與所有管理 API 都只使用管理密碼。",
     signOut: "登出",
     signedIn: "已登入",
     signedInDescription: "目前管理憑證只保存在這個瀏覽器。",
@@ -306,12 +302,12 @@ const dictionaries = {
     weeklyBlocked: (count) => `${count} 把每週額度受限`,
     summaryLine: (available, total, active, queued) => `${available}/${total} 把金鑰可用，${active} 個處理中，${queued} 個排隊中`,
     loadingKeys: "正在載入資料。",
-    loadNotice: "無法載入資料，請確認管理權杖後按「儲存」或「重新整理」。",
+    loadNotice: "無法載入資料，請確認管理密碼後重新登入。",
     noKeys: "目前沒有金鑰。請新增第一把已加密保存的 Ollama 金鑰。",
     noEvents: "目前沒有近期事件。",
     noClients: "今日尚無客戶端流量。",
     noModels: "目前沒有模型統計或別名設定。",
-    tokenRequired: "請先輸入並儲存管理權杖。",
+    passwordRequired: "請先使用管理密碼登入。",
     requestFailed: (status) => `請求失敗：${status}`,
     keyCreated: "金鑰已建立。",
     actionDone: (action) => `金鑰操作完成：${action}`,
@@ -483,18 +479,14 @@ const dictionaries = {
     signInHint: "The admin password is saved in this browser and removed when you sign out.",
     setupReady: "First-time setup",
     setupTitle: "Create Admin Password",
-    setupDescriptionWithToken: "This is the first setup. Enter ADMIN_TOKEN and create the password used for future sign-ins.",
-    setupDescriptionWithoutToken: "This is the first setup. Create an admin password to enter the console.",
-    setupHint: "ADMIN_TOKEN is only used to create the first password. After setup, use the admin password to sign in.",
+    setupDescription: "This is the first setup. Create an admin password to enter the console.",
+    setupHint: "Until a password exists, anyone who can reach Admin can finish setup. Create the admin password now.",
     authStatusUnavailable: "The sign-in state could not be checked. Verify that the service is running.",
     savedCredentialInvalid: "The saved admin password is invalid or has changed. Sign in again.",
     signedOutMessage: "Signed out. Enter the admin password to sign in again.",
     adminPasswordLabel: "Admin password",
-    bootstrapTokenLabel: "First-time setup token",
-    bootstrapTokenHint: "ADMIN_TOKEN is only used when creating the first admin password.",
     confirmAdminPasswordLabel: "Confirm admin password",
     save: "Save",
-    saveTitle: "Save admin token and load admin data",
     refreshTitle: "Reload latest backend status",
     refreshAria: "Refresh admin status",
     systemMetrics: "System metrics",
@@ -529,7 +521,7 @@ const dictionaries = {
     saveSystemSettings: "Save System Settings",
     systemSettingsSaved: "System settings saved.",
     adminPasswordTitle: "Admin Password",
-    adminPasswordDescription: "Daily sign-in uses only the admin password; ADMIN_TOKEN is for first-time setup.",
+    adminPasswordDescription: "The Admin UI and every admin API use only the admin password.",
     signOut: "Sign Out",
     signedIn: "Signed in",
     signedInDescription: "The current admin credential is stored only in this browser.",
@@ -694,12 +686,12 @@ const dictionaries = {
     weeklyBlocked: (count) => `${count} weekly-blocked keys`,
     summaryLine: (available, total, active, queued) => `${available}/${total} keys available, ${active} active, ${queued} queued`,
     loadingKeys: "Loading data.",
-    loadNotice: "Unable to load data. Check the admin token, then press Save or Refresh.",
+    loadNotice: "Unable to load data. Check the admin password and sign in again.",
     noKeys: "No keys yet. Add the first encrypted Ollama key.",
     noEvents: "No recent events.",
     noClients: "No client traffic today.",
     noModels: "No model stats or aliases yet.",
-    tokenRequired: "Enter and save the admin token first.",
+    passwordRequired: "Sign in with the admin password first.",
     requestFailed: (status) => `Request failed: ${status}`,
     keyCreated: "Key created.",
     actionDone: (action) => `Key action completed: ${action}`,
@@ -1140,7 +1132,6 @@ function renderAuthState() {
   const app = $("adminApp");
   const loginForm = $("loginForm");
   const setupForm = $("setupPasswordForm");
-  const bootstrapField = $("bootstrapTokenField");
   const authenticated = state.loaded && Boolean(state.token);
   const initialized = state.authStatus?.initialized;
 
@@ -1148,7 +1139,6 @@ function renderAuthState() {
   app.classList.toggle("hidden", !authenticated);
   loginForm.classList.toggle("hidden", initialized !== true || authenticated);
   setupForm.classList.toggle("hidden", initialized !== false || authenticated);
-  bootstrapField.classList.toggle("hidden", !state.authStatus?.envAdminTokenAvailable);
 
   const badge = $("authGateBadge");
   const title = $("authGateTitle");
@@ -1164,9 +1154,7 @@ function renderAuthState() {
   if (initialized === false) {
     badge.textContent = t("setupReady");
     title.textContent = t("setupTitle");
-    description.textContent = state.authStatus?.envAdminTokenAvailable
-      ? t("setupDescriptionWithToken")
-      : t("setupDescriptionWithoutToken");
+    description.textContent = t("setupDescription");
     hint.textContent = state.authMessage || t("setupHint");
     return;
   }
@@ -1880,7 +1868,7 @@ async function actionForKey(keyId, action) {
 
 async function refreshOfficialUsage() {
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {
@@ -1903,7 +1891,7 @@ async function refreshOfficialUsage() {
 
 async function refreshModels() {
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {
@@ -1986,7 +1974,7 @@ async function saveThresholds(event) {
 
 async function testModel(modelId) {
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {
@@ -2005,7 +1993,7 @@ async function testModel(modelId) {
 
 async function toggleModel(modelId, enabled) {
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {
@@ -2026,7 +2014,7 @@ async function toggleModel(modelId, enabled) {
 async function saveUsageSettings(event) {
   event.preventDefault();
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   const form = new FormData(event.currentTarget);
@@ -2094,7 +2082,6 @@ async function setupAdminPassword(event) {
   const form = new FormData(formElement);
   const password = String(form.get("password") || "").trim();
   const confirmPassword = String(form.get("confirmPassword") || "").trim();
-  const bootstrapToken = String(form.get("bootstrapToken") || "").trim();
   if (password !== confirmPassword) {
     state.authMessage = t("passwordMismatch");
     renderAuthState();
@@ -2103,10 +2090,7 @@ async function setupAdminPassword(event) {
   try {
     const response = await fetch("/admin/auth/setup", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(bootstrapToken ? { Authorization: `Bearer ${bootstrapToken}` } : {}),
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ password }),
     });
     const body = await response.json();
@@ -2153,7 +2137,7 @@ async function changeAdminPassword(event) {
 
 async function exportYaml() {
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {
@@ -2183,7 +2167,7 @@ async function importYaml(event) {
   event.target.value = "";
   if (!file) return;
   if (!state.token) {
-    showNotice(t("tokenRequired"), "error");
+    showNotice(t("passwordRequired"), "error");
     return;
   }
   try {

@@ -66,7 +66,7 @@ export class AdminRoutes {
   ) {}
 
   async handle(req: Request, path: string): Promise<Response> {
-    if (path === "/admin/auth/status" && req.method === "GET") return json(adminAuthStatus(this.config, this.store));
+    if (path === "/admin/auth/status" && req.method === "GET") return json(adminAuthStatus(this.store));
     if (path === "/admin/auth/setup" && req.method === "POST") return this.setupAdminPassword(req);
     if (path === "/admin/auth/change-password" && req.method === "POST") return this.changeAdminPassword(req);
     if (path === "/admin/export.yaml" && req.method === "GET") return this.exportYaml();
@@ -124,11 +124,6 @@ export class AdminRoutes {
       if (isAdminInitialized(this.store)) {
         return openAiError(409, "admin_already_initialized", "Admin password is already configured");
       }
-      const auth = req.headers.get("authorization") || "";
-      const token = auth.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || null;
-      if (this.config.adminToken && token !== this.config.adminToken) {
-        return openAiError(401, "unauthorized", "Admin token required before password setup");
-      }
       const body = await readJson(req);
       setAdminPassword(this.store, String(body.password || ""));
       this.events.emit({
@@ -136,7 +131,7 @@ export class AdminRoutes {
         type: "admin_password_changed",
         message: "Admin password initialized",
       });
-      return json({ ok: true, status: adminAuthStatus(this.config, this.store) }, 201);
+      return json({ ok: true, status: adminAuthStatus(this.store) }, 201);
     } catch (error) {
       return openAiError(400, "invalid_admin_password", (error as Error).message);
     }
@@ -151,16 +146,13 @@ export class AdminRoutes {
       if (stored && !verifyPassword(current, stored)) {
         return openAiError(401, "invalid_current_password", "Current password is invalid");
       }
-      if (!stored && this.config.adminToken && current !== this.config.adminToken) {
-        return openAiError(401, "invalid_current_password", "Current admin token is invalid");
-      }
       this.store.setSetting("auth.adminPasswordHash", hashPassword(next));
       this.events.emit({
         level: "info",
         type: "admin_password_changed",
         message: "Admin password changed",
       });
-      return json({ ok: true, status: adminAuthStatus(this.config, this.store) });
+      return json({ ok: true, status: adminAuthStatus(this.store) });
     } catch (error) {
       return openAiError(400, "invalid_admin_password", (error as Error).message);
     }

@@ -50,7 +50,7 @@ export class Router {
       if (path === "/admin/auth/status" || path === "/admin/auth/setup") {
         return this.admin.handle(req, path);
       }
-      const denied = requireAdmin(req, this.config, this.store);
+      const denied = requireAdmin(req, this.store);
       if (denied) return denied;
       return this.admin.handle(req, path);
     }

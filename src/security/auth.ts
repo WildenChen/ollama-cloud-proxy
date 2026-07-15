@@ -40,24 +40,20 @@ export function setAdminPassword(store: DatabaseStore, password: string): void {
   store.setSetting(ADMIN_PASSWORD_SETTING, hashPassword(password));
 }
 
-export function adminAuthStatus(config: AppConfig, store: DatabaseStore) {
+export function adminAuthStatus(store: DatabaseStore) {
   return {
     initialized: isAdminInitialized(store),
-    envAdminTokenAvailable: Boolean(config.adminToken),
   };
 }
 
-export function requireAdmin(req: Request, config: AppConfig, store: DatabaseStore): Response | null {
+export function requireAdmin(req: Request, store: DatabaseStore): Response | null {
   const token = bearerToken(req);
   const stored = store.getSetting(ADMIN_PASSWORD_SETTING);
-  if (stored) {
-    if (!token || !verifyPassword(token, stored)) {
-      return openAiError(401, "unauthorized", "Admin password required");
-    }
-    return null;
+  if (!stored) {
+    return openAiError(401, "admin_setup_required", "Admin password setup required");
   }
-  if (!config.adminToken || token !== config.adminToken) {
-    return openAiError(401, "unauthorized", "Admin token required");
+  if (!token || !verifyPassword(token, stored)) {
+    return openAiError(401, "unauthorized", "Admin password required");
   }
   return null;
 }

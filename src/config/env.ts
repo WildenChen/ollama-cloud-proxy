@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 export type AppConfig = {
   port: number;
-  adminToken: string | null;
   keyEncryptionSecret: string;
   clientApiKeys: Map<string, string>;
   upstreamBaseUrl: string;
@@ -137,7 +136,6 @@ export function loadConfig(): AppConfig {
 
   return {
     port: numberEnv("PORT", 11435),
-    adminToken: process.env.ADMIN_TOKEN?.trim() || null,
     keyEncryptionSecret: requiredEnv("KEY_ENCRYPTION_SECRET"),
     clientApiKeys: parseClientApiKeys(process.env.CLIENT_API_KEYS),
     upstreamBaseUrl: process.env.OLLAMA_UPSTREAM_BASE_URL || "https://ollama.com",

@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=1.3.4-admin-settings" />
+    <link rel="stylesheet" href="/admin/app.css?v=1.3.5-password-only" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.3.4</span></h1>
+          <h1><span data-i18n="appTitle">Ollama 雲端代理</span> <span id="appVersion" class="versionBadge">v1.3.5</span></h1>
           <p id="summaryLine" data-i18n="summaryDefault">管理總覽</p>
         </div>
       </header>
@@ -34,11 +34,6 @@
           <button class="button primary" type="submit" data-i18n="signIn">登入</button>
         </form>
         <form id="setupPasswordForm" class="authGateForm hidden">
-          <label id="bootstrapTokenField" class="hidden">
-            <span data-i18n="bootstrapTokenLabel">首次設定權杖</span>
-            <input name="bootstrapToken" type="password" autocomplete="off" />
-            <small data-i18n="bootstrapTokenHint">只在第一次建立管理密碼時使用 ADMIN_TOKEN。</small>
-          </label>
           <label>
             <span data-i18n="newAdminPasswordLabel">新管理密碼</span>
             <input name="password" type="password" autocomplete="new-password" minlength="8" required />
@@ -126,7 +121,7 @@
           <div class="panelHeader compact">
             <div>
               <h2 data-i18n="adminPasswordTitle">管理密碼</h2>
-              <p data-i18n="adminPasswordDescription">日常登入只使用管理密碼；ADMIN_TOKEN 僅供首次設定。</p>
+              <p data-i18n="adminPasswordDescription">管理頁與所有管理 API 都只使用管理密碼。</p>
             </div>
             <button id="logoutButton" class="button" type="button" data-i18n="signOut">登出</button>
           </div>
@@ -429,6 +424,6 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=1.3.4-admin-settings" type="module"></script>
+    <script src="/admin/app.js?v=1.3.5-password-only" type="module"></script>
   </body>
 </html>

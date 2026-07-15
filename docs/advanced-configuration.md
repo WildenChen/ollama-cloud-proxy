@@ -17,7 +17,6 @@ Ollama Cloud Proxy 有兩種 key：
 | --- | --- |
 | `PORT` | proxy 監聽 port，預設 `11435` |
 | `KEY_ENCRYPTION_SECRET` | 加密保存 key 的 secret，務必備份 |
-| `ADMIN_TOKEN` | 可選 bootstrap/fallback 管理 token |
 | `DB_PATH` | SQLite DB 路徑，Docker 預設 `/data/ollama-cloud-proxy.sqlite` |
 
 `KEY_ENCRYPTION_SECRET` 遺失時，資料庫裡已加密保存的 key 不能解密，只能重新新增或輪替。

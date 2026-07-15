@@ -8,6 +8,7 @@ import { ModelManager } from "../src/models/modelManager";
 import { ProxyHandler } from "../src/proxy/proxyHandler";
 import { proxyReadableStream } from "../src/proxy/stream";
 import { Router } from "../src/server/router";
+import { setAdminPassword } from "../src/security/auth";
 import { KeyCipher } from "../src/security/encryption";
 import { DatabaseStore } from "../src/storage/database";
 import { normalizeOllamaUsageCookie, parseOllamaCloudSettingsHtml } from "../src/usage/ollamaCloudUsage";
@@ -24,7 +25,6 @@ afterEach(() => {
 function config(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     port: 0,
-    adminToken: "admin-token",
     keyEncryptionSecret: "test-secret",
     clientApiKeys: new Map([["client-token", "openclaw"]]),
     upstreamBaseUrl: "http://127.0.0.1:1",
@@ -67,8 +67,9 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
-function createApp(appConfig: AppConfig) {
+function createApp(appConfig: AppConfig, initializeAdmin = true) {
   const store = new DatabaseStore(appConfig.dbPath);
+  if (initializeAdmin) setAdminPassword(store, "admin-token");
   const events = new EventStore(store);
   const concurrency = new ConcurrencyManager(appConfig, events);
   const keyPool = new KeyPoolManager(appConfig, store, events, new KeyCipher(appConfig.keyEncryptionSecret));
@@ -1140,7 +1141,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.4");
+    expect(body.proxy_version).toBe("1.3.5");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1664,8 +1665,8 @@ describe("proxy integration", () => {
     expect(providerBody.error.type).toBe("provider_error");
   });
 
-  test("admin password can be initialized without ADMIN_TOKEN and then required", async () => {
-    const app = createApp(config({ adminToken: null }));
+  test("admin password can be initialized directly and then is required", async () => {
+    const app = createApp(config(), false);
 
     const status = await fetch(`${app.baseUrl}/admin/auth/status`);
     expect(status.status).toBe(200);
@@ -1691,28 +1692,14 @@ describe("proxy integration", () => {
     expect(allowed.status).toBe(200);
   });
 
-  test("ADMIN_TOKEN is bootstrap-only after an admin password is configured", async () => {
-    const app = createApp(config({ adminToken: "bootstrap-admin-token" }));
+  test("admin auth status exposes only password initialization state", async () => {
+    const app = createApp(config(), false);
+    const response = await fetch(`${app.baseUrl}/admin/auth/status`);
+    const body = await response.json();
 
-    const setup = await fetch(`${app.baseUrl}/admin/auth/setup`, {
-      method: "POST",
-      headers: {
-        authorization: "Bearer bootstrap-admin-token",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ password: "daily-admin-password" }),
-    });
-    expect(setup.status).toBe(201);
-
-    const bootstrapDenied = await fetch(`${app.baseUrl}/admin/stats`, {
-      headers: { authorization: "Bearer bootstrap-admin-token" },
-    });
-    const passwordAllowed = await fetch(`${app.baseUrl}/admin/stats`, {
-      headers: { authorization: "Bearer daily-admin-password" },
-    });
-
-    expect(bootstrapDenied.status).toBe(401);
-    expect(passwordAllowed.status).toBe(200);
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ initialized: false });
+    expect(JSON.stringify(body)).not.toContain("token");
   });
 
   test("DB client API keys authenticate requests and request events include token usage", async () => {

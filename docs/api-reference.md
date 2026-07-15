@@ -21,7 +21,6 @@ curl http://localhost:11435/admin/auth/status
 
 ```bash
 curl -X POST http://localhost:11435/admin/auth/setup \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"password":"new-admin-password"}'
 ```
