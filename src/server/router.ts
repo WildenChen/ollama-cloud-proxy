@@ -47,10 +47,16 @@ export class Router {
     }
 
     if (path.startsWith("/admin/")) {
-      if (path === "/admin/auth/status" || path === "/admin/auth/setup") {
+      if (
+        path === "/admin/auth/status" ||
+        path === "/admin/auth/setup" ||
+        path === "/admin/auth/login" ||
+        path === "/admin/auth/logout" ||
+        (path === "/admin/stats" && req.method === "GET")
+      ) {
         return this.admin.handle(req, path);
       }
-      const denied = requireAdmin(req, this.store);
+      const denied = requireAdmin(req, this.store, this.config.keyEncryptionSecret);
       if (denied) return denied;
       return this.admin.handle(req, path);
     }

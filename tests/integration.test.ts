@@ -1141,7 +1141,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.7");
+    expect(body.proxy_version).toBe("1.3.8");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1665,14 +1665,17 @@ describe("proxy integration", () => {
     expect(providerBody.error.type).toBe("provider_error");
   });
 
-  test("admin password can be initialized directly and then is required", async () => {
+  test("read-only usage is public while admin changes require password or session cookie", async () => {
     const app = createApp(config(), false);
 
     const status = await fetch(`${app.baseUrl}/admin/auth/status`);
     expect(status.status).toBe(200);
-    expect((await status.json()).initialized).toBe(false);
+    expect(await status.json()).toEqual({ initialized: false, authenticated: false });
 
-    const unauthorized = await fetch(`${app.baseUrl}/admin/stats`);
+    const publicUsage = await fetch(`${app.baseUrl}/admin/stats`);
+    expect(publicUsage.status).toBe(200);
+
+    const unauthorized = await fetch(`${app.baseUrl}/admin/keys`);
     expect(unauthorized.status).toBe(401);
 
     const setup = await fetch(`${app.baseUrl}/admin/auth/setup`, {
@@ -1681,6 +1684,11 @@ describe("proxy integration", () => {
       body: JSON.stringify({ password: "new-admin-password" }),
     });
     expect(setup.status).toBe(201);
+    expect((await setup.clone().json()).status).toEqual({ initialized: true, authenticated: true });
+    const setupCookie = setup.headers.get("set-cookie")?.split(";")[0] || "";
+    expect(setupCookie).toStartWith("ocp_admin_session=");
+    expect(setup.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(setup.headers.get("set-cookie")).toContain("SameSite=Strict");
 
     const denied = await fetch(`${app.baseUrl}/admin/stats`, {
       headers: { authorization: "Bearer wrong-password" },
@@ -1688,18 +1696,66 @@ describe("proxy integration", () => {
     const allowed = await fetch(`${app.baseUrl}/admin/stats`, {
       headers: { authorization: "Bearer new-admin-password" },
     });
-    expect(denied.status).toBe(401);
+    expect(denied.status).toBe(200);
     expect(allowed.status).toBe(200);
+
+    const protectedWithCookie = await fetch(`${app.baseUrl}/admin/keys`, {
+      headers: { cookie: setupCookie },
+    });
+    expect(protectedWithCookie.status).toBe(200);
+
+    const sessionStatus = await fetch(`${app.baseUrl}/admin/auth/status`, {
+      headers: { cookie: setupCookie, "x-forwarded-proto": "https" },
+    });
+    expect(await sessionStatus.json()).toEqual({ initialized: true, authenticated: true });
+    expect(sessionStatus.headers.get("set-cookie")).toContain("Max-Age=2592000");
+    expect(sessionStatus.headers.get("set-cookie")).toContain("Secure");
   });
 
-  test("admin auth status exposes only password initialization state", async () => {
+  test("admin session login persists without exposing password and password changes invalidate old cookies", async () => {
     const app = createApp(config(), false);
-    const response = await fetch(`${app.baseUrl}/admin/auth/status`);
-    const body = await response.json();
+    await fetch(`${app.baseUrl}/admin/auth/setup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "new-admin-password" }),
+    });
 
-    expect(response.status).toBe(200);
-    expect(body).toEqual({ initialized: false });
-    expect(JSON.stringify(body)).not.toContain("token");
+    const wrongLogin = await fetch(`${app.baseUrl}/admin/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "wrong-password" }),
+    });
+    expect(wrongLogin.status).toBe(401);
+
+    const login = await fetch(`${app.baseUrl}/admin/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "new-admin-password" }),
+    });
+    const loginBody = await login.json();
+    const oldCookie = login.headers.get("set-cookie")?.split(";")[0] || "";
+    expect(login.status).toBe(200);
+    expect(loginBody).toEqual({ ok: true, status: { initialized: true, authenticated: true } });
+    expect(JSON.stringify(loginBody)).not.toContain("password");
+
+    const changed = await fetch(`${app.baseUrl}/admin/auth/change-password`, {
+      method: "POST",
+      headers: { cookie: oldCookie, "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: "new-admin-password", newPassword: "changed-admin-password" }),
+    });
+    const newCookie = changed.headers.get("set-cookie")?.split(";")[0] || "";
+    expect(changed.status).toBe(200);
+    expect(newCookie).toStartWith("ocp_admin_session=");
+    expect(newCookie).not.toBe(oldCookie);
+
+    const oldCookieDenied = await fetch(`${app.baseUrl}/admin/keys`, { headers: { cookie: oldCookie } });
+    const newCookieAllowed = await fetch(`${app.baseUrl}/admin/keys`, { headers: { cookie: newCookie } });
+    expect(oldCookieDenied.status).toBe(401);
+    expect(newCookieAllowed.status).toBe(200);
+
+    const logout = await fetch(`${app.baseUrl}/admin/auth/logout`, { method: "POST", headers: { cookie: newCookie } });
+    expect(logout.status).toBe(200);
+    expect(logout.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
   test("DB client API keys authenticate requests and request events include token usage", async () => {

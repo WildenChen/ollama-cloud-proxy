@@ -1,14 +1,9 @@
 const credentialStorageKey = "ollamaProxyAdminCredential";
 const legacyCredentialStorageKey = "ollamaProxyAdminToken";
-const savedCredential =
-  localStorage.getItem(credentialStorageKey) || localStorage.getItem(legacyCredentialStorageKey) || "";
-if (savedCredential && !localStorage.getItem(credentialStorageKey)) {
-  localStorage.setItem(credentialStorageKey, savedCredential);
-  localStorage.removeItem(legacyCredentialStorageKey);
-}
+localStorage.removeItem(credentialStorageKey);
+localStorage.removeItem(legacyCredentialStorageKey);
 
 const state = {
-  token: savedCredential,
   locale:
     localStorage.getItem("ollamaProxyAdminLocale") ||
     (navigator.language?.toLowerCase().startsWith("zh") ? "zh-Hant" : "en"),
@@ -21,6 +16,7 @@ const state = {
   systemSettings: null,
   authStatus: null,
   authMessage: null,
+  loginRequested: false,
   page: "overview",
   testingModels: new Set(),
   loaded: false,
@@ -89,16 +85,18 @@ const dictionaries = {
     languageLabel: "語言",
     authChecking: "檢查登入狀態",
     signInTitle: "登入管理台",
-    signInDescription: "輸入管理密碼以載入金鑰與用量資料。",
+    signInDescription: "唯讀用量可直接查看；修改設定或執行測試需要管理密碼。",
     signIn: "登入",
+    backToOverview: "返回總覽",
+    viewUsage: "查看用量",
     signInReady: "需要登入",
-    signInHint: "管理密碼會保存在這個瀏覽器，登出後即移除。",
+    signInHint: "登入狀態會以安全 Cookie 保留 30 天，持續使用時自動續期。",
     setupReady: "首次設定",
     setupTitle: "建立管理密碼",
     setupDescription: "這是第一次設定。建立管理密碼後即可進入管理台。",
     setupHint: "尚未建立密碼時，能連到管理頁的人都可以完成首次設定，請立即建立管理密碼。",
     authStatusUnavailable: "目前無法確認登入狀態，請確認服務是否正常。",
-    savedCredentialInvalid: "已保存的管理密碼無效或已變更，請重新登入。",
+    savedCredentialInvalid: "登入 Cookie 已失效或管理密碼已變更，請重新登入。",
     signedOutMessage: "已登出。請輸入管理密碼重新登入。",
     adminPasswordLabel: "管理密碼",
     confirmAdminPasswordLabel: "確認管理密碼",
@@ -137,10 +135,10 @@ const dictionaries = {
     saveSystemSettings: "儲存系統設定",
     systemSettingsSaved: "系統設定已儲存。",
     adminPasswordTitle: "管理密碼",
-    adminPasswordDescription: "管理頁與所有管理 API 都只使用管理密碼。",
+    adminPasswordDescription: "唯讀用量免登入；修改設定與測試操作使用管理密碼。",
     signOut: "登出",
     signedIn: "已登入",
-    signedInDescription: "目前管理憑證只保存在這個瀏覽器。",
+    signedInDescription: "此瀏覽器已透過安全 Cookie 登入，不會保存明文管理密碼。",
     newAdminPasswordLabel: "新管理密碼",
     currentAdminPasswordLabel: "目前管理密碼",
     confirmNewAdminPasswordLabel: "確認新管理密碼",
@@ -307,6 +305,7 @@ const dictionaries = {
     loadNotice: "無法載入資料，請確認管理密碼後重新登入。",
     noKeys: "目前沒有金鑰。請新增第一把已加密保存的 Ollama 金鑰。",
     noEvents: "目前沒有近期事件。",
+    signInForEvents: "事件明細需要管理登入；用量彙總仍可直接查看。",
     noClients: "今日尚無客戶端流量。",
     noModels: "目前沒有模型統計或別名設定。",
     passwordRequired: "請先使用管理密碼登入。",
@@ -475,16 +474,18 @@ const dictionaries = {
     languageLabel: "Language",
     authChecking: "Checking sign-in status",
     signInTitle: "Sign in to Admin",
-    signInDescription: "Enter the admin password to load keys and usage data.",
+    signInDescription: "Read-only usage is public. Changes and model tests require the admin password.",
     signIn: "Sign In",
+    backToOverview: "Back to Overview",
+    viewUsage: "View Usage",
     signInReady: "Sign-in required",
-    signInHint: "The admin password is saved in this browser and removed when you sign out.",
+    signInHint: "A secure cookie keeps this browser signed in for 30 days and renews while in use.",
     setupReady: "First-time setup",
     setupTitle: "Create Admin Password",
     setupDescription: "This is the first setup. Create an admin password to enter the console.",
     setupHint: "Until a password exists, anyone who can reach Admin can finish setup. Create the admin password now.",
     authStatusUnavailable: "The sign-in state could not be checked. Verify that the service is running.",
-    savedCredentialInvalid: "The saved admin password is invalid or has changed. Sign in again.",
+    savedCredentialInvalid: "The sign-in cookie expired or the admin password changed. Sign in again.",
     signedOutMessage: "Signed out. Enter the admin password to sign in again.",
     adminPasswordLabel: "Admin password",
     confirmAdminPasswordLabel: "Confirm admin password",
@@ -523,10 +524,10 @@ const dictionaries = {
     saveSystemSettings: "Save System Settings",
     systemSettingsSaved: "System settings saved.",
     adminPasswordTitle: "Admin Password",
-    adminPasswordDescription: "The Admin UI and every admin API use only the admin password.",
+    adminPasswordDescription: "Read-only usage is public; settings and test actions use the admin password.",
     signOut: "Sign Out",
     signedIn: "Signed in",
-    signedInDescription: "The current admin credential is stored only in this browser.",
+    signedInDescription: "This browser uses a secure cookie and never stores the plaintext admin password.",
     newAdminPasswordLabel: "New admin password",
     currentAdminPasswordLabel: "Current admin password",
     confirmNewAdminPasswordLabel: "Confirm new admin password",
@@ -693,6 +694,7 @@ const dictionaries = {
     loadNotice: "Unable to load data. Check the admin password and sign in again.",
     noKeys: "No keys yet. Add the first encrypted Ollama key.",
     noEvents: "No recent events.",
+    signInForEvents: "Admin sign-in is required for event details; usage summaries remain public.",
     noClients: "No client traffic today.",
     noModels: "No model stats or aliases yet.",
     passwordRequired: "Sign in with the admin password first.",
@@ -885,14 +887,25 @@ function closeThresholdDialog() {
 }
 
 function headers(json = false) {
-  const result = { Authorization: `Bearer ${state.token}` };
+  const result = {};
   if (json) result["Content-Type"] = "application/json";
   return result;
+}
+
+function isAuthenticated() {
+  return state.authStatus?.authenticated === true;
+}
+
+function requestAdminLogin() {
+  state.loginRequested = true;
+  state.authMessage = t("passwordRequired");
+  renderAll();
 }
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
+    credentials: "same-origin",
     headers: { ...headers(Boolean(options.body)), ...(options.headers || {}) },
   });
   const text = await response.text();
@@ -900,6 +913,12 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data?.error?.message || t("requestFailed")(response.status));
     error.status = response.status;
+    if (response.status === 401 && state.authStatus?.initialized) {
+      state.authStatus.authenticated = false;
+      state.loginRequested = true;
+      state.authMessage = t("savedCredentialInvalid");
+      renderAll();
+    }
     throw error;
   }
   return data;
@@ -907,7 +926,10 @@ async function api(path, options = {}) {
 
 async function loadAuthStatus() {
   try {
-    const response = await fetch("/admin/auth/status", { headers: { "cache-control": "no-store" } });
+    const response = await fetch("/admin/auth/status", {
+      credentials: "same-origin",
+      headers: { "cache-control": "no-store" },
+    });
     state.authStatus = response.ok ? await response.json() : null;
   } catch {
     state.authStatus = null;
@@ -1092,6 +1114,10 @@ function renderStats() {
 
 function renderEvents() {
   const root = $("eventList");
+  if (!isAuthenticated()) {
+    root.innerHTML = `<div class="empty">${escapeHtml(t("signInForEvents"))}</div>`;
+    return;
+  }
   if (state.events.length === 0) {
     root.innerHTML = `<div class="empty">${escapeHtml(t("noEvents"))}</div>`;
     return;
@@ -1136,13 +1162,21 @@ function renderAuthState() {
   const app = $("adminApp");
   const loginForm = $("loginForm");
   const setupForm = $("setupPasswordForm");
-  const authenticated = state.loaded && Boolean(state.token);
+  const publicLinks = $("authPublicLinks");
+  const authenticated = isAuthenticated();
   const initialized = state.authStatus?.initialized;
+  const protectedPageLocked =
+    initialized === true && !authenticated && (state.loginRequested || ["settings", "modelTest"].includes(state.page));
+  const setupRequired = initialized === false;
 
-  gate.classList.toggle("hidden", authenticated);
-  app.classList.toggle("hidden", !authenticated);
-  loginForm.classList.toggle("hidden", initialized !== true || authenticated);
-  setupForm.classList.toggle("hidden", initialized !== false || authenticated);
+  gate.classList.toggle("hidden", !setupRequired && !protectedPageLocked);
+  app.classList.toggle(
+    "hidden",
+    setupRequired || protectedPageLocked || initialized === undefined || initialized === null
+  );
+  loginForm.classList.toggle("hidden", !protectedPageLocked);
+  setupForm.classList.toggle("hidden", !setupRequired);
+  publicLinks.classList.toggle("hidden", !protectedPageLocked);
 
   const badge = $("authGateBadge");
   const title = $("authGateTitle");
@@ -1685,11 +1719,13 @@ function renderModelTests() {
 }
 
 function renderPages() {
+  const protectedPageLocked =
+    !isAuthenticated() && (state.loginRequested || ["settings", "modelTest"].includes(state.page));
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.page === state.page);
   });
   document.querySelectorAll(".page").forEach((page) => {
-    page.classList.toggle("active", page.id === `${state.page}Page`);
+    page.classList.toggle("active", !protectedPageLocked && page.id === `${state.page}Page`);
   });
 }
 
@@ -1726,18 +1762,8 @@ async function refresh(options = {}) {
   const preserveOnError = options.preserveOnError ?? false;
   await loadAuthStatus();
   if (state.authStatus?.initialized === false) {
-    state.token = "";
     state.loaded = false;
     state.loading = false;
-    localStorage.removeItem(credentialStorageKey);
-    localStorage.removeItem(legacyCredentialStorageKey);
-    renderAll();
-    return false;
-  }
-  if (!state.token) {
-    state.loaded = false;
-    state.loading = false;
-    state.loadNotice = null;
     renderAll();
     return false;
   }
@@ -1753,36 +1779,43 @@ async function refresh(options = {}) {
     if (type) eventQuery.set("type", type);
     if (category) eventQuery.set("category", category);
     if ($("eventHasUsage").checked) eventQuery.set("hasUsage", "1");
-    const [stats, keys, events, models, usageSettings, clientKeys, systemSettings] = await Promise.all([
-      api("/admin/stats"),
-      api("/admin/keys"),
-      api(`/admin/events?${eventQuery.toString()}`),
-      api("/admin/models"),
-      api("/admin/usage-settings"),
-      api("/admin/client-keys"),
-      api("/admin/system-settings"),
-    ]);
-    state.stats = stats;
-    state.keys = keys.keys || [];
-    state.events = events.events || [];
-    state.modelOverview = models;
-    state.usageSettings = usageSettings;
-    state.clientKeys = clientKeys.clientKeys || [];
-    state.systemSettings = systemSettings;
+    state.stats = await api("/admin/stats");
+    if (isAuthenticated()) {
+      const [keys, events, models, usageSettings, clientKeys, systemSettings] = await Promise.all([
+        api("/admin/keys"),
+        api(`/admin/events?${eventQuery.toString()}`),
+        api("/admin/models"),
+        api("/admin/usage-settings"),
+        api("/admin/client-keys"),
+        api("/admin/system-settings"),
+      ]);
+      state.keys = keys.keys || [];
+      state.events = events.events || [];
+      state.modelOverview = models;
+      state.usageSettings = usageSettings;
+      state.clientKeys = clientKeys.clientKeys || [];
+      state.systemSettings = systemSettings;
+      state.authMessage = null;
+      state.loginRequested = false;
+    } else {
+      state.keys = [];
+      state.events = [];
+      state.modelOverview = null;
+      state.usageSettings = null;
+      state.clientKeys = [];
+      state.systemSettings = null;
+    }
     state.loaded = true;
     state.loading = false;
     state.loadNotice = null;
-    state.authMessage = null;
     renderAll();
     return true;
   } catch (error) {
     state.loading = false;
     if (error.status === 401) {
-      state.token = "";
-      state.loaded = false;
+      if (state.authStatus) state.authStatus.authenticated = false;
+      state.loginRequested = true;
       state.authMessage = t("savedCredentialInvalid");
-      localStorage.removeItem(credentialStorageKey);
-      localStorage.removeItem(legacyCredentialStorageKey);
       renderAll();
       return false;
     }
@@ -1838,6 +1871,10 @@ function openThresholdDialog(keyId) {
 }
 
 async function actionForKey(keyId, action) {
+  if (!isAuthenticated()) {
+    requestAdminLogin();
+    return;
+  }
   if (action === "delete" && !confirm(t("confirmDelete"))) return;
   try {
     if (action === "key-settings") {
@@ -1883,8 +1920,8 @@ async function actionForKey(keyId, action) {
 }
 
 async function refreshOfficialUsage() {
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -1906,8 +1943,8 @@ async function refreshOfficialUsage() {
 }
 
 async function refreshModels() {
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -1989,8 +2026,8 @@ async function saveThresholds(event) {
 }
 
 async function testModel(modelId) {
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -2008,8 +2045,8 @@ async function testModel(modelId) {
 }
 
 async function toggleModel(modelId, enabled) {
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -2029,8 +2066,8 @@ async function toggleModel(modelId, enabled) {
 
 async function saveUsageSettings(event) {
   event.preventDefault();
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   const form = new FormData(event.currentTarget);
@@ -2075,21 +2112,30 @@ async function saveSystemSettings(event) {
 
 async function loginAdmin(event) {
   event.preventDefault();
-  state.token = String(new FormData(event.currentTarget).get("password") || "").trim();
-  state.authMessage = null;
-  localStorage.setItem(credentialStorageKey, state.token);
-  localStorage.removeItem(legacyCredentialStorageKey);
-  event.currentTarget.reset();
-  await refresh({ showErrors: true });
+  const formElement = event.currentTarget;
+  try {
+    const result = await api("/admin/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ password: String(new FormData(formElement).get("password") || "") }),
+    });
+    state.authStatus = result.status;
+    state.authMessage = null;
+    formElement.reset();
+    await refresh({ showErrors: true });
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
 }
 
-function logoutAdmin() {
-  state.token = "";
-  state.loaded = false;
-  state.authMessage = t("signedOutMessage");
-  localStorage.removeItem(credentialStorageKey);
-  localStorage.removeItem(legacyCredentialStorageKey);
-  renderAll();
+async function logoutAdmin() {
+  try {
+    await api("/admin/auth/logout", { method: "POST" });
+  } finally {
+    state.authStatus = { initialized: true, authenticated: false };
+    state.page = "overview";
+    state.authMessage = t("signedOutMessage");
+    await refresh({ showErrors: false });
+  }
 }
 
 async function setupAdminPassword(event) {
@@ -2111,10 +2157,8 @@ async function setupAdminPassword(event) {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body?.error?.message || t("requestFailed")(response.status));
-    state.token = password;
+    state.authStatus = body.status;
     state.authMessage = null;
-    localStorage.setItem(credentialStorageKey, state.token);
-    localStorage.removeItem(legacyCredentialStorageKey);
     formElement.reset();
     showNotice(t("adminPasswordSaved"));
     await refresh({ showErrors: true });
@@ -2133,16 +2177,14 @@ async function changeAdminPassword(event) {
     return;
   }
   try {
-    await api("/admin/auth/change-password", {
+    const result = await api("/admin/auth/change-password", {
       method: "POST",
       body: JSON.stringify({
         currentPassword: String(form.get("currentPassword") || ""),
         newPassword,
       }),
     });
-    state.token = newPassword;
-    localStorage.setItem(credentialStorageKey, state.token);
-    localStorage.removeItem(legacyCredentialStorageKey);
+    state.authStatus = result.status;
     formElement.reset();
     showNotice(t("adminPasswordSaved"));
     await refresh({ showErrors: true });
@@ -2152,8 +2194,8 @@ async function changeAdminPassword(event) {
 }
 
 async function exportYaml() {
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -2182,8 +2224,8 @@ async function importYaml(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
-  if (!state.token) {
-    showNotice(t("passwordRequired"), "error");
+  if (!isAuthenticated()) {
+    requestAdminLogin();
     return;
   }
   try {
@@ -2334,6 +2376,16 @@ function bindEvents() {
   });
   $("loginForm").addEventListener("submit", loginAdmin);
   $("logoutButton").addEventListener("click", logoutAdmin);
+  $("authOverviewButton").addEventListener("click", () => {
+    state.page = "overview";
+    state.loginRequested = false;
+    renderAll();
+  });
+  $("authUsageButton").addEventListener("click", () => {
+    state.page = "usage";
+    state.loginRequested = false;
+    renderAll();
+  });
   $("systemSettingsForm").addEventListener("submit", saveSystemSettings);
   $("systemSettingsForm").elements.keySelectionMode.addEventListener("change", (event) => {
     $("keySelectionModeHint").textContent = t(
@@ -2344,6 +2396,7 @@ function bindEvents() {
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => {
       state.page = button.dataset.page;
+      if (["overview", "usage"].includes(state.page)) state.loginRequested = false;
       renderAll();
     });
   });
@@ -2411,6 +2464,10 @@ function bindEvents() {
   $("usageOverview").addEventListener("click", (event) => {
     const addButton = event.target.closest("#addKeyButton");
     if (addButton) {
+      if (!isAuthenticated()) {
+        requestAdminLogin();
+        return;
+      }
       $("keyDialog").showModal();
       return;
     }
@@ -2451,5 +2508,5 @@ bindEvents();
 renderAll();
 loadAuthStatus().then(() => {
   renderAll();
-  if (state.token && state.authStatus?.initialized) refresh({ showErrors: false });
+  refresh({ showErrors: false });
 });

@@ -1,4 +1,4 @@
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "../config/env";
 import type { DatabaseStore } from "../storage/database";
 import type { ClientIdentity } from "../types/domain";
@@ -13,6 +13,8 @@ function bearerToken(req: Request): string | null {
 
 const ADMIN_PASSWORD_SETTING = "auth.adminPasswordHash";
 const HASH_ITERATIONS = 210_000;
+const ADMIN_SESSION_COOKIE = "ocp_admin_session";
+const ADMIN_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 export function generateClientToken(): string {
   return `ocp_${randomBytes(32).toString("base64url")}`;
@@ -44,19 +46,68 @@ export function setAdminPassword(store: DatabaseStore, password: string): void {
   store.setSetting(ADMIN_PASSWORD_SETTING, hashPassword(password));
 }
 
-export function adminAuthStatus(store: DatabaseStore) {
+function cookieValue(req: Request, name: string): string | null {
+  const cookies = req.headers.get("cookie") || "";
+  for (const item of cookies.split(";")) {
+    const [cookieName, ...parts] = item.trim().split("=");
+    if (cookieName === name) return parts.join("=") || null;
+  }
+  return null;
+}
+
+function sessionSignature(payload: string, passwordHash: string, secret: string): string {
+  return createHmac("sha256", `${secret}:${passwordHash}`).update(payload).digest("base64url");
+}
+
+function secureCookieAttribute(req: Request): string {
+  const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  return new URL(req.url).protocol === "https:" || forwardedProto === "https" ? "; Secure" : "";
+}
+
+export function isAdminAuthenticated(req: Request, store: DatabaseStore, secret: string): boolean {
+  const stored = store.getSetting(ADMIN_PASSWORD_SETTING);
+  if (!stored) return false;
+
+  const bearer = bearerToken(req);
+  if (bearer && verifyPassword(bearer, stored)) return true;
+
+  const session = cookieValue(req, ADMIN_SESSION_COOKIE);
+  if (!session) return false;
+  const [expiresText, nonce, signature] = session.split(".");
+  const expiresAt = Number(expiresText);
+  if (!expiresText || !nonce || !signature || !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) return false;
+  const expected = sessionSignature(`${expiresText}.${nonce}`, stored, secret);
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(signature);
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+export function adminSessionCookie(req: Request, store: DatabaseStore, secret: string): string {
+  const stored = store.getSetting(ADMIN_PASSWORD_SETTING);
+  if (!stored) throw new Error("Admin password setup required");
+  const expiresAt = Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
+  const payload = `${expiresAt}.${randomBytes(18).toString("base64url")}`;
+  const value = `${payload}.${sessionSignature(payload, stored, secret)}`;
+  return `${ADMIN_SESSION_COOKIE}=${value}; Path=/admin; Max-Age=${ADMIN_SESSION_MAX_AGE_SECONDS}; HttpOnly; SameSite=Strict${secureCookieAttribute(req)}`;
+}
+
+export function clearAdminSessionCookie(req: Request): string {
+  return `${ADMIN_SESSION_COOKIE}=; Path=/admin; Max-Age=0; HttpOnly; SameSite=Strict${secureCookieAttribute(req)}`;
+}
+
+export function adminAuthStatus(store: DatabaseStore, req: Request, secret: string) {
   return {
     initialized: isAdminInitialized(store),
+    authenticated: isAdminAuthenticated(req, store, secret),
   };
 }
 
-export function requireAdmin(req: Request, store: DatabaseStore): Response | null {
-  const token = bearerToken(req);
+export function requireAdmin(req: Request, store: DatabaseStore, secret: string): Response | null {
   const stored = store.getSetting(ADMIN_PASSWORD_SETTING);
   if (!stored) {
     return openAiError(401, "admin_setup_required", "Admin password setup required");
   }
-  if (!token || !verifyPassword(token, stored)) {
+  if (!isAdminAuthenticated(req, store, secret)) {
     return openAiError(401, "unauthorized", "Admin password required");
   }
   return null;

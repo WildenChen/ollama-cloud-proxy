@@ -280,6 +280,12 @@ svg {
   min-width: 120px;
 }
 
+.authPublicLinks {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .authHint {
   min-height: 22px;
 }

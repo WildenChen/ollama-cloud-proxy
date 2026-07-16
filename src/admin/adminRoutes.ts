@@ -14,6 +14,8 @@ import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } f
 import { APP_VERSION } from "../config/version";
 import {
   adminAuthStatus,
+  adminSessionCookie,
+  clearAdminSessionCookie,
   generateClientToken,
   hashPassword,
   isAdminInitialized,
@@ -67,8 +69,10 @@ export class AdminRoutes {
   ) {}
 
   async handle(req: Request, path: string): Promise<Response> {
-    if (path === "/admin/auth/status" && req.method === "GET") return json(adminAuthStatus(this.store));
+    if (path === "/admin/auth/status" && req.method === "GET") return this.adminStatus(req);
     if (path === "/admin/auth/setup" && req.method === "POST") return this.setupAdminPassword(req);
+    if (path === "/admin/auth/login" && req.method === "POST") return this.loginAdmin(req);
+    if (path === "/admin/auth/logout" && req.method === "POST") return this.logoutAdmin(req);
     if (path === "/admin/auth/change-password" && req.method === "POST") return this.changeAdminPassword(req);
     if (path === "/admin/export.yaml" && req.method === "GET") return this.exportYaml();
     if (path === "/admin/import.yaml" && req.method === "POST") return this.importYaml(req);
@@ -132,10 +136,43 @@ export class AdminRoutes {
         type: "admin_password_changed",
         message: "Admin password initialized",
       });
-      return json({ ok: true, status: adminAuthStatus(this.store) }, 201);
+      return json(
+        { ok: true, status: { initialized: true, authenticated: true } },
+        201,
+        { "set-cookie": adminSessionCookie(req, this.store, this.config.keyEncryptionSecret) }
+      );
     } catch (error) {
       return openAiError(400, "invalid_admin_password", (error as Error).message);
     }
+  }
+
+  private adminStatus(req: Request) {
+    const status = adminAuthStatus(this.store, req, this.config.keyEncryptionSecret);
+    const headers = status.authenticated
+      ? { "set-cookie": adminSessionCookie(req, this.store, this.config.keyEncryptionSecret) }
+      : undefined;
+    return json(status, 200, headers);
+  }
+
+  private async loginAdmin(req: Request) {
+    try {
+      const body = await readJson(req);
+      const stored = this.store.getSetting("auth.adminPasswordHash");
+      if (!stored || !verifyPassword(String(body.password || ""), stored)) {
+        return openAiError(401, "unauthorized", "Admin password is invalid");
+      }
+      return json(
+        { ok: true, status: { initialized: true, authenticated: true } },
+        200,
+        { "set-cookie": adminSessionCookie(req, this.store, this.config.keyEncryptionSecret) }
+      );
+    } catch (error) {
+      return openAiError(400, "invalid_admin_login", (error as Error).message);
+    }
+  }
+
+  private logoutAdmin(req: Request) {
+    return json({ ok: true }, 200, { "set-cookie": clearAdminSessionCookie(req) });
   }
 
   private async changeAdminPassword(req: Request) {
@@ -153,7 +190,11 @@ export class AdminRoutes {
         type: "admin_password_changed",
         message: "Admin password changed",
       });
-      return json({ ok: true, status: adminAuthStatus(this.store) });
+      return json(
+        { ok: true, status: { initialized: true, authenticated: true } },
+        200,
+        { "set-cookie": adminSessionCookie(req, this.store, this.config.keyEncryptionSecret) }
+      );
     } catch (error) {
       return openAiError(400, "invalid_admin_password", (error as Error).message);
     }
