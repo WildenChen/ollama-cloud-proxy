@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config/env";
-import type { DatabaseStore, KeyMutationPatch } from "../storage/database";
+import type { DatabaseStore, KeyMutationPatch, TokenUsageInput } from "../storage/database";
 import type { EventStore } from "../events/eventStore";
 import type { ErrorClassification, KeyRecord, PublicKeyRecord } from "../types/domain";
 import { apiKeyPreview, KeyCipher } from "../security/encryption";
@@ -49,13 +49,39 @@ function parseRemainingThreshold(value: unknown, field: string): number | null {
   return threshold;
 }
 
+function parseQuotaLimit(value: unknown, field: string): number | null {
+  if (value === null || value === "") return null;
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit <= 0) throw new Error(`${field} must be greater than 0`);
+  return limit;
+}
+
 export class KeyPoolManager {
+  private usageHooks: {
+    onSelected?: (keyId: string) => void;
+    onSuccess?: (keyId: string, usage?: TokenUsageInput) => void;
+    onRateLimit?: (keyId: string) => void;
+    onCookieChanged?: (keyId: string) => void;
+  } = {};
+
   constructor(
     private readonly config: AppConfig,
     private readonly store: DatabaseStore,
     private readonly events: EventStore,
     private readonly cipher: KeyCipher
   ) {}
+
+  setUsageHooks(hooks: typeof this.usageHooks): void {
+    this.usageHooks = hooks;
+  }
+
+  notifyUsageRateLimit(keyId: string): void {
+    this.usageHooks.onRateLimit?.(keyId);
+  }
+
+  notifyUsageCookieChanged(keyId: string): void {
+    this.usageHooks.onCookieChanged?.(keyId);
+  }
 
   listPublic(includeDeleted = false) {
     const now = Date.now();
@@ -131,6 +157,8 @@ export class KeyPoolManager {
         "weeklyRemainingThresholdPercent"
       );
     }
+    if ("sessionQuotaLimit" in body) patch.sessionQuotaLimit = parseQuotaLimit(body.sessionQuotaLimit, "sessionQuotaLimit");
+    if ("weeklyQuotaLimit" in body) patch.weeklyQuotaLimit = parseQuotaLimit(body.weeklyQuotaLimit, "weeklyQuotaLimit");
     if (typeof body.ollamaUsageCookie === "string") {
       const value = body.ollamaUsageCookie.trim();
       patch.encryptedOllamaUsageCookie = value ? this.cipher.encrypt(value) : null;
@@ -254,6 +282,7 @@ export class KeyPoolManager {
     const selected = this.selectCandidate(excludedKeyIds);
     if (!selected) return null;
     const key = this.store.incrementKeyActive(selected.id);
+    this.usageHooks.onSelected?.(key.id);
     this.events.emit({
       level: "debug",
       type: "key_selected",
@@ -277,7 +306,7 @@ export class KeyPoolManager {
     this.store.decrementKeyActive(id);
   }
 
-  markSuccess(id: string, durationMs: number) {
+  markSuccess(id: string, durationMs: number, tokenUsage?: TokenUsageInput) {
     const current = this.store.getKeyOrThrow(id, true);
     const now = isoNow();
     const usage = this.rolloverUsagePatch(current, new Date(now));
@@ -308,6 +337,7 @@ export class KeyPoolManager {
       keyName: key.name,
       durationMs,
     });
+    this.usageHooks.onSuccess?.(key.id, tokenUsage);
   }
 
   markFailure(id: string, classification: ErrorClassification, durationMs?: number) {

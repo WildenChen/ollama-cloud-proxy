@@ -352,7 +352,7 @@ export class ProxyHandler {
       slot.release();
       const durationMs = Date.now() - startedAt;
       if (ok) {
-        this.keyPool.markSuccess(key.id, durationMs);
+        this.keyPool.markSuccess(key.id, durationMs, usage);
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", true, undefined, usage);
         this.events.emit({
           level: "info",
@@ -404,6 +404,7 @@ export class ProxyHandler {
 
       if (!upstream.ok) {
         const errorBody = await upstream.text();
+        if (upstream.status === 429) this.keyPool.notifyUsageRateLimit(key.id);
         if (
           options.responseFormat === "passthrough" &&
           upstream.status >= 400 &&

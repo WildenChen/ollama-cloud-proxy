@@ -12,6 +12,11 @@ export type AppConfig = {
   ollamaCloudUsageUrl: string;
   ollamaUsageCookie: string | null;
   ollamaUsageRefreshTtlSeconds: number;
+  usageApiEnabled: boolean;
+  usageOfficialStaleSeconds: number;
+  usageRefreshDebounceSeconds: number;
+  usageRefreshJitterSeconds: number;
+  usageEstimateUnitsPerSuccess: number;
   maxConcurrentRequests: number;
   maxConcurrentRequestsPerKey: number;
   requestQueueMax: number;
@@ -67,6 +72,18 @@ function numberEnv(name: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number`);
   return parsed;
+}
+
+function nonNegativeNumberEnv(name: string, fallback: number): number {
+  const value = numberEnv(name, fallback);
+  if (value < 0) throw new Error(`${name} must be greater than or equal to 0`);
+  return value;
+}
+
+function positiveNumberEnv(name: string, fallback: number): number {
+  const value = numberEnv(name, fallback);
+  if (value <= 0) throw new Error(`${name} must be greater than 0`);
+  return value;
 }
 
 function booleanEnv(name: string, fallback: boolean): boolean {
@@ -149,6 +166,11 @@ export function loadConfig(): AppConfig {
       process.env.OLLAMA_CLOUD_USAGE_COOKIE?.trim() ||
       null,
     ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 300),
+    usageApiEnabled: booleanEnv("USAGE_API_ENABLED", true),
+    usageOfficialStaleSeconds: positiveNumberEnv("USAGE_OFFICIAL_STALE_SECONDS", 900),
+    usageRefreshDebounceSeconds: nonNegativeNumberEnv("USAGE_REFRESH_DEBOUNCE_SECONDS", 300),
+    usageRefreshJitterSeconds: nonNegativeNumberEnv("USAGE_REFRESH_JITTER_SECONDS", 30),
+    usageEstimateUnitsPerSuccess: positiveNumberEnv("USAGE_ESTIMATE_UNITS_PER_SUCCESS", 1),
     maxConcurrentRequests: numberEnv("MAX_CONCURRENT_REQUESTS", 5),
     maxConcurrentRequestsPerKey: numberEnv("MAX_CONCURRENT_REQUESTS_PER_KEY", 1),
     requestQueueMax: numberEnv("REQUEST_QUEUE_MAX", 30),

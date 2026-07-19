@@ -68,6 +68,8 @@ export type KeyMutationPatch = Partial<{
   ollamaUsageLastError: string | null;
   sessionRemainingThresholdPercent: number | null;
   weeklyRemainingThresholdPercent: number | null;
+  sessionQuotaLimit: number | null;
+  weeklyQuotaLimit: number | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;
@@ -80,6 +82,26 @@ export type TokenUsageInput = {
   completionTokens?: number;
   totalTokens?: number;
   cachedTokens?: number;
+};
+
+export type UsageAccountState = {
+  keyId: string;
+  officialJson: string | null;
+  officialFetchedAt: string | null;
+  officialCheckedAt: string | null;
+  officialChangedAt: string | null;
+  baselineLedgerId: number;
+  lastErrorCode: string | null;
+  lastErrorAt: string | null;
+};
+
+export type UsageLedgerTotals = {
+  units: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  lastRecordedAt: string | null;
 };
 
 export type UsageSettings = {
@@ -142,6 +164,8 @@ function keyFromRow(row: Row): KeyRecord {
     ollamaUsageLastError: asString(row.ollamaUsageLastError),
     sessionRemainingThresholdPercent: asNumberOrNull(row.sessionRemainingThresholdPercent),
     weeklyRemainingThresholdPercent: asNumberOrNull(row.weeklyRemainingThresholdPercent),
+    sessionQuotaLimit: asNumberOrNull(row.sessionQuotaLimit),
+    weeklyQuotaLimit: asNumberOrNull(row.weeklyQuotaLimit),
     totalRequests: asNumber(row.totalRequests),
     totalSuccesses: asNumber(row.totalSuccesses),
     totalFailures: asNumber(row.totalFailures),
@@ -209,6 +233,8 @@ export class DatabaseStore {
         ollamaUsageLastError TEXT,
         sessionRemainingThresholdPercent REAL,
         weeklyRemainingThresholdPercent REAL,
+        sessionQuotaLimit REAL,
+        weeklyQuotaLimit REAL,
         totalRequests INTEGER NOT NULL DEFAULT 0,
         totalSuccesses INTEGER NOT NULL DEFAULT 0,
         totalFailures INTEGER NOT NULL DEFAULT 0,
@@ -244,6 +270,33 @@ export class DatabaseStore {
       CREATE INDEX IF NOT EXISTS idx_events_client ON events(clientName);
       CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
       CREATE INDEX IF NOT EXISTS idx_events_level ON events(level);
+
+      CREATE TABLE IF NOT EXISTS usage_account_state (
+        keyId TEXT PRIMARY KEY,
+        officialJson TEXT,
+        officialFetchedAt TEXT,
+        officialCheckedAt TEXT,
+        officialChangedAt TEXT,
+        baselineLedgerId INTEGER NOT NULL DEFAULT 0,
+        lastErrorCode TEXT,
+        lastErrorAt TEXT,
+        FOREIGN KEY (keyId) REFERENCES keys(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        keyId TEXT NOT NULL,
+        recordedAt TEXT NOT NULL,
+        units REAL NOT NULL,
+        promptTokens INTEGER NOT NULL DEFAULT 0,
+        completionTokens INTEGER NOT NULL DEFAULT 0,
+        totalTokens INTEGER NOT NULL DEFAULT 0,
+        cachedTokens INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (keyId) REFERENCES keys(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_usage_ledger_key_id ON usage_ledger(keyId, id);
+      CREATE INDEX IF NOT EXISTS idx_usage_ledger_recorded ON usage_ledger(recordedAt);
 
       CREATE TABLE IF NOT EXISTS client_stats (
         clientName TEXT NOT NULL,
@@ -326,6 +379,8 @@ export class DatabaseStore {
     this.ensureColumn("keys", "ollamaUsageLastError", "TEXT");
     this.ensureColumn("keys", "sessionRemainingThresholdPercent", "REAL");
     this.ensureColumn("keys", "weeklyRemainingThresholdPercent", "REAL");
+    this.ensureColumn("keys", "sessionQuotaLimit", "REAL");
+    this.ensureColumn("keys", "weeklyQuotaLimit", "REAL");
   }
 
   private ensureColumn(table: string, column: string, definition: string) {
@@ -496,6 +551,120 @@ export class DatabaseStore {
     sets.push("updatedAt = $updatedAt");
     this.db.query(`UPDATE keys SET ${sets.join(", ")} WHERE id = $id`).run(params as any);
     return this.getKeyOrThrow(id, true);
+  }
+
+  getUsageAccountState(keyId: string): UsageAccountState | null {
+    const row = this.db
+      .query("SELECT * FROM usage_account_state WHERE keyId = $keyId")
+      .get({ $keyId: keyId }) as Row | null;
+    if (!row) return null;
+    return {
+      keyId: String(row.keyId),
+      officialJson: asString(row.officialJson),
+      officialFetchedAt: asString(row.officialFetchedAt),
+      officialCheckedAt: asString(row.officialCheckedAt),
+      officialChangedAt: asString(row.officialChangedAt),
+      baselineLedgerId: asNumber(row.baselineLedgerId),
+      lastErrorCode: asString(row.lastErrorCode),
+      lastErrorAt: asString(row.lastErrorAt),
+    };
+  }
+
+  upsertUsageAccountState(state: UsageAccountState): UsageAccountState {
+    this.db
+      .query(
+        `INSERT INTO usage_account_state (
+          keyId, officialJson, officialFetchedAt, officialCheckedAt, officialChangedAt,
+          baselineLedgerId, lastErrorCode, lastErrorAt
+        ) VALUES (
+          $keyId, $officialJson, $officialFetchedAt, $officialCheckedAt, $officialChangedAt,
+          $baselineLedgerId, $lastErrorCode, $lastErrorAt
+        )
+        ON CONFLICT(keyId) DO UPDATE SET
+          officialJson = $officialJson,
+          officialFetchedAt = $officialFetchedAt,
+          officialCheckedAt = $officialCheckedAt,
+          officialChangedAt = $officialChangedAt,
+          baselineLedgerId = $baselineLedgerId,
+          lastErrorCode = $lastErrorCode,
+          lastErrorAt = $lastErrorAt`
+      )
+      .run({
+        $keyId: state.keyId,
+        $officialJson: state.officialJson,
+        $officialFetchedAt: state.officialFetchedAt,
+        $officialCheckedAt: state.officialCheckedAt,
+        $officialChangedAt: state.officialChangedAt,
+        $baselineLedgerId: state.baselineLedgerId,
+        $lastErrorCode: state.lastErrorCode,
+        $lastErrorAt: state.lastErrorAt,
+      });
+    return this.getUsageAccountState(state.keyId)!;
+  }
+
+  latestUsageLedgerId(keyId: string): number {
+    const row = this.db
+      .query("SELECT COALESCE(MAX(id), 0) AS id FROM usage_ledger WHERE keyId = $keyId")
+      .get({ $keyId: keyId }) as Row;
+    return asNumber(row.id);
+  }
+
+  recordUsageLedger(keyId: string, units: number, usage?: TokenUsageInput): void {
+    this.db
+      .query(
+        `INSERT INTO usage_ledger (
+          keyId, recordedAt, units, promptTokens, completionTokens, totalTokens, cachedTokens
+        ) VALUES (
+          $keyId, $recordedAt, $units, $promptTokens, $completionTokens, $totalTokens, $cachedTokens
+        )`
+      )
+      .run({
+        $keyId: keyId,
+        $recordedAt: isoNow(),
+        $units: units,
+        $promptTokens: usage?.promptTokens ?? 0,
+        $completionTokens: usage?.completionTokens ?? 0,
+        $totalTokens: usage?.totalTokens ?? 0,
+        $cachedTokens: usage?.cachedTokens ?? 0,
+      });
+  }
+
+  getUsageLedgerTotals(keyId: string, options: { afterId?: number; since?: string } = {}): UsageLedgerTotals {
+    const clauses = ["keyId = $keyId"];
+    const params: Record<string, unknown> = { $keyId: keyId };
+    if (typeof options.afterId === "number") {
+      clauses.push("id > $afterId");
+      params.$afterId = options.afterId;
+    }
+    if (options.since) {
+      clauses.push("recordedAt >= $since");
+      params.$since = options.since;
+    }
+    const row = this.db
+      .query(
+        `SELECT
+          COALESCE(SUM(units), 0) AS units,
+          COALESCE(SUM(promptTokens), 0) AS promptTokens,
+          COALESCE(SUM(completionTokens), 0) AS completionTokens,
+          COALESCE(SUM(totalTokens), 0) AS totalTokens,
+          COALESCE(SUM(cachedTokens), 0) AS cachedTokens,
+          MAX(recordedAt) AS lastRecordedAt
+        FROM usage_ledger WHERE ${clauses.join(" AND ")}`
+      )
+      .get(params as any) as Row;
+    return {
+      units: asNumber(row.units),
+      promptTokens: asNumber(row.promptTokens),
+      completionTokens: asNumber(row.completionTokens),
+      totalTokens: asNumber(row.totalTokens),
+      cachedTokens: asNumber(row.cachedTokens),
+      lastRecordedAt: asString(row.lastRecordedAt),
+    };
+  }
+
+  cleanupUsageLedger(retentionDays = 8): void {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    this.db.query("DELETE FROM usage_ledger WHERE recordedAt < $cutoff").run({ $cutoff: cutoff });
   }
 
   incrementKeyActive(id: string): KeyRecord {

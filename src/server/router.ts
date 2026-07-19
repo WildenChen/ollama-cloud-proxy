@@ -9,6 +9,7 @@ import type { WebService } from "../web/webService";
 import { APP_VERSION } from "../config/version";
 import type { DatabaseStore } from "../storage/database";
 import type { KeyCipher } from "../security/encryption";
+import type { UsageService } from "../usage/usageService";
 
 export class Router {
   constructor(
@@ -19,7 +20,8 @@ export class Router {
     private readonly keyPool: KeyPoolManager,
     private readonly web: WebService,
     private readonly store: DatabaseStore,
-    private readonly cipher: KeyCipher
+    private readonly cipher: KeyCipher,
+    private readonly usageService: UsageService
   ) {}
 
   async handle(req: Request): Promise<Response> {
@@ -32,6 +34,15 @@ export class Router {
         concurrency: this.concurrency.stats(),
         keys: this.keyPool.summary(),
       });
+    }
+
+    if ((path === "/api/usage" || path === "/api/usage/accounts") && req.method === "GET") {
+      if (!this.config.usageApiEnabled) return notFound();
+      return json(
+        path.endsWith("/accounts") ? this.usageService.accountsSnapshot() : this.usageService.overviewSnapshot(),
+        200,
+        { "cache-control": "no-store" }
+      );
     }
 
     if (path === "/admin" && req.method === "GET") {

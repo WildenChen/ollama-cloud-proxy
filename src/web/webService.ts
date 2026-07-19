@@ -340,6 +340,7 @@ export class WebService {
 
       if (!upstream.ok) {
         const errorBody = await upstream.text();
+        if (upstream.status === 429) this.keyPool.notifyUsageRateLimit(key.id);
         const classification = await classifyUpstreamResponse(
           upstream.status,
           errorBody,

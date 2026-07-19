@@ -53,6 +53,18 @@ OLLAMA_USAGE_COOKIE=__Secure-session=...
 
 多帳號時建議在 Admin UI 設定 per-key cookie，不要只用 env fallback。
 
+公開用量 API 與刷新/估算設定：
+
+| 變數 | 預設值 | 說明 |
+| --- | --- | --- |
+| `USAGE_API_ENABLED` | `true` | 公開 `/api/usage*` 與自動 ledger/刷新 hooks；不影響 Admin 手動刷新 |
+| `USAGE_OFFICIAL_STALE_SECONDS` | `900` | 最近成功官方確認超過多久標為 stale |
+| `USAGE_REFRESH_DEBOUNCE_SECONDS` | `300` | 有流量 account 的刷新 debounce |
+| `USAGE_REFRESH_JITTER_SECONDS` | `30` | 避免多帳號同時刷新的隨機延遲上限 |
+| `USAGE_ESTIMATE_UNITS_PER_SUCCESS` | `1` | 每次成功上游請求增加的標準化估算點數 |
+
+公開 schema 與 OpenClaw 串接方式見 [OpenClaw 用量整合](./openclaw-usage-integration.md)。
+
 ## 併發與排隊
 
 | 變數 | 預設值 | 說明 |

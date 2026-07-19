@@ -9,6 +9,15 @@ curl http://localhost:11435/health
 curl http://localhost:11435/api/version
 ```
 
+## 公開用量 API
+
+```bash
+curl http://localhost:11435/api/usage | jq .
+curl http://localhost:11435/api/usage/accounts | jq .
+```
+
+兩個 endpoint 都是公開唯讀，僅回傳匿名 account ID 與額度資料。完整 schema、來源與 stale/reset 定義見 [OpenClaw 用量整合](./openclaw-usage-integration.md)。強制刷新仍需要下方的 Admin 認證。
+
 ## Admin 認證
 
 查詢狀態：

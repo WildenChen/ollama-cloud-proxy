@@ -9,7 +9,8 @@ import { publicKey } from "../keyPool/keyPoolManager";
 import type { ModelManager } from "../models/modelManager";
 import type { DatabaseStore, UsageSettingsPatch } from "../storage/database";
 import type { KeyRecord } from "../types/domain";
-import { fetchOllamaCloudUsage, type OllamaCloudUsageSnapshot } from "../usage/ollamaCloudUsage";
+import type { OllamaCloudUsageSnapshot } from "../usage/ollamaCloudUsage";
+import type { UsageService } from "../usage/usageService";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
 import {
@@ -65,7 +66,8 @@ export class AdminRoutes {
     private readonly concurrency: ConcurrencyManager,
     private readonly events: EventStore,
     private readonly models: ModelManager,
-    private readonly cipher: KeyCipher
+    private readonly cipher: KeyCipher,
+    private readonly usageService: UsageService
   ) {}
 
   async handle(req: Request, path: string): Promise<Response> {
@@ -321,6 +323,8 @@ export class AdminRoutes {
       enabled: key.enabled,
       sessionRemainingThresholdPercent: key.sessionRemainingThresholdPercent,
       weeklyRemainingThresholdPercent: key.weeklyRemainingThresholdPercent,
+      sessionQuotaLimit: key.sessionQuotaLimit,
+      weeklyQuotaLimit: key.weeklyQuotaLimit,
     }));
     const clientApiKeys = this.store.listClientApiKeys(false).map((key) => ({
       name: key.name,
@@ -359,6 +363,7 @@ export class AdminRoutes {
         const apiKey = String(key.apiKey || "").trim();
         if (!name || !apiKey) continue;
         const existing = this.store.listKeys(false).find((row) => row.name === name);
+        let importedKeyId: string;
         if (existing) {
           const patch: Parameters<DatabaseStore["patchKey"]>[1] = {
             name,
@@ -382,14 +387,25 @@ export class AdminRoutes {
             patch.weeklyRemainingThresholdPercent =
               key.weeklyRemainingThresholdPercent === null ? null : Number(key.weeklyRemainingThresholdPercent);
           }
+          if ("sessionQuotaLimit" in key) {
+            patch.sessionQuotaLimit = key.sessionQuotaLimit === null ? null : Number(key.sessionQuotaLimit);
+          }
+          if ("weeklyQuotaLimit" in key) {
+            patch.weeklyQuotaLimit = key.weeklyQuotaLimit === null ? null : Number(key.weeklyQuotaLimit);
+          }
           this.store.patchKey(existing.id, patch);
+          importedKeyId = existing.id;
         } else {
-          this.keyPool.create({
+          const created = this.keyPool.create({
             name,
             apiKey,
             ollamaUsageCookie: typeof key.ollamaUsageCookie === "string" ? key.ollamaUsageCookie : null,
             notes: key.notes ? String(key.notes) : null,
           });
+          importedKeyId = created.id;
+        }
+        if (typeof key.ollamaUsageCookie === "string" && key.ollamaUsageCookie.trim()) {
+          this.keyPool.notifyUsageCookieChanged(importedKeyId);
         }
         upstreamKeysImported += 1;
       }
@@ -439,6 +455,7 @@ export class AdminRoutes {
         apiKey: String(body.apiKey || ""),
         ollamaUsageCookie: body.ollamaUsageCookie ? String(body.ollamaUsageCookie) : null,
       });
+      if (body.ollamaUsageCookie) this.keyPool.notifyUsageCookieChanged(key.id);
       return json({ key }, 201);
     } catch (error) {
       return openAiError(400, "invalid_request", (error as Error).message);
@@ -448,7 +465,11 @@ export class AdminRoutes {
   private async patchKey(req: Request, id: string) {
     try {
       const body = await readJson(req);
-      return json({ key: this.keyPool.patchMetadata(id, body) });
+      const key = this.keyPool.patchMetadata(id, body);
+      if ("ollamaUsageCookie" in body || body.clearOllamaUsageCookie === true) {
+        this.keyPool.notifyUsageCookieChanged(id);
+      }
+      return json({ key });
     } catch (error) {
       return openAiError(400, "invalid_request", (error as Error).message);
     }
@@ -891,8 +912,10 @@ export class AdminRoutes {
     const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
     const keyCards: OfficialKeyUsageCard[] = [];
 
+    if (forceRefresh) await this.usageService.refreshMany(keys.map((key) => key.id));
+
     for (const key of keys) {
-      const official = await this.officialUsageForKey(key, forceRefresh);
+      const official = await this.officialUsageForKey(key, false);
       const currentKey = this.store.getKey(key.id, false) ?? key;
       const accountId = `key:${currentKey.id}`;
       const accountName = currentKey.name;
@@ -996,6 +1019,7 @@ export class AdminRoutes {
   }
 
   private officialUsageCardForKey(key: KeyRecord, official: OllamaCloudUsageSnapshot | null): OfficialKeyUsageCard {
+    const usageState = this.store.getUsageAccountState(key.id);
     return {
       id: key.id,
       name: key.name,
@@ -1007,7 +1031,7 @@ export class AdminRoutes {
       nextEligibleAt: key.nextEligibleAt,
       hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
       plan: official?.plan ?? null,
-      fetchedAt: key.ollamaUsageLastRefreshAt,
+      fetchedAt: usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt,
       lastError: key.ollamaUsageLastError,
       session: official?.session ?? null,
       weekly: official?.weekly ?? null,
@@ -1030,86 +1054,7 @@ export class AdminRoutes {
   }
 
   private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
-    const cookie = this.keyPool.decryptOllamaUsageCookie(key) || this.config.ollamaUsageCookie;
-    const snapshot = this.parseUsageSnapshot(key.ollamaUsageJson);
-    const lastRefreshMs = key.ollamaUsageLastRefreshAt ? Date.parse(key.ollamaUsageLastRefreshAt) : 0;
-    const stale = !lastRefreshMs || Date.now() - lastRefreshMs > this.config.ollamaUsageRefreshTtlSeconds * 1000;
-    if (!forceRefresh && snapshot && !stale) return snapshot;
-
-    if (!cookie) {
-      this.store.patchKey(key.id, {
-        ollamaUsageLastError: "Ollama Cloud usage cookie is not configured.",
-        ollamaUsageLastRefreshAt: new Date().toISOString(),
-      });
-      return snapshot;
-    }
-
-    const result = await fetchOllamaCloudUsage({
-      cookie,
-      usageUrl: this.config.ollamaCloudUsageUrl,
-      timeoutMs: Math.min(this.config.upstreamTotalTimeoutMs, 10_000),
-    });
-    if (!result.ok) {
-      this.store.patchKey(key.id, {
-        ollamaUsageLastError: result.message,
-        ollamaUsageLastRefreshAt: new Date().toISOString(),
-      });
-      this.events.emit({
-        level: "warn",
-        type: "official_usage_refresh_failed",
-        message: result.message,
-        keyId: key.id,
-        keyName: key.name,
-        details: { status: result.status },
-      });
-      return snapshot;
-    }
-
-    const next = result.snapshot;
-    this.store.patchKey(key.id, {
-      ollamaUsageJson: JSON.stringify(next),
-      ollamaUsageLastRefreshAt: next.fetchedAt,
-      ollamaUsageLastError: null,
-      usageSource: "dashboard_scraped",
-      resetSource: "dashboard_observed",
-    });
-    this.events.emit({
-      level: "info",
-      type: "official_usage_refreshed",
-      message: `Official Ollama Cloud usage refreshed for ${key.name}`,
-      keyId: key.id,
-      keyName: key.name,
-      details: { session: next.session, weekly: next.weekly, plan: next.plan },
-    });
-    this.applyOfficialUsageBlock(key, next);
-    return next;
-  }
-
-  private applyOfficialUsageBlock(key: KeyRecord, snapshot: OllamaCloudUsageSnapshot) {
-    const exhausted = (window: OfficialUsageWindow | null, threshold: number) =>
-      Boolean(window && window.remainingPercent <= threshold);
-    const sessionThreshold = this.effectiveRemainingThreshold(key.sessionRemainingThresholdPercent);
-    const weeklyThreshold = this.effectiveRemainingThreshold(key.weeklyRemainingThresholdPercent);
-    if (exhausted(snapshot.session, sessionThreshold)) {
-      const settings = this.store.getUsageSettings(this.config);
-      const fallback = getNextAnchoredIntervalResetAt(new Date(), settings.sessionResetAnchor, settings.sessionResetIntervalHours).toISOString();
-      this.keyPool.markOfficialUsageBlocked(key.id, "session_blocked", snapshot.session?.resetAt || fallback);
-      return;
-    }
-    if (exhausted(snapshot.weekly, weeklyThreshold)) {
-      const settings = this.store.getUsageSettings(this.config);
-      const fallback = getNextFixedWeeklyResetAt(new Date(), settings.usageTimezone, settings.weeklyResetDayOfWeek, settings.weeklyResetTime).toISOString();
-      this.keyPool.markOfficialUsageBlocked(key.id, "weekly_blocked", snapshot.weekly?.resetAt || fallback);
-      return;
-    }
-    if ((key.status === "session_blocked" || key.status === "weekly_blocked") && key.usageSource === "dashboard_scraped") {
-      this.store.patchKey(key.id, {
-        status: key.enabled ? "available" : "disabled",
-        blockReason: key.enabled ? "none" : key.blockReason,
-        cooldownUntil: null,
-        nextEligibleAt: null,
-      });
-    }
+    return this.usageService.refreshKey(key.id, forceRefresh);
   }
 
   private parseUsageSnapshot(value: string | null): OllamaCloudUsageSnapshot | null {
@@ -1127,7 +1072,8 @@ export class AdminRoutes {
     key: KeyRecord,
     official: OllamaCloudUsageSnapshot | null
   ) {
-    const lastRefresh = key.ollamaUsageLastRefreshAt;
+    const usageState = this.store.getUsageAccountState(key.id);
+    const lastRefresh = usageState?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
     const stale = lastRefresh
       ? Date.now() - Date.parse(lastRefresh) > this.config.ollamaUsageRefreshTtlSeconds * 1000
       : false;
@@ -1138,7 +1084,7 @@ export class AdminRoutes {
       id: key.id,
       name: key.name,
       hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
-      fetchedAt: key.ollamaUsageLastRefreshAt,
+      fetchedAt: usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt,
       lastError: key.ollamaUsageLastError,
       session: official?.session ?? null,
       weekly: official?.weekly ?? null,

@@ -26,6 +26,13 @@ export type UsageSource =
   | "dashboard_scraped"
   | "official_api";
 
+export type EffectiveUsageSource =
+  | "official"
+  | "official_adjusted"
+  | "estimated"
+  | "local_only"
+  | "unknown";
+
 export type ResetSource =
   | "manual_anchor"
   | "fixed_weekly"
@@ -105,6 +112,8 @@ export type KeyRecord = {
   ollamaUsageLastError: string | null;
   sessionRemainingThresholdPercent: number | null;
   weeklyRemainingThresholdPercent: number | null;
+  sessionQuotaLimit: number | null;
+  weeklyQuotaLimit: number | null;
   totalRequests: number;
   totalSuccesses: number;
   totalFailures: number;

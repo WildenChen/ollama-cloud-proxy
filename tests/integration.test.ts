@@ -12,6 +12,7 @@ import { setAdminPassword } from "../src/security/auth";
 import { KeyCipher } from "../src/security/encryption";
 import { DatabaseStore } from "../src/storage/database";
 import { normalizeOllamaUsageCookie, parseOllamaCloudSettingsHtml } from "../src/usage/ollamaCloudUsage";
+import { UsageService } from "../src/usage/usageService";
 import { WebService } from "../src/web/webService";
 
 const servers: Array<{ stop: (force?: boolean) => void }> = [];
@@ -35,6 +36,11 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     ollamaCloudUsageUrl: "http://127.0.0.1:1/settings",
     ollamaUsageCookie: null,
     ollamaUsageRefreshTtlSeconds: 300,
+    usageApiEnabled: true,
+    usageOfficialStaleSeconds: 900,
+    usageRefreshDebounceSeconds: 300,
+    usageRefreshJitterSeconds: 0,
+    usageEstimateUnitsPerSuccess: 1,
     maxConcurrentRequests: 5,
     maxConcurrentRequestsPerKey: 1,
     requestQueueMax: 30,
@@ -73,14 +79,21 @@ function createApp(appConfig: AppConfig, initializeAdmin = true) {
   const events = new EventStore(store);
   const concurrency = new ConcurrencyManager(appConfig, events);
   const keyPool = new KeyPoolManager(appConfig, store, events, new KeyCipher(appConfig.keyEncryptionSecret));
+  const usageService = new UsageService(appConfig, store, keyPool, events);
+  keyPool.setUsageHooks({
+    onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
+    onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
+    onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
+    onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
+  });
   const models = new ModelManager(appConfig, store);
-  const admin = new AdminRoutes(appConfig, store, keyPool, concurrency, events, models, new KeyCipher(appConfig.keyEncryptionSecret));
+  const admin = new AdminRoutes(appConfig, store, keyPool, concurrency, events, models, new KeyCipher(appConfig.keyEncryptionSecret), usageService);
   const proxy = new ProxyHandler(appConfig, concurrency, keyPool, models, events, store);
   const web = new WebService(appConfig, concurrency, keyPool, events, store);
-  const router = new Router(appConfig, admin, proxy, concurrency, keyPool, web, store, new KeyCipher(appConfig.keyEncryptionSecret));
+  const router = new Router(appConfig, admin, proxy, concurrency, keyPool, web, store, new KeyCipher(appConfig.keyEncryptionSecret), usageService);
   const server = Bun.serve({ port: 0, fetch: (req) => router.handle(req) });
   servers.push(server);
-  return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool, concurrency, events };
+  return { baseUrl: `http://127.0.0.1:${server.port}`, store, keyPool, concurrency, events, usageService };
 }
 
 function createMockUpstream(handler: (req: Request) => Response | Promise<Response>) {
@@ -1141,7 +1154,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.3.8");
+    expect(body.proxy_version).toBe("1.4.0");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1889,6 +1902,237 @@ describe("proxy integration", () => {
       headers: { authorization: `Bearer ${exportedClientToken}` },
     });
     expect(authCheck.status).toBe(200);
+  });
+
+  test("public usage APIs aggregate normalized per-key limits and redact all account secrets", async () => {
+    const resetA = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const resetB = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const settingsBaseUrl = createMockUpstream((req) => {
+      const first = req.headers.get("cookie")?.includes("first-cookie");
+      return new Response(
+        [
+          `<div data-usage-track aria-label="${first ? 20 : 40}% used"><span class="local-time" data-time="${first ? resetA : resetB}"></span></div>`,
+          `<div data-usage-track aria-label="${first ? 50 : 10}% used"><span class="local-time" data-time="${first ? resetA : resetB}"></span></div>`,
+        ].join(""),
+        { headers: { "content-type": "text/html" } }
+      );
+    });
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const first = app.keyPool.create({ name: "private-account-name", apiKey: "ollama_private_first", ollamaUsageCookie: "first-cookie" });
+    const second = app.keyPool.create({ name: "second-private-name", apiKey: "ollama_private_second", ollamaUsageCookie: "second-cookie" });
+    app.keyPool.patchMetadata(first.id, { sessionQuotaLimit: 200, weeklyQuotaLimit: 300 });
+    app.keyPool.patchMetadata(second.id, { sessionQuotaLimit: 50, weeklyQuotaLimit: 100 });
+    await app.usageService.refreshMany([first.id, second.id]);
+
+    const overviewResponse = await fetch(`${app.baseUrl}/api/usage`);
+    const accountsResponse = await fetch(`${app.baseUrl}/api/usage/accounts`);
+    const overview = await overviewResponse.json();
+    const accounts = await accountsResponse.json();
+    const serialized = JSON.stringify(accounts);
+
+    expect(overviewResponse.status).toBe(200);
+    expect(accountsResponse.status).toBe(200);
+    expect(overview.accounts_total).toBe(2);
+    expect(overview.windows[0]).toMatchObject({ label: "5h", used: 60, limit: 250, source: "official" });
+    expect(overview.windows[1]).toMatchObject({ label: "Week", used: 160, limit: 400, source: "official" });
+    expect(overview.windows[0].reset_buckets).toHaveLength(2);
+    expect(accounts.accounts.map((account: any) => account.account_id).sort()).toEqual([first.id, second.id].sort());
+    expect(serialized).not.toContain("private-account-name");
+    expect(serialized).not.toContain("second-private-name");
+    expect(serialized).not.toContain("ollama_private");
+    expect(serialized).not.toContain("first-cookie");
+    expect(serialized).not.toContain("apiKeyPreview");
+    expect(serialized).not.toContain("notes");
+  });
+
+  test("local ledger adjusts the last official snapshot and produces mixed aggregate source", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const settingsBaseUrl = createMockUpstream(() => new Response(
+      `<div data-usage-track aria-label="20% used"><span class="local-time" data-time="${resetAt}"></span></div>` +
+      `<div data-usage-track aria-label="30% used"><span class="local-time" data-time="${resetAt}"></span></div>`
+    ));
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const first = app.keyPool.create({ name: "first", apiKey: "first-key", ollamaUsageCookie: "first-cookie" });
+    const second = app.keyPool.create({ name: "second", apiKey: "second-key", ollamaUsageCookie: "second-cookie" });
+    await app.usageService.refreshMany([first.id, second.id]);
+    app.usageService.recordSuccess(first.id, { promptTokens: 7, completionTokens: 5, totalTokens: 12 });
+
+    const accounts = app.usageService.accountsSnapshot().accounts;
+    const overview = app.usageService.overviewSnapshot();
+    const adjusted = accounts.find((account) => account.account_id === first.id)!;
+
+    expect(adjusted.effective.source).toBe("estimated");
+    expect(adjusted.official.five_hour?.used).toBe(20);
+    expect(adjusted.estimate.five_hour?.used).toBe(21);
+    expect(adjusted.estimate.five_hour?.local_units).toBe(1);
+    expect(adjusted.estimate.five_hour?.local_tokens).toBe(12);
+    expect(overview.windows[0].source).toBe("mixed");
+  });
+
+  test("official refresh failure preserves the last snapshot and returns estimated data", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    let fail = false;
+    const settingsBaseUrl = createMockUpstream(() => fail
+      ? Response.json({ error: "temporary" }, { status: 503 })
+      : new Response(
+          `<div data-usage-track aria-label="25% used"><span class="local-time" data-time="${resetAt}"></span></div>` +
+          `<div data-usage-track aria-label="35% used"><span class="local-time" data-time="${resetAt}"></span></div>`
+        ));
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const key = app.keyPool.create({ name: "fallback", apiKey: "fallback-key", ollamaUsageCookie: "fallback-cookie" });
+    await app.usageService.refreshKey(key.id, true);
+    fail = true;
+    await app.usageService.refreshKey(key.id, true);
+
+    const response = await fetch(`${app.baseUrl}/api/usage/accounts`);
+    const account = (await response.json()).accounts[0];
+
+    expect(response.status).toBe(200);
+    expect(account.official.five_hour.used).toBe(25);
+    expect(account.effective.five_hour.used).toBe(25);
+    expect(account.effective.source).toBe("estimated");
+    expect(account.last_error_code).toBe("upstream_error");
+    expect(account.last_error_at).toBeString();
+  });
+
+  test("official refresh is single-flight and unchanged data only advances checked_at", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    let requests = 0;
+    const settingsBaseUrl = createMockUpstream(async () => {
+      requests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response(
+        `<div data-usage-track aria-label="10% used"><span class="local-time" data-time="${resetAt}"></span></div>` +
+        `<div data-usage-track aria-label="20% used"><span class="local-time" data-time="${resetAt}"></span></div>`
+      );
+    });
+    const app = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings` }));
+    const key = app.keyPool.create({ name: "single", apiKey: "single-key", ollamaUsageCookie: "single-cookie" });
+
+    await Promise.all(Array.from({ length: 6 }, () => app.usageService.refreshKey(key.id, true)));
+    const firstState = app.store.getUsageAccountState(key.id)!;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await app.usageService.refreshKey(key.id, true);
+    const secondState = app.store.getUsageAccountState(key.id)!;
+    const refreshEvents = app.events.list({ type: "official_usage_refreshed", limit: 20 });
+
+    expect(requests).toBe(2);
+    expect(secondState.officialFetchedAt).toBe(firstState.officialFetchedAt);
+    expect(secondState.officialChangedAt).toBe(firstState.officialChangedAt);
+    expect(Date.parse(secondState.officialCheckedAt!)).toBeGreaterThan(Date.parse(firstState.officialCheckedAt!));
+    expect(refreshEvents).toHaveLength(1);
+  });
+
+  test("debounce coalesces traffic refreshes and a rate limit accelerates the same key only", async () => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const cookies: string[] = [];
+    const settingsBaseUrl = createMockUpstream((req) => {
+      cookies.push(req.headers.get("cookie") || "");
+      return new Response(
+        `<div data-usage-track aria-label="10% used"><span class="local-time" data-time="${resetAt}"></span></div>` +
+        `<div data-usage-track aria-label="20% used"><span class="local-time" data-time="${resetAt}"></span></div>`
+      );
+    });
+    const app = createApp(config({
+      ollamaCloudUsageUrl: `${settingsBaseUrl}/settings`,
+      usageRefreshDebounceSeconds: 0.2,
+      usageRefreshJitterSeconds: 0,
+    }));
+    const first = app.keyPool.create({ name: "first", apiKey: "first-key", ollamaUsageCookie: "first-cookie" });
+    app.keyPool.create({ name: "second", apiKey: "second-key", ollamaUsageCookie: "second-cookie" });
+
+    app.usageService.recordSuccess(first.id);
+    app.usageService.recordSuccess(first.id);
+    app.usageService.recordSuccess(first.id);
+    app.usageService.notifyRateLimit(first.id);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(cookies).toEqual(["__Secure-session=first-cookie"]);
+  });
+
+  test("cookie replacement schedules only that account and disabled usage API records no ledger", async () => {
+    let requests = 0;
+    const settingsBaseUrl = createMockUpstream(() => {
+      requests += 1;
+      return new Response('<div data-usage-track aria-label="10% used"></div>');
+    });
+    const enabled = createApp(config({ ollamaCloudUsageUrl: `${settingsBaseUrl}/settings`, usageRefreshJitterSeconds: 0 }));
+    const created = enabled.keyPool.create({ name: "cookie", apiKey: "cookie-key" });
+    const patch = await fetch(`${enabled.baseUrl}/admin/keys/${created.id}`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ ollamaUsageCookie: "replacement-cookie" }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const disabled = createApp(config({ usageApiEnabled: false }));
+    const disabledKey = disabled.keyPool.create({ name: "disabled", apiKey: "disabled-key" });
+    disabled.usageService.recordSuccess(disabledKey.id, { totalTokens: 99 });
+    const disabledResponse = await fetch(`${disabled.baseUrl}/api/usage`);
+
+    expect(patch.status).toBe(200);
+    expect(requests).toBe(1);
+    expect(disabledResponse.status).toBe(404);
+    expect(disabled.store.getUsageLedgerTotals(disabledKey.id).units).toBe(0);
+  });
+
+  test("an upstream 429 schedules official refresh for only the attempted key", async () => {
+    const upstreamBaseUrl = createMockUpstream(() => Response.json({ error: "rate limit" }, { status: 429 }));
+    const refreshedCookies: string[] = [];
+    const usageBaseUrl = createMockUpstream((req) => {
+      refreshedCookies.push(req.headers.get("cookie") || "");
+      return new Response('<div data-usage-track aria-label="10% used"></div>');
+    });
+    const app = createApp(config({
+      upstreamBaseUrl,
+      ollamaCloudUsageUrl: `${usageBaseUrl}/settings`,
+      maxKeyAttemptsPerRequest: 1,
+      usageRefreshJitterSeconds: 0,
+    }));
+    app.keyPool.create({ name: "first", apiKey: "first-key", ollamaUsageCookie: "first-cookie" });
+    app.keyPool.create({ name: "second", apiKey: "second-key", ollamaUsageCookie: "second-cookie" });
+
+    const response = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { authorization: "Bearer client-token", "content-type": "application/json" },
+      body: JSON.stringify({ model: "test", messages: [{ role: "user", content: "hi" }] }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(response.status).toBe(503);
+    expect(refreshedCookies).toEqual(["__Secure-session=first-cookie"]);
+  });
+
+  test("unknown account makes aggregate unknown while stale metadata remains explicit", async () => {
+    const app = createApp(config({ usageOfficialStaleSeconds: 1 }));
+    const key = app.keyPool.create({ name: "unknown", apiKey: "unknown-key" });
+    app.store.upsertUsageAccountState({
+      keyId: key.id,
+      officialJson: null,
+      officialFetchedAt: null,
+      officialCheckedAt: new Date(Date.now() - 5_000).toISOString(),
+      officialChangedAt: null,
+      baselineLedgerId: 0,
+      lastErrorCode: "missing_cookie",
+      lastErrorAt: new Date().toISOString(),
+    });
+
+    const overview = app.usageService.overviewSnapshot();
+    const account = app.usageService.accountsSnapshot().accounts[0];
+
+    expect(overview.windows[0].source).toBe("unknown");
+    expect(overview.windows[0].used).toBeNull();
+    expect(account.effective.source).toBe("unknown");
+    expect(account.stale).toBe(true);
+  });
+
+  test("empty usage pool reports unknown windows instead of claiming official data", () => {
+    const app = createApp(config());
+    const overview = app.usageService.overviewSnapshot();
+
+    expect(overview.accounts_total).toBe(0);
+    expect(overview.windows[0]).toMatchObject({ source: "unknown", used: null, limit: null });
+    expect(overview.windows[1]).toMatchObject({ source: "unknown", used: null, limit: null });
   });
 
 });

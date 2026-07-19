@@ -1,5 +1,12 @@
 # 版本更新紀錄
 
+## 1.4.0 - 2026-07-19
+
+- 新增公開唯讀 `/api/usage` 與 `/api/usage/accounts`，提供啟用帳號的 5hr/weekly 標準化總額、匿名 per-account snapshot、來源與 reset buckets。
+- 新增持久化本地 usage ledger、官方 snapshot 的 fetched/checked/changed 時間，以及 Cookie 暫時失效時的估算 fallback。
+- 新增 per-key 5hr/weekly quota limit、5 分鐘流量 debounce、15 分鐘 stale-on-use、single-flight，以及 429/Cookie 變更的定向非同步刷新。
+- `USAGE_API_ENABLED=false` 可停用公開 API 與自動 hooks，不影響模型轉發、Admin 用量卡或手動刷新。
+
 ## 1.3.8 - 2026-07-16
 
 - 管理登入改用 30 天、持續使用會續期的 HttpOnly Session Cookie，不再於 localStorage 保存明文管理密碼。
