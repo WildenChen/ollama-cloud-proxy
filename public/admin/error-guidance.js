@@ -8,7 +8,7 @@ export function classifyUserFacingError(input = {}) {
   const combined = `${code} ${message} ${context}`;
 
   if (
-    ["invalid_api_key", "auth_failed", "key_not_found"].includes(code) ||
+    ["invalid_api_key", "auth_failed"].includes(code) ||
     combined.includes("api key is invalid") ||
     combined.includes("invalid api key") ||
     combined.includes("revoked")
@@ -52,6 +52,15 @@ export function classifyUserFacingError(input = {}) {
   }
 
   if (
+    ["queue_timeout", "queue_rejected", "request_queue_full", "queue_full"].includes(code) ||
+    combined.includes("queue full") ||
+    combined.includes("queue timeout") ||
+    combined.includes("queue is full")
+  ) {
+    return result("queue_busy", "warning", "temporary", "retry", true);
+  }
+
+  if (
     ["key_test_failed", "model_refresh_failed", "network_error", "provider_error", "upstream_error"].includes(code) ||
     combined.includes("network") ||
     combined.includes("fetch failed") ||
@@ -62,15 +71,6 @@ export function classifyUserFacingError(input = {}) {
     combined.includes("upstream")
   ) {
     return result("upstream_unavailable", "warning", "temporary", "retry", true);
-  }
-
-  if (
-    ["queue_timeout", "queue_rejected", "request_queue_full", "queue_full"].includes(code) ||
-    combined.includes("queue full") ||
-    combined.includes("queue timeout") ||
-    combined.includes("queue is full")
-  ) {
-    return result("queue_busy", "warning", "temporary", "retry", true);
   }
 
   if (
