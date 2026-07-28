@@ -113,4 +113,16 @@ describe("admin onboarding assets", () => {
       expect((await response.text()).length).toBeGreaterThan(20);
     }
   });
+
+  test("builds the onboarding entrypoint for browsers", async () => {
+    const result = await Bun.build({
+      entrypoints: ["public/admin/onboarding.js"],
+      target: "browser",
+      write: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.logs).toHaveLength(0);
+    expect(result.outputs.length).toBeGreaterThan(0);
+  });
 });
