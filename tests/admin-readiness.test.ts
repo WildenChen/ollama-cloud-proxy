@@ -87,7 +87,7 @@ describe("service readiness", () => {
 });
 
 describe("admin onboarding assets", () => {
-  test("injects the service status roots and onboarding assets", async () => {
+  test("injects the service status roots and admin enhancement styles", async () => {
     const response = await routerForStaticAdmin().handle(new Request("http://localhost/admin"));
     const html = await response.text();
 
@@ -95,13 +95,15 @@ describe("admin onboarding assets", () => {
     expect(html).toContain('id="serviceReadinessRoot"');
     expect(html).toContain('id="onboardingRoot"');
     expect(html).toContain('/admin/onboarding.css?v=1.4.0-onboarding');
+    expect(html).toContain('/admin/accessibility.css?v=1.4.0-accessibility');
     expect(html).toContain('/admin/onboarding.js?v=1.4.0-onboarding');
   });
 
-  test("serves every onboarding module without admin authentication", async () => {
+  test("serves every admin enhancement asset without admin authentication", async () => {
     const router = routerForStaticAdmin();
     const assets = [
       ["/admin/onboarding.css", "text/css"],
+      ["/admin/accessibility.css", "text/css"],
       ["/admin/onboarding.js", "text/javascript"],
       ["/admin/readiness.js", "text/javascript"],
     ];
@@ -124,5 +126,18 @@ describe("admin onboarding assets", () => {
     expect(result.success).toBe(true);
     expect(result.logs).toHaveLength(0);
     expect(result.outputs.length).toBeGreaterThan(0);
+  });
+
+  test("keeps mobile controls readable and keyboard focus visible", async () => {
+    const css = await Bun.file("public/admin/accessibility.css").text();
+
+    expect(css).toContain("button:focus-visible");
+    expect(css).toContain("min-height: 44px");
+    expect(css).toContain("@media (max-width: 560px)");
+    expect(css).toContain("@media (max-width: 360px)");
+    expect(css).toContain("overflow-x: auto");
+    expect(css).toContain("prefers-reduced-motion: reduce");
+    expect(css).toContain(".status.unknown");
+    expect(css).not.toContain(".status.available,\n.status.unknown");
   });
 });
