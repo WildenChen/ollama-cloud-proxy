@@ -42,6 +42,26 @@ export function classifyUserFacingError(input = {}) {
   }
 
   if (
+    ["queue_timeout", "queue_rejected", "request_queue_full", "queue_full"].includes(code) ||
+    combined.includes("queue full") ||
+    combined.includes("queue timeout") ||
+    combined.includes("queue is full")
+  ) {
+    return result("queue_busy", "warning", "temporary", "retry", true);
+  }
+
+  if (
+    code.startsWith("invalid_") ||
+    code === "invalid_request" ||
+    status === 400 ||
+    combined.includes("must be") ||
+    combined.includes("required") ||
+    combined.includes("cannot be empty")
+  ) {
+    return result("invalid_setting", "danger", "configuration", "fix_field", false);
+  }
+
+  if (
     code.includes("usage") ||
     combined.includes("usage cookie") ||
     combined.includes("official usage") ||
@@ -49,15 +69,6 @@ export function classifyUserFacingError(input = {}) {
     combined.includes("__secure-session")
   ) {
     return result("usage_cookie", "warning", "usage", "update_cookie", false, true);
-  }
-
-  if (
-    ["queue_timeout", "queue_rejected", "request_queue_full", "queue_full"].includes(code) ||
-    combined.includes("queue full") ||
-    combined.includes("queue timeout") ||
-    combined.includes("queue is full")
-  ) {
-    return result("queue_busy", "warning", "temporary", "retry", true);
   }
 
   if (
@@ -71,17 +82,6 @@ export function classifyUserFacingError(input = {}) {
     combined.includes("upstream")
   ) {
     return result("upstream_unavailable", "warning", "temporary", "retry", true);
-  }
-
-  if (
-    code.startsWith("invalid_") ||
-    code === "invalid_request" ||
-    status === 400 ||
-    combined.includes("must be") ||
-    combined.includes("required") ||
-    combined.includes("cannot be empty")
-  ) {
-    return result("invalid_setting", "danger", "configuration", "fix_field", false);
   }
 
   if (status === 404 || code.endsWith("_not_found") || code === "not_found") {
