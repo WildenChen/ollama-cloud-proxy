@@ -1,0 +1,382 @@
+:root {
+  --muted: #a9bacb;
+  --faint: #8fa3b7;
+}
+
+html {
+  scroll-padding-top: 16px;
+}
+
+button,
+input,
+select,
+textarea,
+.fileButton,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.fileButton:focus-within,
+.tab:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid #9ee8ff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(76, 201, 240, 0.2);
+}
+
+.button:disabled,
+.iconButton:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.status {
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status::before {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.status.available::before {
+  content: "✓";
+}
+
+.status.unknown {
+  color: #d8e6f4;
+  border-color: rgba(169, 186, 203, 0.34);
+  background: rgba(169, 186, 203, 0.1);
+}
+
+.status.unknown::before {
+  content: "?";
+}
+
+.status.cooling_down::before,
+.status.session_blocked::before,
+.status.weekly_blocked::before {
+  content: "⌛";
+  font-size: 8px;
+}
+
+.status.invalid::before {
+  content: "!";
+}
+
+.status.disabled::before {
+  content: "–";
+}
+
+.status.quiet::before,
+.status.info::before {
+  content: "i";
+}
+
+.notice {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+code,
+pre,
+.eventMeta,
+.clientKeyIdentity,
+.clientKeyNotes,
+.modelTestRow,
+.usageRow,
+.miniRow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel,
+.metric,
+.officialQuotaCard,
+.combinedQuotaCard,
+.serviceReadinessCard,
+.onboardingStep,
+.connectionPanel {
+  contain: layout style;
+}
+
+.tabs {
+  scrollbar-width: thin;
+  overscroll-behavior-inline: contain;
+}
+
+.tab {
+  flex: 0 0 auto;
+}
+
+.clientKeyActions .danger,
+.quotaActions .danger,
+.panelActions .danger {
+  margin-inline-start: auto;
+}
+
+.iconButton.danger,
+.button.danger {
+  background: rgba(255, 122, 144, 0.08);
+}
+
+.iconButton.danger:hover,
+.button.danger:hover {
+  background: rgba(255, 122, 144, 0.16);
+}
+
+.dialogCard {
+  max-height: min(88vh, 760px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .button,
+  .iconButton,
+  .fileButton,
+  .tab,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  .iconButton {
+    width: 44px;
+    min-width: 44px;
+  }
+
+  .button.compact,
+  .panelActions .button.compact,
+  .quotaActions .button {
+    min-height: 44px;
+    padding-inline: 13px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    scroll-snap-align: start;
+    padding-inline: 16px;
+  }
+
+  .panelHeader p,
+  .stepCopy p,
+  .connectionPanel > p,
+  .metric small,
+  .eventMeta,
+  .officialQuotaHeader small,
+  .quotaWindow small {
+    line-height: 1.55;
+  }
+
+  .clientKeyActions,
+  .quotaActions,
+  .quotaActionsPrimary,
+  .panelActions,
+  dialog footer {
+    gap: 10px;
+  }
+
+  .clientKeyActions .danger,
+  .quotaActions .danger,
+  .panelActions .danger {
+    margin-inline-start: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    width: calc(100vw - 16px);
+    padding-top: 8px;
+    padding-bottom: 24px;
+  }
+
+  .topbar,
+  .panel,
+  .metric,
+  .serviceReadinessCard {
+    border-radius: 9px;
+  }
+
+  .topbar {
+    padding: 14px;
+  }
+
+  h1 {
+    font-size: 20px;
+  }
+
+  h2,
+  .serviceReadinessHeading h2 {
+    font-size: 18px;
+  }
+
+  p,
+  small,
+  label,
+  button {
+    line-height: 1.45;
+  }
+
+  .metricGrid,
+  .usageSummaryGrid,
+  .officialQuotaGrid,
+  .combinedQuotaWindows,
+  .quotaActions,
+  .lowerGrid,
+  .lowerGrid.cols3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric {
+    padding: 14px;
+  }
+
+  .metric strong {
+    font-size: 28px;
+  }
+
+  .panelHeader,
+  .onboardingHeader {
+    padding-inline: 14px;
+  }
+
+  .officialQuotaHeader {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .officialQuotaHeader > .status,
+  .officialQuotaHeader > .toggleSwitch {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .clientKeyRow,
+  .modelTestRow,
+  .usageRow,
+  .miniRow,
+  .onboardingStep {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .clientKeyActions,
+  .quotaActionsPrimary,
+  .panelActions,
+  dialog footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .clientKeyActions .button,
+  .clientKeyActions .iconButton,
+  .quotaActions .button,
+  .panelActions .button,
+  dialog footer .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .clientKeyActions .danger,
+  .quotaActions .danger,
+  .panelActions .danger {
+    margin-top: 6px;
+    border-top-color: rgba(255, 122, 144, 0.48);
+  }
+
+  dialog {
+    width: calc(100vw - 16px);
+    max-width: none;
+    margin: auto;
+  }
+
+  .dialogCard {
+    width: 100%;
+    padding: 14px;
+  }
+}
+
+@media (max-width: 360px) {
+  .shell {
+    width: calc(100vw - 12px);
+  }
+
+  .versionBadge,
+  .status,
+  .stepRequirement,
+  .stepState,
+  .officialUsageChips span,
+  .quotaBadge {
+    font-size: 11px;
+  }
+
+  .serviceReadinessFacts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .serviceReadinessFacts span {
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .status,
+  .button,
+  .iconButton,
+  .tab,
+  input,
+  select,
+  textarea {
+    border: 1px solid ButtonText;
+  }
+
+  .status::before,
+  .serviceStateIcon,
+  .stepIndicator {
+    forced-color-adjust: none;
+  }
+}
