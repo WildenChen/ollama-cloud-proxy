@@ -47,6 +47,17 @@ export type AppConfig = {
   dbPath: string;
 };
 
+const INSECURE_ENCRYPTION_SECRETS = new Set([
+  "change-this-very-long-random-secret",
+  "請換成很長很難猜的文字",
+]);
+
+const INSECURE_CLIENT_TOKENS = new Set([
+  "change-this-openclaw-token",
+  "change-this-kilo-token",
+  "replace-with-a-random-token",
+]);
+
 function maybeLoadDotEnv() {
   if (!existsSync(".env")) return;
   const text = readFileSync(".env", "utf8");
@@ -110,16 +121,34 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+function encryptionSecretEnv(): string {
+  const value = requiredEnv("KEY_ENCRYPTION_SECRET");
+  if (INSECURE_ENCRYPTION_SECRETS.has(value)) {
+    throw new Error(
+      "KEY_ENCRYPTION_SECRET is using an insecure example value. Generate one with: openssl rand -hex 32",
+    );
+  }
+  if (value.length < 32) {
+    throw new Error("KEY_ENCRYPTION_SECRET must be at least 32 characters");
+  }
+  return value;
+}
+
 function parseClientApiKeys(raw: string | undefined): Map<string, string> {
   const result = new Map<string, string>();
   if (!raw?.trim()) return result;
   for (const entry of raw.split(",")) {
     const [name, ...tokenParts] = entry.split(":");
-    const token = tokenParts.join(":");
-    if (!name?.trim() || !token?.trim()) {
+    const token = tokenParts.join(":").trim();
+    if (!name?.trim() || !token) {
       throw new Error("CLIENT_API_KEYS must use clientName:token entries");
     }
-    result.set(token.trim(), name.trim());
+    if (INSECURE_CLIENT_TOKENS.has(token)) {
+      throw new Error(
+        `CLIENT_API_KEYS contains an insecure example token for ${name.trim()}. Create client keys in the Admin UI or use a random token.`,
+      );
+    }
+    result.set(token, name.trim());
   }
   return result;
 }
@@ -153,7 +182,7 @@ export function loadConfig(): AppConfig {
 
   return {
     port: numberEnv("PORT", 11435),
-    keyEncryptionSecret: requiredEnv("KEY_ENCRYPTION_SECRET"),
+    keyEncryptionSecret: encryptionSecretEnv(),
     clientApiKeys: parseClientApiKeys(process.env.CLIENT_API_KEYS),
     upstreamBaseUrl: process.env.OLLAMA_UPSTREAM_BASE_URL || "https://ollama.com",
     ollamaWebBaseUrl: process.env.OLLAMA_WEB_BASE_URL || "https://ollama.com",
