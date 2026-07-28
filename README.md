@@ -8,9 +8,21 @@ Ollama Cloud Proxy 是一個「放在你的工具和 Ollama Cloud 中間」的�
 - 讓 OpenClaw、Kilo Code、VS Code、自製工具共用同一個入口。
 - 在管理頁面看每把 key 的狀態、用量、錯誤紀錄，並建立不同服務使用的 client token。
 
-目前版本：`1.4.0`
+目前版本：`1.5.0`
 
 如果你只是想把服務裝起來，照下面步驟做就好。進階設定、API、開發文件都拆到 [docs](./docs/)。
+
+## 1.5.0 管理台改善
+
+這個版本聚焦在讓一般使用者更容易完成設定與排除問題：
+
+- 首次設定指南會依目前狀態告訴你下一步，不必自行在頁籤間尋找。
+- 總覽會直接顯示服務是否可用、部分可用或目前沒有可用金鑰。
+- 清楚區分 Ollama Cloud API Key、選填的 Usage Cookie 與工具使用的 Client API Key。
+- 新增金鑰狀態篩選、不可用原因、預計恢復時間與建立後自動驗證。
+- Client API Key 完整 token 只在建立或更換時顯示一次。
+- 常見錯誤會顯示影響範圍、修復步驟與直接操作，並可複製已遮蔽敏感資料的診斷資訊。
+- 改善手機、小螢幕、鍵盤操作、文字對比與狀態辨識。
 
 ## 適合誰
 
@@ -103,7 +115,7 @@ curl http://localhost:11435/health
 如果看到類似下面內容，就代表服務活著：
 
 ```json
-{"status":"ok","version":"1.4.0"}
+{"status":"ok","version":"1.5.0"}
 ```
 
 ### 5. 打開管理頁面
@@ -116,20 +128,21 @@ http://localhost:11435/admin
 
 第一次使用時：
 
-1. 畫面會明確顯示首次設定狀態。
-2. 立即建立日後登入使用的管理密碼。
-3. 新增第一把 Ollama Cloud API key。
-4. 建立一個 client API key，給 OpenClaw、Kilo Code 或其他工具使用。
+1. 建立日後登入使用的管理密碼。
+2. 依首次設定指南新增第一把 Ollama Cloud API key。
+3. 建立一個 Client API key，給 OpenClaw、Kilo Code 或其他工具使用。
+4. 複製管理台顯示的 Base URL 與一次性 Client API key 到工具。
 
 ## 第一次進管理頁要做什麼
 
-打開 `/admin` 後，建議照這個順序：
+打開 `/admin` 後，管理台會依目前狀態顯示待完成步驟。基本順序是：
 
 1. 設定或變更管理密碼。
-2. 新增 Ollama Cloud API key。
+2. 新增 Ollama Cloud API key；建立後管理台會自動驗證。
 3. 如果你想看官方用量，替 key 填入 Ollama Cloud usage cookie。
-4. 建立 client API key，例如 `openclaw`、`kilo`、`vscode`。
-5. 把 client API key 填到你的工具裡。
+4. 建立 Client API key，例如 `openclaw`、`kilo`、`vscode`。
+5. 立即複製並保存完整 Client API key；關閉後只會保留前綴預覽。
+6. 把 Client API key 與管理台顯示的 Base URL 填到工具裡。
 
 Usage cookie 是選填項目；沒有設定仍可正常代理模型請求，只是不會顯示官方用量資料。
 
@@ -140,7 +153,8 @@ Usage cookie 是選填項目；沒有設定仍可正常代理模型請求，只�
 請注意：
 
 - Ollama Cloud API key 是 proxy 連上游用的。
-- client API key 是你的工具連 proxy 用的。
+- Client API key 是你的工具連 proxy 用的。
+- Usage Cookie 只用來讀取官方用量，是選填項目。
 - 工具不要直接拿 Ollama Cloud API key，這樣比較好管理，也比較安全。
 - `.env` 裡的 `CLIENT_API_KEYS` 只是進階部署的 fallback，一般使用者留空即可。
 
@@ -150,8 +164,8 @@ Usage cookie 是選填項目；沒有設定仍可正常代理模型請求，只�
 
 | 工具類型 | Base URL | API Key |
 | --- | --- | --- |
-| OpenAI-compatible 工具 | `http://你的主機:11435/v1` | 管理頁建立的 client API key |
-| Ollama native 工具 | `http://你的主機:11435` | 管理頁建立的 client API key |
+| OpenAI-compatible 工具 | `http://你的主機:11435/v1` | 管理頁建立的 Client API key |
+| Ollama native 工具 | `http://你的主機:11435` | 管理頁建立的 Client API key |
 
 如果你是在同一台電腦測試，可以先用：
 
@@ -179,7 +193,7 @@ docker compose -f docker-compose.release.yml up -d
 curl http://localhost:11435/health
 ```
 
-資料會保存在本機 `data/`，更新 container 不會清掉它。
+應看到版本 `1.5.0`。資料會保存在本機 `data/`，更新 container 不會清掉它。
 
 ## 備份方式
 
@@ -227,8 +241,9 @@ curl http://localhost:11435/health
 通常是 API key 填錯。
 
 - 連 `/admin` 只使用管理密碼。
-- 工具連 `/v1` 或 `/api/chat` 要用 client API key。
+- 工具連 `/v1` 或 `/api/chat` 要用 Client API key。
 - 不要把 Ollama Cloud API key 直接填到工具裡。
+- 若剛更換 Client API key，所有使用舊 token 的工具都必須同步更新。
 
 ### 顯示 no_available_key
 
@@ -238,9 +253,13 @@ curl http://localhost:11435/health
 - key 無效。
 - key 被手動停用。
 - key 正在冷卻。
-- session 或 weekly 額度用完。
+- 5hr 或 weekly 額度用完。
 
-請到管理頁看 key 狀態。
+管理台會顯示每把金鑰的人類可讀原因與預計恢復時間，也可使用「需要注意」篩選快速定位。
+
+### 官方用量讀取失敗
+
+這通常是 Usage Cookie 缺失或過期。它只影響官方用量顯示，不影響模型代理；可以更新 Cookie，也可以暫時忽略。
 
 ### 更新後版本沒有變
 
@@ -268,8 +287,10 @@ curl http://localhost:11435/api/version
 
 ## 安全提醒
 
-- 不要把 `.env`、`data/`、API key、client token 貼到公開地方。
+- 不要把 `.env`、`data/`、API key、Client API key、Cookie 貼到公開地方。
 - 不要使用範例 secret 或固定 token；程式會拒絕已知不安全範例值。
+- Client API key 完整 token 只在建立或更換時顯示一次，請立即保存。
+- 複製診斷資訊時，管理台會遮蔽常見敏感資料；分享前仍應快速確認內容。
 - 不建議直接把 `/admin` 暴露到 Internet。
 - 外網使用請放在 HTTPS、VPN、Tailscale、Cloudflare Access 或反向代理保護後面。
 - 匯出的 YAML 包含明文 secret，請妥善保存。
