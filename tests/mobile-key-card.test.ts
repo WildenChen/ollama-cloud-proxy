@@ -21,7 +21,7 @@ describe("mobile key card layout", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain('/admin/mobile-key-card.css?v=1.5.0-mobile-key-card');
+    expect(html).toContain('/admin/mobile-key-card.css?v=1.5.1-mobile-key-card');
     expect(html.indexOf("/admin/mobile-key-card.css")).toBeGreaterThan(html.indexOf("/admin/accessibility.css"));
     expect(html.indexOf("/admin/mobile-key-card.css")).toBeGreaterThan(html.indexOf("/admin/credential-ux.css"));
   });
