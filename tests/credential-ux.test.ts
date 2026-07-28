@@ -112,6 +112,7 @@ describe("credential management assets", () => {
 
   test("uses one-time token display and automatic upstream verification", async () => {
     const source = await Bun.file("public/admin/credential-ux.js").text();
+    const css = await Bun.file("public/admin/credential-ux.css").text();
 
     expect(source).toContain("showOneTimeToken");
     expect(source).toContain("clearTokenDialog");
@@ -119,5 +120,7 @@ describe("credential management assets", () => {
     expect(source).toContain("stopImmediatePropagation");
     expect(source).toContain("tryAutoVerifyNewKey");
     expect(source).toContain("/test`");
+    expect(css).toContain('button[data-client-action="copy"]');
+    expect(css).toContain("display: none !important");
   });
 });
