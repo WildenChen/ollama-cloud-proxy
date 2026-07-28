@@ -111,7 +111,7 @@ export function redactDiagnostic(value) {
   return value
     .replace(/Bearer\s+[A-Za-z0-9._~+\-/=]+/gi, "Bearer [REDACTED]")
     .replace(/\bocp_[A-Za-z0-9_-]+\b/g, "ocp_[REDACTED]")
-    .replace(/(?:__Secure-session|ocp_admin_session)=[^;\s]+/gi, "$&".replace(/=.*/, "=[REDACTED]"))
+    .replace(/(?:__Secure-session|ocp_admin_session)=[^;\s]+/gi, (match) => `${match.split("=")[0]}=[REDACTED]`)
     .replace(/([?&](?:token|key|api_key|cookie|secret)=)[^&\s]+/gi, "$1[REDACTED]")
     .replace(/((?:api[_ -]?key|token|cookie|secret|password)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
     .replace(/\/Users\/[^/\s]+\//g, "/Users/[REDACTED]/")
