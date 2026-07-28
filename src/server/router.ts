@@ -148,7 +148,7 @@ export class Router {
           '    <link rel="stylesheet" href="/admin/accessibility.css?v=1.4.0-accessibility" />',
           '    <link rel="stylesheet" href="/admin/credential-ux.css?v=1.4.0-credentials" />',
           '    <link rel="stylesheet" href="/admin/error-ux.css?v=1.4.0-errors" />',
-          '    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.0-mobile-key-card" />',
+          '    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.1-mobile-key-card" />',
           '    <script src="/admin/error-ux.js?v=1.4.0-errors" type="module"></script>',
           "  </head>",
         ].join("\n")
