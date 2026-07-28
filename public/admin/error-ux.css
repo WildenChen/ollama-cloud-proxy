@@ -1,0 +1,209 @@
+.errorGuidanceCard {
+  margin-top: 14px;
+  border: 1px solid rgba(245, 200, 106, 0.38);
+  border-left: 5px solid var(--amber);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+  padding: 17px;
+}
+
+.errorGuidanceCard.danger {
+  border-color: rgba(255, 122, 144, 0.4);
+  border-left-color: var(--red);
+}
+
+.errorGuidanceHeader {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.errorGuidanceIcon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--amber);
+  border-radius: 999px;
+  color: var(--amber);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.danger .errorGuidanceIcon {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.errorGuidanceHeader h2 {
+  margin-top: 5px;
+  font-size: 19px;
+}
+
+.errorGuidanceHeader p {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.errorImpactBadge {
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 12px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.errorImpactBadge.proxy {
+  color: #ffdce2;
+  border-color: rgba(255, 122, 144, 0.34);
+  background: rgba(255, 122, 144, 0.1);
+}
+
+.errorImpactBadge.usage,
+.errorImpactBadge.temporary {
+  color: #fff0c8;
+  border-color: rgba(245, 200, 106, 0.34);
+  background: rgba(245, 200, 106, 0.1);
+}
+
+.errorGuidanceBody {
+  margin-top: 15px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.errorGuidanceBody > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(6, 13, 23, 0.44);
+  padding: 11px 12px;
+}
+
+.errorGuidanceBody strong {
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.errorGuidanceBody p {
+  margin-top: 5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.errorRetryHint,
+.errorUsageOnly {
+  margin-top: 11px;
+  border-radius: 8px;
+  padding: 9px 11px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.errorRetryHint {
+  border: 1px solid rgba(76, 201, 240, 0.26);
+  background: rgba(76, 201, 240, 0.08);
+  color: #dff8ff;
+}
+
+.errorUsageOnly {
+  border: 1px solid rgba(110, 231, 168, 0.28);
+  background: rgba(110, 231, 168, 0.08);
+  color: #dcffeb;
+}
+
+.errorGuidanceCard details {
+  margin-top: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 9px 11px;
+}
+
+.errorGuidanceCard summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 720;
+}
+
+.errorGuidanceCard details code {
+  display: block;
+  margin-top: 8px;
+  color: var(--faint);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.errorGuidanceActions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.errorGuidanceActions .ghost {
+  margin-inline-start: auto;
+}
+
+.fieldErrorMessage {
+  display: block;
+  margin-top: 6px;
+  color: #ffd7de;
+  line-height: 1.45;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: rgba(255, 122, 144, 0.82);
+  box-shadow: 0 0 0 3px rgba(255, 122, 144, 0.16);
+}
+
+@media (max-width: 720px) {
+  .errorGuidanceHeader {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .errorImpactBadge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .errorGuidanceBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .errorGuidanceCard {
+    padding: 14px;
+  }
+
+  .errorGuidanceActions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .errorGuidanceActions .button,
+  .errorGuidanceActions .ghost {
+    width: 100%;
+    margin-inline-start: 0;
+  }
+}
