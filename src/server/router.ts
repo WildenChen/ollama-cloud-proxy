@@ -18,6 +18,7 @@ const ADMIN_ASSETS = new Map([
   ["/admin/accessibility.css", ["public/admin/accessibility.css", "text/css; charset=utf-8"]],
   ["/admin/credential-ux.css", ["public/admin/credential-ux.css", "text/css; charset=utf-8"]],
   ["/admin/error-ux.css", ["public/admin/error-ux.css", "text/css; charset=utf-8"]],
+  ["/admin/mobile-key-card.css", ["public/admin/mobile-key-card.css", "text/css; charset=utf-8"]],
   ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
   ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
   ["/admin/credential-ux.js", ["public/admin/credential-ux.js", "text/javascript; charset=utf-8"]],
@@ -147,6 +148,7 @@ export class Router {
           '    <link rel="stylesheet" href="/admin/accessibility.css?v=1.4.0-accessibility" />',
           '    <link rel="stylesheet" href="/admin/credential-ux.css?v=1.4.0-credentials" />',
           '    <link rel="stylesheet" href="/admin/error-ux.css?v=1.4.0-errors" />',
+          '    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.0-mobile-key-card" />',
           '    <script src="/admin/error-ux.js?v=1.4.0-errors" type="module"></script>',
           "  </head>",
         ].join("\n")
