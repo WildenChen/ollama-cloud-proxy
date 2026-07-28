@@ -1,0 +1,92 @@
+/* Mobile-only corrections for the Ollama Cloud key cards.
+ * Loaded after the shared accessibility and credential styles so these
+ * rules can narrow the layout without changing the desktop presentation.
+ */
+
+@media (max-width: 560px) {
+  .officialQuotaGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .officialQuotaCard {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .officialQuotaHeader {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "status identity toggle"
+      "status badge badge";
+    column-gap: 10px;
+    row-gap: 8px;
+    align-items: center;
+  }
+
+  .officialQuotaHeader > .quotaStatusDot {
+    grid-area: status;
+  }
+
+  .officialQuotaHeader > div {
+    grid-area: identity;
+    min-width: 0;
+  }
+
+  .officialQuotaHeader > .quotaBadge {
+    grid-area: badge;
+    justify-self: start;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .officialQuotaHeader > .toggleSwitch {
+    grid-area: toggle;
+    grid-column: auto;
+    justify-self: end;
+  }
+
+  .quotaActions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .quotaActionsPrimary,
+  .quotaActionsSecondary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .quotaActions .button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  .quotaActionsPrimary .button:nth-child(3),
+  .quotaActionsSecondary .button.danger {
+    grid-column: 1 / -1;
+  }
+
+  .quotaActionsSecondary .button {
+    opacity: 1;
+  }
+
+  .quotaActionsSecondary .button.danger {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .quotaActions .button {
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+}
