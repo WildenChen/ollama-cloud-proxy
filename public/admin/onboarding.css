@@ -1,0 +1,302 @@
+.serviceReadinessCard {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border-left-width: 5px;
+}
+
+.serviceReadinessCard.ready {
+  border-left-color: var(--green);
+}
+
+.serviceReadinessCard.partial,
+.serviceReadinessCard.setup,
+.serviceReadinessCard.unavailable {
+  border-left-color: var(--amber);
+}
+
+.serviceReadinessCard.error {
+  border-left-color: var(--red);
+}
+
+.serviceReadinessMain {
+  min-width: 0;
+}
+
+.serviceReadinessHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 7px;
+}
+
+.serviceReadinessHeading h2 {
+  font-size: 20px;
+}
+
+.serviceReadinessHeading p {
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.serviceStateIcon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--green);
+  box-shadow: 0 0 0 5px rgba(110, 231, 168, 0.12);
+}
+
+.partial .serviceStateIcon,
+.setup .serviceStateIcon,
+.unavailable .serviceStateIcon {
+  background: var(--amber);
+  box-shadow: 0 0 0 5px rgba(245, 200, 106, 0.12);
+}
+
+.error .serviceStateIcon {
+  background: var(--red);
+  box-shadow: 0 0 0 5px rgba(255, 122, 144, 0.12);
+}
+
+.serviceReadinessFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.serviceReadinessFacts span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.serviceReadinessActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.onboardingPanel {
+  margin-top: 14px;
+  padding: 18px;
+  overflow: visible;
+}
+
+.onboardingHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.onboardingHeader h2 {
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.onboardingHeader p {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.onboardingGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.onboardingChecklist {
+  display: grid;
+  gap: 9px;
+}
+
+.onboardingStep {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(6, 13, 23, 0.42);
+}
+
+.onboardingStep.complete {
+  border-color: rgba(110, 231, 168, 0.24);
+  background: rgba(110, 231, 168, 0.055);
+}
+
+.stepIndicator {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(245, 200, 106, 0.36);
+  border-radius: 999px;
+  color: var(--amber);
+  font-weight: 800;
+}
+
+.complete .stepIndicator {
+  border-color: rgba(110, 231, 168, 0.38);
+  background: rgba(110, 231, 168, 0.12);
+  color: var(--green);
+}
+
+.stepCopy {
+  min-width: 0;
+}
+
+.stepTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.stepTitleRow strong {
+  color: var(--text);
+}
+
+.stepCopy p {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+.stepRequirement,
+.stepState {
+  display: inline-flex;
+  min-height: 21px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.complete .stepState {
+  color: var(--green);
+  border-color: rgba(110, 231, 168, 0.26);
+}
+
+.pending .stepState {
+  color: var(--amber);
+  border-color: rgba(245, 200, 106, 0.26);
+}
+
+.connectionPanel {
+  align-self: start;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(6, 13, 23, 0.52);
+  padding: 14px;
+}
+
+.connectionPanel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.connectionPanel > p {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+.connectionValue {
+  margin-top: 13px;
+}
+
+.connectionValue > span {
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.connectionValue > div {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 7px;
+}
+
+.connectionValue code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 9px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .serviceReadinessCard,
+  .onboardingHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .serviceReadinessActions {
+    justify-content: flex-start;
+  }
+
+  .onboardingGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .serviceReadinessCard,
+  .onboardingPanel {
+    padding: 14px;
+  }
+
+  .serviceReadinessActions .button {
+    width: 100%;
+  }
+
+  .onboardingStep {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .onboardingStep > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}

@@ -11,6 +11,14 @@ import type { DatabaseStore } from "../storage/database";
 import type { KeyCipher } from "../security/encryption";
 import type { UsageService } from "../usage/usageService";
 
+const ADMIN_ASSETS = new Map([
+  ["/admin/app.css", ["public/admin/app.css", "text/css; charset=utf-8"]],
+  ["/admin/app.js", ["public/admin/app.js", "text/javascript; charset=utf-8"]],
+  ["/admin/onboarding.css", ["public/admin/onboarding.css", "text/css; charset=utf-8"]],
+  ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
+  ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
+] as const);
+
 export class Router {
   constructor(
     private readonly config: AppConfig,
@@ -46,15 +54,12 @@ export class Router {
     }
 
     if (path === "/admin" && req.method === "GET") {
-      return this.staticFile("public/admin/index.html", "text/html; charset=utf-8");
+      return this.adminIndex();
     }
 
-    if ((path === "/admin/app.css" || path === "/admin/app.js") && req.method === "GET") {
-      const filePath = path === "/admin/app.css" ? "public/admin/app.css" : "public/admin/app.js";
-      const contentType = path.endsWith(".css")
-        ? "text/css; charset=utf-8"
-        : "text/javascript; charset=utf-8";
-      return this.staticFile(filePath, contentType);
+    const adminAsset = ADMIN_ASSETS.get(path);
+    if (adminAsset && req.method === "GET") {
+      return this.staticFile(adminAsset[0], adminAsset[1]);
     }
 
     if (path.startsWith("/admin/")) {
@@ -123,6 +128,30 @@ export class Router {
 
   private hasBearerToken(req: Request): boolean {
     return /^Bearer\s+.+$/i.test(req.headers.get("authorization") || "");
+  }
+
+  private async adminIndex(): Promise<Response> {
+    const template = await Bun.file("public/admin/index.html").text();
+    const html = template
+      .replace(
+        "</head>",
+        '    <link rel="stylesheet" href="/admin/onboarding.css?v=1.4.0-onboarding" />\n  </head>'
+      )
+      .replace(
+        '<section id="overviewPage" class="page active">',
+        '<section id="overviewPage" class="page active">\n        <div id="serviceReadinessRoot" aria-live="polite"></div>\n        <div id="onboardingRoot"></div>'
+      )
+      .replace(
+        "</body>",
+        '    <script src="/admin/onboarding.js?v=1.4.0-onboarding" type="module"></script>\n  </body>'
+      );
+
+    return new Response(html, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
   }
 
   private staticFile(path: string, contentType: string): Response {
