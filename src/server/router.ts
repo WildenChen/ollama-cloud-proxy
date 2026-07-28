@@ -15,6 +15,7 @@ const ADMIN_ASSETS = new Map([
   ["/admin/app.css", ["public/admin/app.css", "text/css; charset=utf-8"]],
   ["/admin/app.js", ["public/admin/app.js", "text/javascript; charset=utf-8"]],
   ["/admin/onboarding.css", ["public/admin/onboarding.css", "text/css; charset=utf-8"]],
+  ["/admin/accessibility.css", ["public/admin/accessibility.css", "text/css; charset=utf-8"]],
   ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
   ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
 ] as const);
@@ -135,7 +136,11 @@ export class Router {
     const html = template
       .replace(
         "</head>",
-        '    <link rel="stylesheet" href="/admin/onboarding.css?v=1.4.0-onboarding" />\n  </head>'
+        [
+          '    <link rel="stylesheet" href="/admin/onboarding.css?v=1.4.0-onboarding" />',
+          '    <link rel="stylesheet" href="/admin/accessibility.css?v=1.4.0-accessibility" />',
+          "  </head>",
+        ].join("\n")
       )
       .replace(
         '<section id="overviewPage" class="page active">',
