@@ -36,7 +36,7 @@ describe("user-facing error classification", () => {
     expect(classifyUserFacingError({ code: "model_refresh_failed", status: 503 }).kind).toBe("upstream_unavailable");
     expect(classifyUserFacingError({ code: "queue_timeout", status: 503 }).kind).toBe("queue_busy");
     expect(classifyUserFacingError({ code: "invalid_usage_settings", status: 400 }).kind).toBe("invalid_setting");
-    expect(classifyUserFacingError({ code: "key_not_found", status: 404 }).kind).toBe("upstream_key_invalid");
+    expect(classifyUserFacingError({ code: "key_not_found", status: 404 }).kind).toBe("not_found");
     expect(classifyUserFacingError({ code: "client_key_not_found", status: 404 }).kind).toBe("not_found");
   });
 });
