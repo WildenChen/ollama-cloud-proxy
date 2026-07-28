@@ -1,5 +1,15 @@
 # 版本更新紀錄
 
+## 1.5.0 - 2026-07-28
+
+- 新增安全首次安裝流程：自動產生 `KEY_ENCRYPTION_SECRET`、拒絕範例憑證，並將 Client API Key 環境變數改為空白安全預設。
+- 新增 Pull Request 品質閘門；正式多架構映像只會在 `main` Quality 成功後發布。
+- 管理台新增服務狀態卡、首次設定指南、可複製 Base URL 與明確下一步操作。
+- 清楚區分 Ollama Cloud API Key、選填 Usage Cookie 與 Client API Key，並新增狀態篩選、不可用原因、恢復時間與新金鑰自動驗證。
+- Client API Key 完整 token 改為只在建立或更換時顯示一次；列表不再提供持續顯示完整值的操作。
+- 新增人類可讀錯誤指引，顯示影響範圍、修復方式與直接操作，並提供會遮蔽憑證與本機路徑的安全診斷複製。
+- 改善手機、小螢幕、觸控尺寸、鍵盤焦點、文字對比、狀態辨識、reduced motion 與 forced-colors 支援。
+
 ## 1.4.0 - 2026-07-19
 
 - 新增公開唯讀 `/api/usage` 與 `/api/usage/accounts`，提供啟用帳號的 5hr/weekly 標準化總額、匿名 per-account snapshot、來源與 reset buckets。
