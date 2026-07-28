@@ -16,8 +16,11 @@ const ADMIN_ASSETS = new Map([
   ["/admin/app.js", ["public/admin/app.js", "text/javascript; charset=utf-8"]],
   ["/admin/onboarding.css", ["public/admin/onboarding.css", "text/css; charset=utf-8"]],
   ["/admin/accessibility.css", ["public/admin/accessibility.css", "text/css; charset=utf-8"]],
+  ["/admin/credential-ux.css", ["public/admin/credential-ux.css", "text/css; charset=utf-8"]],
   ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
   ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
+  ["/admin/credential-ux.js", ["public/admin/credential-ux.js", "text/javascript; charset=utf-8"]],
+  ["/admin/credential-status.js", ["public/admin/credential-status.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
 export class Router {
@@ -139,16 +142,25 @@ export class Router {
         [
           '    <link rel="stylesheet" href="/admin/onboarding.css?v=1.4.0-onboarding" />',
           '    <link rel="stylesheet" href="/admin/accessibility.css?v=1.4.0-accessibility" />',
+          '    <link rel="stylesheet" href="/admin/credential-ux.css?v=1.4.0-credentials" />',
           "  </head>",
         ].join("\n")
       )
       .replace(
         '<section id="overviewPage" class="page active">',
-        '<section id="overviewPage" class="page active">\n        <div id="serviceReadinessRoot" aria-live="polite"></div>\n        <div id="onboardingRoot"></div>'
+        '<section id="overviewPage" class="page active">\n        <div id="serviceReadinessRoot" aria-live="polite"></div>\n        <div id="onboardingRoot"></div>\n        <div id="keyFilterRoot"></div>'
+      )
+      .replace(
+        '<section id="settingsPage" class="page">',
+        '<section id="settingsPage" class="page">\n        <div id="credentialGuideRoot"></div>'
       )
       .replace(
         "</body>",
-        '    <script src="/admin/onboarding.js?v=1.4.0-onboarding" type="module"></script>\n  </body>'
+        [
+          '    <script src="/admin/onboarding.js?v=1.4.0-onboarding" type="module"></script>',
+          '    <script src="/admin/credential-ux.js?v=1.4.0-credentials" type="module"></script>',
+          "  </body>",
+        ].join("\n")
       );
 
     return new Response(html, {
