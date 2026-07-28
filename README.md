@@ -21,7 +21,7 @@ Ollama Cloud Proxy 是一個「放在你的工具和 Ollama Cloud 中間」的�
 - 你不想把真正的 Ollama Cloud API key 填進每個工具。
 - 你想知道哪個工具在連線、哪把 key 壞了、哪把 key 額度快用完。
 
-你不需要懂程式碼。只要會複製指令、編輯一個 `.env` 檔案、打開瀏覽器即可。
+你不需要懂程式碼。只要會複製指令、啟動 Docker、打開瀏覽器即可。
 
 ## 你需要準備
 
@@ -59,33 +59,42 @@ git clone https://github.com/WildenChen/ollama-cloud-proxy.git
 cd ollama-cloud-proxy
 ```
 
-### 2. 建立設定檔
+### 2. 安全初始化設定
+
+```bash
+sh scripts/init-env.sh
+```
+
+這個指令會：
+
+- 從 `.env.example` 建立 `.env`。
+- 自動產生安全的 `KEY_ENCRYPTION_SECRET`。
+- 再次執行時保留既有設定，不會重設密鑰。
+
+正常安裝不需要在 `.env` 預先填入 Client API key；稍後直接在管理頁建立即可。
+
+如果系統沒有 `openssl`，也可以手動執行：
 
 ```bash
 cp .env.example .env
+openssl rand -hex 32
 ```
 
-### 3. 編輯 `.env`
-
-用你熟悉的文字編輯器打開 `.env`。
-
-最少一定要改這一行：
+把輸出的字串填入 `.env`：
 
 ```env
-KEY_ENCRYPTION_SECRET=請換成很長很難猜的文字
+KEY_ENCRYPTION_SECRET=剛才產生的字串
 ```
 
-例如可以改成一串長密碼。這個值很重要，請保存好；它用來加密資料庫裡的 API key。
+服務會拒絕空白、太短或已知範例密鑰，並顯示可直接採用的修正方式。
 
-其他設定可以先不動。
-
-### 4. 啟動服務
+### 3. 啟動服務
 
 ```bash
 docker compose -f docker-compose.release.yml up -d
 ```
 
-### 5. 確認服務有起來
+### 4. 確認服務有起來
 
 ```bash
 curl http://localhost:11435/health
@@ -97,7 +106,7 @@ curl http://localhost:11435/health
 {"status":"ok","version":"1.4.0"}
 ```
 
-### 6. 打開管理頁面
+### 5. 打開管理頁面
 
 在瀏覽器打開：
 
@@ -122,6 +131,8 @@ http://localhost:11435/admin
 4. 建立 client API key，例如 `openclaw`、`kilo`、`vscode`。
 5. 把 client API key 填到你的工具裡。
 
+Usage cookie 是選填項目；沒有設定仍可正常代理模型請求，只是不會顯示官方用量資料。
+
 ## 金鑰選取模式
 
 預設是 `ordered`：固定從第一把可用金鑰開始使用；當該金鑰的 5hr 或每週額度受限時，請求會改用下一把可用金鑰。也可以在管理頁面的「設定」切換成 `balanced`，讓請求依可用狀態與近期負載分散到多把金鑰。設定會保存在資料庫，不需要重新啟動服務。
@@ -131,6 +142,7 @@ http://localhost:11435/admin
 - Ollama Cloud API key 是 proxy 連上游用的。
 - client API key 是你的工具連 proxy 用的。
 - 工具不要直接拿 Ollama Cloud API key，這樣比較好管理，也比較安全。
+- `.env` 裡的 `CLIENT_API_KEYS` 只是進階部署的 fallback，一般使用者留空即可。
 
 ## 工具要怎麼填
 
@@ -183,6 +195,16 @@ curl http://localhost:11435/health
 提醒：YAML 匯出檔包含明文密鑰，請把它當成密碼檔保存。
 
 ## 常見問題
+
+### 啟動時顯示 KEY_ENCRYPTION_SECRET 錯誤
+
+執行下列指令即可安全建立或補齊設定：
+
+```bash
+sh scripts/init-env.sh
+```
+
+不要使用 README 或 `.env.example` 中的說明文字作為真正密鑰。
 
 ### 打不開管理頁
 
@@ -240,12 +262,14 @@ curl http://localhost:11435/api/version
 - [進階設定](./docs/advanced-configuration.md)
 - [工具接入指南](./docs/tool-integrations.md)
 - [Admin API 與路徑參考](./docs/api-reference.md)
+- [OpenClaw 用量整合](./docs/openclaw-usage-integration.md)
 - [開發與測試](./docs/development.md)
 - [版本更新紀錄](./docs/changelog.md)
 
 ## 安全提醒
 
 - 不要把 `.env`、`data/`、API key、client token 貼到公開地方。
+- 不要使用範例 secret 或固定 token；程式會拒絕已知不安全範例值。
 - 不建議直接把 `/admin` 暴露到 Internet。
 - 外網使用請放在 HTTPS、VPN、Tailscale、Cloudflare Access 或反向代理保護後面。
 - 匯出的 YAML 包含明文 secret，請妥善保存。
