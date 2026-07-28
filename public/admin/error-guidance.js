@@ -8,6 +8,15 @@ export function classifyUserFacingError(input = {}) {
   const combined = `${code} ${message} ${context}`;
 
   if (
+    ["invalid_api_key", "auth_failed", "key_not_found"].includes(code) ||
+    combined.includes("api key is invalid") ||
+    combined.includes("invalid api key") ||
+    combined.includes("revoked")
+  ) {
+    return result("upstream_key_invalid", "danger", "proxy", "review_keys", false);
+  }
+
+  if (
     ["unauthorized", "admin_setup_required", "invalid_admin_login", "invalid_current_password", "invalid_admin_password"].includes(code) ||
     status === 401
   ) {
@@ -19,15 +28,6 @@ export function classifyUserFacingError(input = {}) {
 
   if (code === "no_available_key" || combined.includes("no available ollama cloud key") || combined.includes("no_available_key")) {
     return result("no_available_key", "danger", "proxy", "review_keys", false);
-  }
-
-  if (
-    ["invalid_api_key", "auth_failed", "key_not_found"].includes(code) ||
-    combined.includes("api key is invalid") ||
-    combined.includes("invalid api key") ||
-    combined.includes("revoked")
-  ) {
-    return result("upstream_key_invalid", "danger", "proxy", "review_keys", false);
   }
 
   if (
