@@ -4,8 +4,8 @@ LABEL org.opencontainers.image.source="https://github.com/WildenChen/ollama-clou
 
 WORKDIR /app
 
-COPY package.json tsconfig.json ./
-RUN bun install --production
+COPY package.json bun.lockb tsconfig.json ./
+RUN bun install --production --frozen-lockfile
 COPY src ./src
 COPY public ./public
 

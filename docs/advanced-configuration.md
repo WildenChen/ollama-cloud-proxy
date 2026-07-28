@@ -16,20 +16,34 @@ Ollama Cloud Proxy 有兩種 key：
 | 變數 | 說明 |
 | --- | --- |
 | `PORT` | proxy 監聽 port，預設 `11435` |
-| `KEY_ENCRYPTION_SECRET` | 加密保存 key 的 secret，務必備份 |
+| `KEY_ENCRYPTION_SECRET` | 加密保存 key 的 secret，至少 32 個字元，務必備份 |
 | `DB_PATH` | SQLite DB 路徑，Docker 預設 `/data/ollama-cloud-proxy.sqlite` |
 
-`KEY_ENCRYPTION_SECRET` 遺失時，資料庫裡已加密保存的 key 不能解密，只能重新新增或輪替。
+建議直接執行：
+
+```bash
+sh scripts/init-env.sh
+```
+
+這會建立 `.env` 並以 `openssl rand -hex 32` 產生安全的 `KEY_ENCRYPTION_SECRET`。腳本可重複執行，不會覆蓋既有 secret。
+
+服務會拒絕空白、少於 32 個字元或已知範例 secret。`KEY_ENCRYPTION_SECRET` 遺失時，資料庫裡已加密保存的 key 不能解密，只能重新新增或輪替。
 
 ## Client API key
 
-建議在 Admin UI 建立 client API key。也可以用舊的 `.env` 格式作為 fallback：
+建議在 Admin UI 建立 client API key。正常安裝時讓 `.env` 保持空值即可：
 
 ```env
-CLIENT_API_KEYS=openclaw:openclaw-token,kilo:kilo-token
+CLIENT_API_KEYS=
 ```
 
-如果 DB 或 env 裡有任何 client key，推理路徑就需要 Bearer token。
+進階或自動化部署也可以用 env fallback：
+
+```env
+CLIENT_API_KEYS=openclaw:請換成隨機長字串,kilo:請換成另一個隨機長字串
+```
+
+已知範例 token 會被拒絕，避免複製 `.env.example` 後意外留下固定憑證。如果 DB 或 env 裡有任何 client key，推理路徑就需要 Bearer token。
 
 ## 上游與 Web Search
 
@@ -51,7 +65,7 @@ Admin UI 可以替每把 key 保存 Ollama Cloud usage cookie，用來讀取官�
 OLLAMA_USAGE_COOKIE=__Secure-session=...
 ```
 
-多帳號時建議在 Admin UI 設定 per-key cookie，不要只用 env fallback。
+多帳號時建議在 Admin UI 設定 per-key cookie，不要只用 env fallback。Usage cookie 是選填項目；未設定不影響模型代理，只會缺少官方用量資料。
 
 公開用量 API 與刷新/估算設定：
 
@@ -117,33 +131,3 @@ OLLAMA_NATIVE_APPLY_ALIASES=false
 | `WEEKLY_REACTIVATION_JITTER_SECONDS` | `180` | 解凍時隨機抖動秒數 |
 
 這些也可以在 Admin UI 調整，會保存到 SQLite。
-
-## 外網與反向代理
-
-不建議直接把 Docker port `11435` 裸露到 Internet。
-
-外網使用建議：
-
-- 使用 HTTPS。
-- `/admin` 放在 VPN、Tailscale、Cloudflare Access、IP allowlist 或內網後面。
-- 一定要建立 client API key。
-- 反向代理要設定足夠長的 read timeout。
-- streaming/SSE 或 NDJSON 場景要關閉 response buffering。
-
-## 資料與備份
-
-請備份：
-
-- `.env`
-- `data/`
-- YAML 匯出檔，如果你有匯出
-
-不要 commit：
-
-- `.env`
-- `data/`
-- SQLite DB
-- 完整 Ollama Cloud API key
-- Admin 密碼或 token
-- Client API key
-- `KEY_ENCRYPTION_SECRET`

@@ -1,9 +1,14 @@
 name: Publish Docker image
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Quality
+    types:
+      - completed
     branches:
       - main
+  push:
     tags:
       - "*.*.*"
   workflow_dispatch:
@@ -14,20 +19,14 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout validated source
         uses: actions/checkout@v4
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Run tests
-        run: bun test
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -48,8 +47,7 @@ jobs:
         with:
           images: ghcr.io/wildenchen/ollama-cloud-proxy
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
             type=ref,event=tag
             type=sha,prefix=sha-
 
