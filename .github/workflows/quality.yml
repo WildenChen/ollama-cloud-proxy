@@ -33,6 +33,15 @@ jobs:
       - name: Check environment initializer
         run: sh -n scripts/init-env.sh
 
+      - name: Check error classification
+        run: bun test tests/error-ux.test.ts --test-name-pattern "user-facing error classification"
+
+      - name: Check safe diagnostics
+        run: bun test tests/error-ux.test.ts --test-name-pattern "safe diagnostics"
+
+      - name: Check error browser integration
+        run: bun test tests/error-ux.test.ts --test-name-pattern "error guidance assets"
+
       - name: Run tests
         run: bun test
 
