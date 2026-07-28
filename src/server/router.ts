@@ -17,10 +17,13 @@ const ADMIN_ASSETS = new Map([
   ["/admin/onboarding.css", ["public/admin/onboarding.css", "text/css; charset=utf-8"]],
   ["/admin/accessibility.css", ["public/admin/accessibility.css", "text/css; charset=utf-8"]],
   ["/admin/credential-ux.css", ["public/admin/credential-ux.css", "text/css; charset=utf-8"]],
+  ["/admin/error-ux.css", ["public/admin/error-ux.css", "text/css; charset=utf-8"]],
   ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
   ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
   ["/admin/credential-ux.js", ["public/admin/credential-ux.js", "text/javascript; charset=utf-8"]],
   ["/admin/credential-status.js", ["public/admin/credential-status.js", "text/javascript; charset=utf-8"]],
+  ["/admin/error-ux.js", ["public/admin/error-ux.js", "text/javascript; charset=utf-8"]],
+  ["/admin/error-guidance.js", ["public/admin/error-guidance.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
 export class Router {
@@ -143,8 +146,14 @@ export class Router {
           '    <link rel="stylesheet" href="/admin/onboarding.css?v=1.4.0-onboarding" />',
           '    <link rel="stylesheet" href="/admin/accessibility.css?v=1.4.0-accessibility" />',
           '    <link rel="stylesheet" href="/admin/credential-ux.css?v=1.4.0-credentials" />',
+          '    <link rel="stylesheet" href="/admin/error-ux.css?v=1.4.0-errors" />',
+          '    <script src="/admin/error-ux.js?v=1.4.0-errors" type="module"></script>',
           "  </head>",
         ].join("\n")
+      )
+      .replace(
+        '<section id="notice" class="notice hidden" role="status"></section>',
+        '<section id="notice" class="notice hidden" role="status"></section>\n      <div id="errorGuidanceRoot" class="hidden"></div>'
       )
       .replace(
         '<section id="overviewPage" class="page active">',
