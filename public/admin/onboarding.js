@@ -188,6 +188,8 @@ function actionLabel(action) {
   if (action === "create-client-key") return w("createClientKey");
   if (action === "test-models") return w("testModels");
   if (action === "review-keys") return w("reviewKeys");
+  if (action === "set-cookie") return w("setCookie");
+  if (action === "focus-guide") return w("continueSetup");
   return w("refresh");
 }
 
@@ -196,6 +198,10 @@ function render() {
   const [title, description] = statusCopy(snapshot.status);
   const counts = snapshot.counts;
   const dismissed = localStorage.getItem(dismissedKey) === "1";
+  const guideAction = snapshot.requiredComplete ? "show-guide" : "focus-guide";
+  const guideLabel = snapshot.requiredComplete
+    ? (dismissed ? w("guide") : w("hideGuide"))
+    : w("continueSetup");
 
   serviceRoot.innerHTML = `
     <section class="serviceReadinessCard ${escapeHtml(snapshot.status)}" aria-labelledby="serviceReadinessTitle">
@@ -215,7 +221,7 @@ function render() {
       </div>
       <div class="serviceReadinessActions">
         ${snapshot.nextAction !== "none" ? `<button class="button primary" type="button" data-readiness-action="${escapeHtml(snapshot.nextAction)}">${escapeHtml(actionLabel(snapshot.nextAction))}</button>` : ""}
-        <button class="button" type="button" data-readiness-action="show-guide">${escapeHtml(snapshot.requiredComplete && !dismissed ? w("hideGuide") : w("guide"))}</button>
+        <button class="button" type="button" data-readiness-action="${escapeHtml(guideAction)}">${escapeHtml(guideLabel)}</button>
       </div>
     </section>
   `;
@@ -277,7 +283,7 @@ function renderStep(completed, labelKey, hintKey, action, optional) {
         </div>
         <p>${escapeHtml(w(hintKey))}</p>
       </div>
-      ${completed ? "" : `<button class="button compact" type="button" data-readiness-action="${escapeHtml(action)}">${escapeHtml(actionLabel(action === "set-cookie" ? "review-keys" : action))}</button>`}
+      ${completed ? "" : `<button class="button compact" type="button" data-readiness-action="${escapeHtml(action)}">${escapeHtml(actionLabel(action))}</button>`}
     </article>
   `;
 }
@@ -299,10 +305,15 @@ function clickTab(page) {
 }
 
 function runAction(action, button) {
+  if (action === "focus-guide") {
+    onboardingRoot.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
   if (action === "show-guide") {
     const visible = !onboardingRoot.classList.contains("hidden");
     localStorage.setItem(dismissedKey, visible ? "1" : "0");
     render();
+    if (!visible) onboardingRoot.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   if (action === "dismiss-guide") {
@@ -325,6 +336,10 @@ function runAction(action, button) {
   }
   if (action === "test-models") {
     clickTab("modelTest");
+    window.setTimeout(() => {
+      document.getElementById("refreshModelsButton")?.click();
+      scheduleReload(1200);
+    }, 120);
     return;
   }
   if (action === "review-keys") {
@@ -333,7 +348,9 @@ function runAction(action, button) {
     return;
   }
   if (action === "set-cookie") {
-    document.querySelector("#usageOverview button[data-action='key-settings']")?.click();
+    const settingsButton = document.querySelector("#usageOverview button[data-action='key-settings']");
+    if (settingsButton) settingsButton.click();
+    else document.getElementById("addKeyButton")?.click();
     return;
   }
   if (action === "copy-openai" || action === "copy-native") {
