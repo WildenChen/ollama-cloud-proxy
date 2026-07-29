@@ -34,6 +34,7 @@ export type ProxyClientKeySummary = {
 type BuildSummaryInput = {
   databaseKeys: ClientApiKeyRecord[];
   environmentKeys: AppConfig["clientApiKeys"];
+  protectionEnabled: boolean;
   clientActivity?: ClientActivityRow[];
   decryptDatabaseToken: (key: ClientApiKeyRecord) => string;
 };
@@ -71,7 +72,7 @@ export function buildClientKeySummary(input: BuildSummaryInput): ProxyClientKeyS
     try {
       databaseTokens.set(key.id, input.decryptDatabaseToken(key));
     } catch {
-      // The configured key still enables authentication, but cannot be counted as usable.
+      // A configured key can keep protection enabled while remaining unusable.
     }
   }
 
@@ -127,10 +128,9 @@ export function buildClientKeySummary(input: BuildSummaryInput): ProxyClientKeyS
 
   const items = [...databaseItems, ...environmentItems];
   const effectiveTotal = effectiveTokens.size;
-  const protectionEnabled = enabledDatabaseKeys.length > 0 || environmentEntries.length > 0;
   return {
-    protectionEnabled,
-    anonymousMode: !protectionEnabled,
+    protectionEnabled: input.protectionEnabled,
+    anonymousMode: !input.protectionEnabled,
     effectiveTotal,
     databaseManagedTotal: databaseKeys.length,
     enabledDatabaseTotal: enabledDatabaseKeys.length,
