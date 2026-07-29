@@ -78,7 +78,7 @@ describe("proxy client key summary", () => {
     expect(summary.items.every((item) => item.lastRequestAtReliable === false)).toBe(true);
   });
 
-  test("does not count disabled or undecryptable database keys as effective", () => {
+  test("keeps protection enabled when a configured database key cannot be decrypted", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [dbKey({ enabled: false }), dbKey({ id: "broken", name: "broken", encryptedToken: "bad" })],
       environmentKeys: new Map(),
@@ -91,6 +91,7 @@ describe("proxy client key summary", () => {
     expect(summary.databaseManagedTotal).toBe(2);
     expect(summary.enabledDatabaseTotal).toBe(1);
     expect(summary.effectiveTotal).toBe(0);
-    expect(summary.anonymousMode).toBe(true);
+    expect(summary.protectionEnabled).toBe(true);
+    expect(summary.anonymousMode).toBe(false);
   });
 });
