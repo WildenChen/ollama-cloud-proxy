@@ -1,0 +1,501 @@
+name: Apply proxy key upgrade
+
+on:
+  push:
+    branches:
+      - agent/proxy-key-upgrade-ux
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/proxy-key-upgrade-ux
+          fetch-depth: 0
+      - name: Apply exact compatibility and UX patch
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          def replace_all(path, old, new, minimum=1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count < minimum:
+                  raise SystemExit(f"{path}: expected at least {minimum} matches, found {count}: {old!r}")
+              p.write_text(text.replace(old, new))
+
+          # Backend: combine database and environment-managed client keys safely.
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              'import { parse as parseYaml, stringify as stringifyYaml } from "yaml";\n',
+              'import { parse as parseYaml, stringify as stringifyYaml } from "yaml";\nimport { buildClientKeySummary } from "./clientKeySummary";\n',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              'import {\n  adminAuthStatus,',
+              'import {\n  authenticateClient,\n  adminAuthStatus,',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '    if (path === "/admin/client-keys" && req.method === "GET") return json({ clientKeys: this.publicClientApiKeys() });\n    if (path === "/admin/client-keys" && req.method === "POST") return this.createClientApiKey(req);\n\n    const clientKeyMatch',
+              '    if (path === "/admin/client-keys" && req.method === "GET") return json({ clientKeys: this.publicClientApiKeys() });\n    if (path === "/admin/client-keys" && req.method === "POST") return this.createClientApiKey(req);\n    if (path === "/admin/client-key-summary" && req.method === "GET") return json(this.clientKeySummary());\n    if (path === "/admin/client-key-test" && req.method === "POST") return this.testClientApiKey(req);\n\n    const clientKeyMatch',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '      return json({ clientKey: safe }, 201);',
+              '      return json({ clientKey: safe, token }, 201);',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''  private revealClientApiKey(id: string) {
+    try {
+      const key = this.store.getClientApiKeyOrThrow(id);
+      return json({ token: this.cipher.decrypt(key.encryptedToken) });
+    } catch (error) {
+      return openAiError(404, "client_key_not_found", (error as Error).message);
+    }
+  }
+''',
+              '''  private revealClientApiKey(_id: string) {
+    return openAiError(
+      410,
+      "client_key_reveal_disabled",
+      "Existing Client API keys cannot be revealed. Create a replacement key and test it before disabling the old key."
+    );
+  }
+''',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''  private async rotateClientApiKey(req: Request, id: string) {
+    try {
+      await readJson(req);
+      const token = generateClientToken();
+      const key = this.store.patchClientApiKey(id, {
+        encryptedToken: this.cipher.encrypt(token),
+        tokenPreview: publicTokenPreview(token),
+      });
+      this.events.emit({ level: "info", type: "client_key_rotated", message: `Client key ${key.name} rotated`, clientName: key.name });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+''',
+              '''  private async rotateClientApiKey(req: Request, id: string) {
+    try {
+      await readJson(req);
+      const token = generateClientToken();
+      const key = this.store.patchClientApiKey(id, {
+        encryptedToken: this.cipher.encrypt(token),
+        tokenPreview: publicTokenPreview(token),
+      });
+      this.events.emit({ level: "info", type: "client_key_rotated", message: `Client key ${key.name} rotated`, clientName: key.name });
+      const { encryptedToken: _encryptedToken, ...safe } = key;
+      return json({ clientKey: safe, token });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+''',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '  private exportYaml() {\n',
+              '''  private clientKeySummary() {
+    return buildClientKeySummary({
+      databaseKeys: this.store.listClientApiKeys(false),
+      environmentKeys: this.config.clientApiKeys,
+      clientActivity: this.store.getTodayClientStats().map((row) => ({
+        clientName: String(row.clientName),
+        lastRequestAt: row.lastRequestAt ? String(row.lastRequestAt) : null,
+      })),
+      decryptDatabaseToken: (key) => this.cipher.decrypt(key.encryptedToken),
+    });
+  }
+
+  private clientKeyPublicAccessSummary() {
+    const { items: _items, ...safe } = this.clientKeySummary();
+    return safe;
+  }
+
+  private async testClientApiKey(req: Request) {
+    try {
+      const body = await readJson(req);
+      const token = String(body.token || "").trim();
+      if (!token) throw new Error("token is required");
+
+      const authentication = authenticateClient(
+        new Request("http://localhost/v1/models", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+        this.config,
+        this.store,
+        this.cipher,
+      );
+      const authenticationOk = !("response" in authentication);
+      const upstream = this.keyPool.summary();
+      const models = this.models.listModelsFromCache({ includeDisabled: false }) as {
+        count?: number;
+        models?: unknown[];
+      };
+      const modelCount = Number(models.count ?? models.models?.length ?? 0);
+
+      return json({
+        authentication: {
+          ok: authenticationOk,
+          message: authenticationOk ? "Proxy access key is valid" : "Proxy access key is invalid",
+        },
+        upstream: {
+          ok: Number(upstream.availableKeys || 0) > 0,
+          availableKeys: Number(upstream.availableKeys || 0),
+          message: Number(upstream.availableKeys || 0) > 0 ? "An upstream key is available" : "No upstream key is currently available",
+        },
+        models: {
+          ok: modelCount > 0,
+          count: modelCount,
+          message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is not ready yet",
+        },
+      });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key_test", (error as Error).message);
+    }
+  }
+
+  private exportYaml() {
+''',
+          )
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '      clients: persistedClients,\n      models: {',
+              '      clients: persistedClients,\n      clientAccess: this.clientKeyPublicAccessSummary(),\n      models: {',
+          )
+
+          # Router: serve and inject the new home management module.
+          replace_once(
+              "src/server/router.ts",
+              '  ["/admin/mobile-key-card.css", ["public/admin/mobile-key-card.css", "text/css; charset=utf-8"]],\n',
+              '  ["/admin/mobile-key-card.css", ["public/admin/mobile-key-card.css", "text/css; charset=utf-8"]],\n  ["/admin/proxy-key-ux.css", ["public/admin/proxy-key-ux.css", "text/css; charset=utf-8"]],\n',
+          )
+          replace_once(
+              "src/server/router.ts",
+              '  ["/admin/error-guidance.js", ["public/admin/error-guidance.js", "text/javascript; charset=utf-8"]],\n',
+              '  ["/admin/error-guidance.js", ["public/admin/error-guidance.js", "text/javascript; charset=utf-8"]],\n  ["/admin/proxy-key-ux.js", ["public/admin/proxy-key-ux.js", "text/javascript; charset=utf-8"]],\n',
+          )
+          replace_once(
+              "src/server/router.ts",
+              '          \'    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.1-mobile-key-card" />\',\n',
+              '          \'    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.1-mobile-key-card" />\',\n          \'    <link rel="stylesheet" href="/admin/proxy-key-ux.css?v=1.6.0-proxy-keys" />\',\n',
+          )
+          replace_once(
+              "src/server/router.ts",
+              "        '<section id=\"overviewPage\" class=\"page active\">\\n        <div id=\"serviceReadinessRoot\" aria-live=\"polite\"></div>\\n        <div id=\"onboardingRoot\"></div>\\n        <div id=\"keyFilterRoot\"></div>'",
+              "        '<section id=\"overviewPage\" class=\"page active\">\\n        <div id=\"serviceReadinessRoot\" aria-live=\"polite\"></div>\\n        <div id=\"onboardingRoot\"></div>\\n        <div id=\"proxyKeyRoot\"></div>\\n        <div id=\"keyFilterRoot\"></div>'",
+          )
+          replace_once(
+              "src/server/router.ts",
+              '          \'    <script src="/admin/credential-ux.js?v=1.4.0-credentials" type="module"></script>\',\n',
+              '          \'    <script src="/admin/credential-ux.js?v=1.4.0-credentials" type="module"></script>\',\n          \'    <script src="/admin/proxy-key-ux.js?v=1.6.0-proxy-keys" type="module"></script>\',\n',
+          )
+
+          # Readiness: environment keys count, anonymous mode stays operational, security is a separate state.
+          replace_once(
+              "public/admin/readiness.js",
+              '  const enabledClientKeys = Math.max(0, Number(input.enabledClientKeys || 0));\n  const modelCount',
+              '  const enabledClientKeys = Math.max(0, Number(input.enabledClientKeys || 0));\n  const protectionEnabled = input.protectionEnabled === true || enabledClientKeys > 0;\n  const anonymousMode = input.anonymousMode === true || !protectionEnabled;\n  const modelCount',
+          )
+          replace_once(
+              "public/admin/readiness.js",
+              '    clientKeyReady: enabledClientKeys > 0,',
+              '    clientKeyReady: protectionEnabled,',
+          )
+          replace_once(
+              "public/admin/readiness.js",
+              '''  const requiredComplete =
+    steps.adminReady &&
+    steps.upstreamKeyReady &&
+    steps.clientKeyReady &&
+    steps.proxyReady &&
+    steps.modelDiscoveryReady;
+''',
+              '''  const requiredComplete =
+    steps.adminReady &&
+    steps.upstreamKeyReady &&
+    steps.proxyReady &&
+    steps.modelDiscoveryReady;
+''',
+          )
+          replace_once(
+              "public/admin/readiness.js",
+              '''  } else if (!steps.clientKeyReady) {
+    status = "setup";
+    nextAction = "create-client-key";
+  } else if (!steps.proxyReady) {
+    status = "unavailable";
+    nextAction = "refresh";
+  } else if (!steps.modelDiscoveryReady) {
+    status = "partial";
+    nextAction = "test-models";
+  } else if (availableKeys < totalKeys) {
+''',
+              '''  } else if (!steps.proxyReady) {
+    status = "unavailable";
+    nextAction = "refresh";
+  } else if (!steps.modelDiscoveryReady) {
+    status = "partial";
+    nextAction = "test-models";
+  } else if (!steps.clientKeyReady) {
+    status = "partial";
+    nextAction = "create-client-key";
+  } else if (availableKeys < totalKeys) {
+''',
+          )
+          replace_once(
+              "public/admin/readiness.js",
+              '    requiredComplete,\n    steps,',
+              '    requiredComplete,\n    securityComplete: steps.clientKeyReady,\n    anonymousMode,\n    steps,',
+          )
+
+          # Onboarding: use the unified source summary and do not mislabel anonymous upgrades as broken.
+          replace_once(
+              "public/admin/onboarding.js",
+              '    partialDescription: "服務可以使用，但部分金鑰或驗證項目需要注意。",\n',
+              '    partialDescription: "服務可以使用，但部分金鑰或驗證項目需要注意。",\n    unprotectedTitle: "可用，但尚未啟用存取保護",\n    unprotectedDescription: "既有匿名連線維持可用；建議建立 Proxy 專屬金鑰，再逐步更新工具。",\n',
+          )
+          replace_once(
+              "public/admin/onboarding.js",
+              '    partialDescription: "The service works, but some keys or checks need attention.",\n',
+              '    partialDescription: "The service works, but some keys or checks need attention.",\n    unprotectedTitle: "Available without access protection",\n    unprotectedDescription: "Existing anonymous clients remain available. Create a proxy access key and migrate clients gradually.",\n',
+          )
+          replace_once(
+              "public/admin/onboarding.js",
+              '''    let clientKeys = [];
+    let models = null;
+    if (authStatus.authenticated) {
+      const [clientResponse, modelResponse] = await Promise.all([
+        fetchJson("/admin/client-keys"),
+        fetchJson("/admin/models"),
+      ]);
+      clientKeys = clientResponse.clientKeys || [];
+      models = modelResponse;
+    }
+
+    const totals = stats?.usage?.overview?.totals;
+    snapshot = deriveServiceReadiness({
+      initialized: authStatus.initialized,
+      authenticated: authStatus.authenticated,
+      totalKeys: stats?.keys?.totalKeys,
+      availableKeys: stats?.keys?.availableKeys,
+      enabledClientKeys: clientKeys.filter((key) => key.enabled !== false).length,
+      modelCount: models?.count ?? models?.models?.length ?? 0,
+      usageCookieCount: totals?.official?.available ?? 0,
+    });
+''',
+              '''    let clientSummary = stats?.clientAccess || null;
+    let models = null;
+    if (authStatus.authenticated) {
+      const [clientResponse, modelResponse] = await Promise.all([
+        fetchJson("/admin/client-key-summary"),
+        fetchJson("/admin/models"),
+      ]);
+      clientSummary = clientResponse;
+      models = modelResponse;
+    }
+
+    const totals = stats?.usage?.overview?.totals;
+    snapshot = deriveServiceReadiness({
+      initialized: authStatus.initialized,
+      authenticated: authStatus.authenticated,
+      totalKeys: stats?.keys?.totalKeys,
+      availableKeys: stats?.keys?.availableKeys,
+      enabledClientKeys: clientSummary?.effectiveTotal ?? 0,
+      protectionEnabled: clientSummary?.protectionEnabled === true,
+      anonymousMode: clientSummary?.anonymousMode === true,
+      modelCount: models?.count ?? models?.models?.length ?? 0,
+      usageCookieCount: totals?.official?.available ?? 0,
+    });
+''',
+          )
+          replace_once(
+              "public/admin/onboarding.js",
+              '  if (status === "partial") return [w("partialTitle"), w("partialDescription")];',
+              '  if (status === "partial" && snapshot?.anonymousMode) return [w("unprotectedTitle"), w("unprotectedDescription")];\n  if (status === "partial") return [w("partialTitle"), w("partialDescription")];',
+          )
+          replace_once(
+              "public/admin/onboarding.js",
+              '''  if (action === "create-client-key") {
+    clickTab("settings");
+    window.setTimeout(() => document.getElementById("clientKeyForm")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    return;
+  }
+''',
+              '''  if (action === "create-client-key") {
+    clickTab("overview");
+    window.setTimeout(() => {
+      const button = document.querySelector("#proxyKeyRoot button[data-proxy-action='create']");
+      if (button) button.click();
+      else {
+        clickTab("settings");
+        document.getElementById("clientKeyForm")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+    return;
+  }
+''',
+          )
+
+          # Existing credential UI uses one-time tokens returned directly by create/rotate.
+          replace_once(
+              "public/admin/credential-ux.js",
+              '    tokenUnavailable: "無法取得一次性 token，請刪除後重新建立，避免使用未知憑證。",',
+              '    tokenUnavailable: "無法取得一次性 token，請建立替代金鑰並測試成功後，再停用舊金鑰。",',
+          )
+          replace_once(
+              "public/admin/credential-ux.js",
+              '    tokenUnavailable: "The one-time token could not be retrieved. Delete and recreate the key to avoid an unknown credential.",',
+              '    tokenUnavailable: "The one-time token could not be retrieved. Create and test a replacement before disabling the old key.",',
+          )
+          replace_once(
+              "public/admin/credential-ux.js",
+              '''    const id = created?.clientKey?.id;
+    const revealed = id ? await request(`/admin/client-keys/${encodeURIComponent(id)}/reveal`, { method: "POST" }) : null;
+    clientKeyForm.reset();
+    showOneTimeToken(revealed?.token || "");
+''',
+              '''    clientKeyForm.reset();
+    showOneTimeToken(created?.token || "");
+''',
+          )
+          replace_once(
+              "public/admin/credential-ux.js",
+              '''    await request(`/admin/client-keys/${encodeURIComponent(id)}/rotate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const revealed = await request(`/admin/client-keys/${encodeURIComponent(id)}/reveal`, { method: "POST" });
+    showOneTimeToken(revealed?.token || "");
+''',
+              '''    const rotated = await request(`/admin/client-keys/${encodeURIComponent(id)}/rotate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    showOneTimeToken(rotated?.token || "");
+''',
+          )
+
+          # Clarify upstream-key wording in both locales.
+          replacements = {
+            'availableKeysMetric: "可用金鑰"': 'availableKeysMetric: "可用上游金鑰"',
+            'addKey: "新增金鑰"': 'addKey: "新增上游金鑰"',
+            'addKeyTitle: "新增一把 Ollama API 金鑰"': 'addKeyTitle: "新增一把 Ollama Cloud 上游 API 金鑰"',
+            'addKeyAria: "新增 Ollama 金鑰"': 'addKeyAria: "新增 Ollama Cloud 上游金鑰"',
+            'keySettingsTitle: "Key 設定"': 'keySettingsTitle: "上游金鑰設定"',
+            'closeKeySettingsTitle: "關閉 Key 設定"': 'closeKeySettingsTitle: "關閉上游金鑰設定"',
+            'keySettingsSaved: "Key 設定已儲存。"': 'keySettingsSaved: "上游金鑰設定已儲存。"',
+            'dialogTitle: "新增 Ollama 金鑰"': 'dialogTitle: "新增 Ollama Cloud 上游金鑰"',
+            'apiKeyLabel: "API 金鑰"': 'apiKeyLabel: "Ollama Cloud API 金鑰"',
+            'createKey: "建立金鑰"': 'createKey: "建立上游金鑰"',
+            'noKeys: "目前沒有金鑰。請新增第一把已加密保存的 Ollama 金鑰。"': 'noKeys: "目前沒有上游金鑰。請新增第一把已加密保存的 Ollama Cloud API 金鑰。"',
+            '"key-settings": "Key 設定"': '"key-settings": "上游金鑰設定"',
+            'availableKeysMetric: "Available keys"': 'availableKeysMetric: "Available upstream keys"',
+            'addKey: "Add Key"': 'addKey: "Add Upstream Key"',
+            'addKeyTitle: "Add an Ollama API key"': 'addKeyTitle: "Add an Ollama Cloud upstream API key"',
+            'addKeyAria: "Add Ollama key"': 'addKeyAria: "Add Ollama Cloud upstream key"',
+            'keySettingsTitle: "Key Settings"': 'keySettingsTitle: "Upstream Key Settings"',
+            'closeKeySettingsTitle: "Close key settings"': 'closeKeySettingsTitle: "Close upstream key settings"',
+            'keySettingsSaved: "Key settings saved."': 'keySettingsSaved: "Upstream key settings saved."',
+            'dialogTitle: "Add Ollama Key"': 'dialogTitle: "Add Ollama Cloud Upstream Key"',
+            'apiKeyLabel: "API key"': 'apiKeyLabel: "Ollama Cloud API key"',
+            'createKey: "Create Key"': 'createKey: "Create Upstream Key"',
+            'noKeys: "No keys yet. Add the first encrypted Ollama key."': 'noKeys: "No upstream keys yet. Add the first encrypted Ollama Cloud API key."',
+            '"key-settings": "Key Settings"': '"key-settings": "Upstream Key Settings"',
+          }
+          app = Path("public/admin/app.js")
+          text = app.read_text()
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"public/admin/app.js missing expected text: {old}")
+              text = text.replace(old, new)
+          app.write_text(text)
+
+          # Release and documentation.
+          replace_once("package.json", '"version": "1.5.1"', '"version": "1.6.0"')
+          replace_once("src/config/version.ts", 'export const APP_VERSION = "1.5.1";', 'export const APP_VERSION = "1.6.0";')
+          replace_once("README.md", '目前版本：`1.5.1`', '目前版本：`1.6.0`')
+          replace_once(
+              "README.md",
+              '如果你只是想把服務裝起來，照下面步驟做就好。進階設定、API、開發文件都拆到 [docs](./docs/)。\n\n## 1.5.x 管理台改善',
+              '''如果你只是想把服務裝起來，照下面步驟做就好。進階設定、API、開發文件都拆到 [docs](./docs/)。
+
+## 1.6.0 Proxy 專屬金鑰改善
+
+- 首頁明確區分「Ollama Cloud 上游金鑰」與提供給工具使用的「Proxy 專屬金鑰」。
+- 使用者可在首頁建立、查看、編輯、停用及安全刪除管理台型 Proxy 專屬金鑰。
+- `.env` 的 `CLIENT_API_KEYS` 會繼續有效，並以「環境變數管理｜唯讀」顯示，不會被自動遷移或改寫。
+- 建立與進階更換操作直接回傳一次性 token；既有完整 token 不再能透過一般 reveal endpoint 重新顯示。
+- 新金鑰可分別檢查驗證、上游可用性與模型狀態；安全切換流程允許新舊金鑰並存。
+- 沒有 Client API Key 的既有部署仍維持匿名模式，不會因升級中斷，只顯示非阻擋式安全建議。
+
+## 1.5.x 管理台改善''',
+          )
+          replace_all("README.md", '"version":"1.5.1"', '"version":"1.6.0"')
+          replace_all("README.md", '版本 `1.5.1`', '版本 `1.6.0`')
+          replace_once(
+              "docs/changelog.md",
+              '# 版本更新紀錄\n\n',
+              '''# 版本更新紀錄
+
+## 1.6.0 - 2026-07-29
+
+- 首頁新增 Proxy 專屬金鑰建立與管理，並清楚區分 Ollama Cloud 上游金鑰。
+- 統整資料庫與 `CLIENT_API_KEYS` 環境變數來源；環境變數金鑰維持唯讀與原有驗證行為。
+- 新增安全金鑰摘要、來源數量、匿名模式及重複來源提示，不回傳環境變數 token。
+- 建立與更換回應改為只在當次回傳完整 token；停用可重複揭露既有 token 的 reveal 流程。
+- 新增 Proxy 專屬金鑰驗證、上游可用性與模型狀態測試。
+- readiness 區分「服務可用」與「已啟用存取保護」，既有匿名部署升級後不中斷。
+- 新增新舊金鑰並存的安全替換與環境變數遷移引導。
+
+''',
+          )
+          replace_all("tests/integration.test.ts", '"1.5.1"', '"1.6.0"')
+
+          # Document the new management endpoints.
+          api = Path("docs/api-reference.md")
+          api.write_text(api.read_text() + '''
+
+## Proxy 專屬金鑰摘要與測試
+
+以下路徑需要管理登入：
+
+- `GET /admin/client-key-summary`：回傳資料庫與環境變數來源的安全摘要、有效數量、匿名模式與唯讀來源資訊；不回傳環境變數 token。
+- `POST /admin/client-key-test`：在記憶體中檢查指定 token 的 Proxy 驗證、上游可用性與模型清單狀態，不保存 token。
+
+建立 `POST /admin/client-keys` 與進階更換 `POST /admin/client-keys/:id/rotate` 會在當次回應包含一次性 `token`。`POST /admin/client-keys/:id/reveal` 自 1.6.0 起回傳 `410 client_key_reveal_disabled`，既有完整 token 不再可重複揭露。
+''')
+
+          # Remove this one-time workflow from the resulting branch.
+          Path(".github/workflows/apply-proxy-key-upgrade.yml").unlink()
+          PY
+      - name: Commit exact patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Complete proxy access key upgrade UX"
+          git push origin HEAD:agent/proxy-key-upgrade-ux
