@@ -1154,7 +1154,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.5.1");
+    expect(body.proxy_version).toBe("1.6.0");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {
@@ -1797,19 +1797,35 @@ describe("proxy integration", () => {
     expect(createdClient.status).toBe(201);
     expect(createdClientBody.clientKey.token).toBeUndefined();
     expect(createdClientBody.clientKey.encryptedToken).toBeUndefined();
+    const generatedClientToken = createdClientBody.token;
+    expect(generatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
 
     const revealDenied = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
       method: "POST",
       headers: { authorization: "Bearer wrong-password" },
     });
-    const revealAllowed = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+    const revealDisabled = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
       method: "POST",
       headers: { authorization: "Bearer admin-token" },
     });
     expect(revealDenied.status).toBe(401);
-    expect(revealAllowed.status).toBe(200);
-    const generatedClientToken = (await revealAllowed.json()).token;
-    expect(generatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
+    expect(revealDisabled.status).toBe(410);
+    expect((await revealDisabled.json()).error.type).toBe("client_key_reveal_disabled");
+
+    const transitionAnonymous = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-oss", messages: [{ role: "user", content: "transition" }] }),
+    });
+    expect(transitionAnonymous.status).toBe(200);
+
+    const enableProtection = await fetch(`${app.baseUrl}/admin/client-access`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enableProtection.status).toBe(200);
+    expect((await enableProtection.json()).protectionEnabled).toBe(true);
 
     const denied = await fetch(`${app.baseUrl}/v1/chat/completions`, {
       method: "POST",
@@ -1838,11 +1854,7 @@ describe("proxy integration", () => {
       headers: { authorization: "Bearer admin-token" },
     });
     expect(rotated.status).toBe(200);
-    const revealRotated = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
-      method: "POST",
-      headers: { authorization: "Bearer admin-token" },
-    });
-    const rotatedClientToken = (await revealRotated.json()).token;
+    const rotatedClientToken = (await rotated.json()).token;
     expect(rotatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
     expect(rotatedClientToken).not.toBe(generatedClientToken);
 
@@ -1871,11 +1883,8 @@ describe("proxy integration", () => {
     });
     expect(clientCreate.status).toBe(201);
     const createdForExport = await clientCreate.json();
-    const revealForExport = await fetch(`${source.baseUrl}/admin/client-keys/${createdForExport.clientKey.id}/reveal`, {
-      method: "POST",
-      headers: { authorization: "Bearer admin-token" },
-    });
-    const exportedClientToken = (await revealForExport.json()).token;
+    const exportedClientToken = createdForExport.token;
+    expect(exportedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
 
     const exported = await fetch(`${source.baseUrl}/admin/export.yaml`, {
       headers: { authorization: "Bearer admin-token" },

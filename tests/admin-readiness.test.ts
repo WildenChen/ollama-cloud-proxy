@@ -28,20 +28,59 @@ describe("service readiness", () => {
     expect(result.requiredComplete).toBe(false);
   });
 
-  test("requires a Client API key after an upstream key is available", () => {
+  test("keeps an operational anonymous deployment available while recommending protection", () => {
     const result = deriveServiceReadiness({
       initialized: true,
       authenticated: true,
       totalKeys: 1,
       availableKeys: 1,
       modelCount: 3,
+      anonymousMode: true,
     });
 
-    expect(result.status).toBe("setup");
+    expect(result.status).toBe("partial");
     expect(result.nextAction).toBe("create-client-key");
+    expect(result.requiredComplete).toBe(true);
+    expect(result.securityComplete).toBe(false);
+    expect(result.anonymousMode).toBe(true);
   });
 
-  test("distinguishes no available key from incomplete setup", () => {
+  test("counts an environment-managed key as completed access protection", () => {
+    const result = deriveServiceReadiness({
+      initialized: true,
+      authenticated: true,
+      totalKeys: 1,
+      availableKeys: 1,
+      enabledClientKeys: 1,
+      protectionEnabled: true,
+      modelCount: 3,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.nextAction).toBe("none");
+    expect(result.securityComplete).toBe(true);
+    expect(result.anonymousMode).toBe(false);
+  });
+
+  test("does not call a configured but unusable key anonymous mode", () => {
+    const result = deriveServiceReadiness({
+      initialized: true,
+      authenticated: true,
+      totalKeys: 1,
+      availableKeys: 1,
+      enabledClientKeys: 0,
+      protectionEnabled: true,
+      anonymousMode: false,
+      modelCount: 3,
+    });
+
+    expect(result.status).toBe("partial");
+    expect(result.nextAction).toBe("create-client-key");
+    expect(result.protectionEnabled).toBe(true);
+    expect(result.anonymousMode).toBe(false);
+  });
+
+  test("distinguishes no available upstream key from incomplete setup", () => {
     const result = deriveServiceReadiness({
       initialized: true,
       authenticated: true,
@@ -55,7 +94,7 @@ describe("service readiness", () => {
     expect(result.nextAction).toBe("refresh");
   });
 
-  test("reports partial availability when only some keys are usable", () => {
+  test("reports partial availability when only some upstream keys are usable", () => {
     const result = deriveServiceReadiness({
       initialized: true,
       authenticated: true,
@@ -70,7 +109,7 @@ describe("service readiness", () => {
     expect(result.requiredComplete).toBe(true);
   });
 
-  test("reports ready when all required checks pass", () => {
+  test("reports ready when operational and security checks pass", () => {
     const result = deriveServiceReadiness({
       initialized: true,
       authenticated: true,
@@ -82,30 +121,36 @@ describe("service readiness", () => {
 
     expect(result.status).toBe("ready");
     expect(result.requiredComplete).toBe(true);
+    expect(result.securityComplete).toBe(true);
     expect(result.steps.usageCookieReady).toBe(false);
   });
 });
 
-describe("admin onboarding assets", () => {
-  test("injects the service status roots and admin enhancement styles", async () => {
+describe("admin onboarding and proxy key assets", () => {
+  test("injects service status, Proxy key roots, and enhancement assets", async () => {
     const response = await routerForStaticAdmin().handle(new Request("http://localhost/admin"));
     const html = await response.text();
 
     expect(response.status).toBe(200);
     expect(html).toContain('id="serviceReadinessRoot"');
     expect(html).toContain('id="onboardingRoot"');
+    expect(html).toContain('id="proxyKeyRoot"');
     expect(html).toContain('/admin/onboarding.css?v=1.4.0-onboarding');
     expect(html).toContain('/admin/accessibility.css?v=1.4.0-accessibility');
+    expect(html).toContain('/admin/proxy-key-ux.css?v=1.6.0-proxy-keys');
     expect(html).toContain('/admin/onboarding.js?v=1.4.0-onboarding');
+    expect(html).toContain('/admin/proxy-key-ux.js?v=1.6.0-proxy-keys');
   });
 
-  test("serves every admin enhancement asset without admin authentication", async () => {
+  test("serves every onboarding and Proxy key asset without admin authentication", async () => {
     const router = routerForStaticAdmin();
     const assets = [
       ["/admin/onboarding.css", "text/css"],
       ["/admin/accessibility.css", "text/css"],
       ["/admin/onboarding.js", "text/javascript"],
       ["/admin/readiness.js", "text/javascript"],
+      ["/admin/proxy-key-ux.css", "text/css"],
+      ["/admin/proxy-key-ux.js", "text/javascript"],
     ];
 
     for (const [path, contentType] of assets) {
@@ -116,28 +161,37 @@ describe("admin onboarding assets", () => {
     }
   });
 
-  test("builds the onboarding entrypoint for browsers", async () => {
-    const result = await Bun.build({
-      entrypoints: ["public/admin/onboarding.js"],
-      target: "browser",
-      write: false,
-    });
+  test("builds onboarding and Proxy key entrypoints for browsers", async () => {
+    for (const entrypoint of ["public/admin/onboarding.js", "public/admin/proxy-key-ux.js"]) {
+      const result = await Bun.build({
+        entrypoints: [entrypoint],
+        target: "browser",
+        write: false,
+      });
 
-    expect(result.success).toBe(true);
-    expect(result.logs).toHaveLength(0);
-    expect(result.outputs.length).toBeGreaterThan(0);
+      expect(result.success).toBe(true);
+      expect(result.logs).toHaveLength(0);
+      expect(result.outputs.length).toBeGreaterThan(0);
+    }
   });
 
-  test("keeps mobile controls readable and keyboard focus visible", async () => {
-    const css = await Bun.file("public/admin/accessibility.css").text();
+  test("keeps mobile controls readable and never restores persistent token reveal", async () => {
+    const accessibilityCss = await Bun.file("public/admin/accessibility.css").text();
+    const proxyCss = await Bun.file("public/admin/proxy-key-ux.css").text();
+    const proxyJs = await Bun.file("public/admin/proxy-key-ux.js").text();
 
-    expect(css).toContain("button:focus-visible");
-    expect(css).toContain("min-height: 44px");
-    expect(css).toContain("@media (max-width: 560px)");
-    expect(css).toContain("@media (max-width: 360px)");
-    expect(css).toContain("overflow-x: auto");
-    expect(css).toContain("prefers-reduced-motion: reduce");
-    expect(css).toContain(".status.unknown");
-    expect(css).not.toContain(".status.available,\n.status.unknown");
+    expect(accessibilityCss).toContain("button:focus-visible");
+    expect(accessibilityCss).toContain("min-height: 44px");
+    expect(accessibilityCss).toContain("@media (max-width: 560px)");
+    expect(accessibilityCss).toContain("@media (max-width: 360px)");
+    expect(accessibilityCss).toContain("overflow-x: auto");
+    expect(accessibilityCss).toContain("prefers-reduced-motion: reduce");
+    expect(accessibilityCss).toContain(".status.unknown");
+    expect(accessibilityCss).not.toContain(".status.available,\n.status.unknown");
+    expect(proxyCss).toContain("@media (max-width: 560px)");
+    expect(proxyCss).toContain("min-height: 44px");
+    expect(proxyJs).not.toContain("/reveal");
+    expect(proxyJs).not.toContain('localStorage.setItem("token"');
+    expect(proxyJs).not.toContain("sessionStorage");
   });
 });

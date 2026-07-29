@@ -101,25 +101,27 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN_PASSWORD" \
   http://localhost:11435/admin/keys/<id>
 ```
 
-## Client API keys
+## Proxy 專屬金鑰
 
-列出：
+列出管理台建立的金鑰：
 
 ```bash
 curl -H "Authorization: Bearer $ADMIN_PASSWORD" \
   http://localhost:11435/admin/client-keys
 ```
 
-建立：
+建立金鑰時只提供名稱與選填備註；後端會產生密碼學安全 token，並只在這次回應的頂層 `token` 欄位回傳完整值：
 
 ```bash
 curl -X POST http://localhost:11435/admin/client-keys \
   -H "Authorization: Bearer $ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
-  -d '{"name":"openclaw","token":"new-client-token","notes":"optional"}'
+  -d '{"name":"openclaw","notes":"optional"}'
 ```
 
-啟停、輪替、刪除：
+請立即保存回應中的 `token`。一般列表只保留安全前綴；`POST /admin/client-keys/<id>/reveal` 會回傳 `410 client_key_reveal_disabled`。
+
+啟停與刪除：
 
 ```bash
 curl -X POST -H "Authorization: Bearer $ADMIN_PASSWORD" \
@@ -128,13 +130,35 @@ curl -X POST -H "Authorization: Bearer $ADMIN_PASSWORD" \
 curl -X POST -H "Authorization: Bearer $ADMIN_PASSWORD" \
   http://localhost:11435/admin/client-keys/<id>/enable
 
+curl -X DELETE -H "Authorization: Bearer $ADMIN_PASSWORD" \
+  http://localhost:11435/admin/client-keys/<id>
+```
+
+進階的立即更換會讓舊 token 立刻失效，回應同樣只在當次包含新 `token`。一般使用者應優先建立一把替代金鑰，完成工具切換後再停用舊金鑰。
+
+```bash
 curl -X POST http://localhost:11435/admin/client-keys/<id>/rotate \
   -H "Authorization: Bearer $ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
-  -d '{"token":"rotated-client-token"}'
+  -d '{}'
+```
 
-curl -X DELETE -H "Authorization: Bearer $ADMIN_PASSWORD" \
-  http://localhost:11435/admin/client-keys/<id>
+## Proxy 專屬金鑰摘要、測試與存取保護
+
+以下路徑需要管理登入：
+
+- `GET /admin/client-key-summary`：回傳資料庫與環境變數來源的安全摘要、有效數量、唯讀來源及最近使用時間；不回傳環境變數 token。
+- `POST /admin/client-key-test`：在記憶體中檢查指定 token 的 Proxy 驗證、上游可用性與模型清單狀態，不保存 token。
+- `GET /admin/client-access`：查看目前是否已啟用強制 Proxy 專屬金鑰驗證。
+- `PATCH /admin/client-access`：以 `{"enabled":true|false}` 明確啟用或暫停存取保護。啟用前至少要有一把可用 Proxy 專屬金鑰。
+
+匿名部署建立第一把金鑰時不會自動切換成強制驗證。請先測試並更新工具，再明確呼叫：
+
+```bash
+curl -X PATCH http://localhost:11435/admin/client-access \
+  -H "Authorization: Bearer $ADMIN_PASSWORD" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true}'
 ```
 
 ## YAML 匯入匯出
