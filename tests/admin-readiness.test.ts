@@ -194,4 +194,26 @@ describe("admin onboarding and proxy key assets", () => {
     expect(proxyJs).not.toContain('localStorage.setItem("token"');
     expect(proxyJs).not.toContain("sessionStorage");
   });
+
+  test("distinguishes an existing signed-out admin from first-time password setup", async () => {
+    const onboarding = await Bun.file("public/admin/onboarding.js").text();
+
+    expect(onboarding).toContain('adminLoginStep: "登入管理台"');
+    expect(onboarding).toContain('adminLoginHint: "管理密碼已設定，請使用既有密碼登入。"');
+    expect(onboarding).toContain("snapshot.initialized = authStatus.initialized === true");
+    expect(onboarding).toContain('snapshot.initialized ? "adminLoginStep" : "adminStep"');
+  });
+
+  test("keeps the one-time token dialog inside the viewport without horizontal scrolling", async () => {
+    const script = await Bun.file("public/admin/proxy-key-ux.js").text();
+    const css = await Bun.file("public/admin/proxy-key-ux.css").text();
+
+    expect(script.match(/className = "proxyKeyModal"/g)?.length).toBe(2);
+    expect(css).toContain(".proxyKeyModal {");
+    expect(css).toContain("max-width: calc(100vw - 24px)");
+    expect(css).toContain("overflow: hidden");
+    expect(css).toContain("word-break: break-all");
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr)");
+  });
+
 });
