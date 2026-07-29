@@ -379,6 +379,10 @@ function ensureTokenDialog() {
   tokenDialog.querySelector("[data-proxy-copy-token]").addEventListener("click", async (event) => {
     await copyText(tokenDialog.querySelector("[data-proxy-token]").textContent || "", event.currentTarget);
   });
+  tokenDialog.addEventListener("click", async (event) => {
+    const copyButton = event.target.closest("button[data-proxy-copy]");
+    if (copyButton) await copyText(copyButton.dataset.proxyCopy || "", copyButton);
+  });
   tokenDialog.querySelector("[data-proxy-test]").addEventListener("click", testCurrentToken);
   tokenDialog.addEventListener("close", () => {
     tokenDialog.querySelector("[data-proxy-token]").textContent = "";
