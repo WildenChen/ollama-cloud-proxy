@@ -19,12 +19,14 @@ const ADMIN_ASSETS = new Map([
   ["/admin/credential-ux.css", ["public/admin/credential-ux.css", "text/css; charset=utf-8"]],
   ["/admin/error-ux.css", ["public/admin/error-ux.css", "text/css; charset=utf-8"]],
   ["/admin/mobile-key-card.css", ["public/admin/mobile-key-card.css", "text/css; charset=utf-8"]],
+  ["/admin/proxy-key-ux.css", ["public/admin/proxy-key-ux.css", "text/css; charset=utf-8"]],
   ["/admin/onboarding.js", ["public/admin/onboarding.js", "text/javascript; charset=utf-8"]],
   ["/admin/readiness.js", ["public/admin/readiness.js", "text/javascript; charset=utf-8"]],
   ["/admin/credential-ux.js", ["public/admin/credential-ux.js", "text/javascript; charset=utf-8"]],
   ["/admin/credential-status.js", ["public/admin/credential-status.js", "text/javascript; charset=utf-8"]],
   ["/admin/error-ux.js", ["public/admin/error-ux.js", "text/javascript; charset=utf-8"]],
   ["/admin/error-guidance.js", ["public/admin/error-guidance.js", "text/javascript; charset=utf-8"]],
+  ["/admin/proxy-key-ux.js", ["public/admin/proxy-key-ux.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
 export class Router {
@@ -149,6 +151,7 @@ export class Router {
           '    <link rel="stylesheet" href="/admin/credential-ux.css?v=1.4.0-credentials" />',
           '    <link rel="stylesheet" href="/admin/error-ux.css?v=1.4.0-errors" />',
           '    <link rel="stylesheet" href="/admin/mobile-key-card.css?v=1.5.1-mobile-key-card" />',
+          '    <link rel="stylesheet" href="/admin/proxy-key-ux.css?v=1.6.0-proxy-keys" />',
           '    <script src="/admin/error-ux.js?v=1.4.0-errors" type="module"></script>',
           "  </head>",
         ].join("\n")
@@ -159,7 +162,7 @@ export class Router {
       )
       .replace(
         '<section id="overviewPage" class="page active">',
-        '<section id="overviewPage" class="page active">\n        <div id="serviceReadinessRoot" aria-live="polite"></div>\n        <div id="onboardingRoot"></div>\n        <div id="keyFilterRoot"></div>'
+        '<section id="overviewPage" class="page active">\n        <div id="serviceReadinessRoot" aria-live="polite"></div>\n        <div id="onboardingRoot"></div>\n        <div id="proxyKeyRoot"></div>\n        <div id="keyFilterRoot"></div>'
       )
       .replace(
         '<section id="settingsPage" class="page">',
@@ -170,6 +173,7 @@ export class Router {
         [
           '    <script src="/admin/onboarding.js?v=1.4.0-onboarding" type="module"></script>',
           '    <script src="/admin/credential-ux.js?v=1.4.0-credentials" type="module"></script>',
+          '    <script src="/admin/proxy-key-ux.js?v=1.6.0-proxy-keys" type="module"></script>',
           "  </body>",
         ].join("\n")
       );

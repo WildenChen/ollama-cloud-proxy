@@ -1,4 +1,5 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { buildClientKeySummary } from "./clientKeySummary";
 import type { AppConfig } from "../config/env";
 import type { ConcurrencyManager } from "../concurrency/concurrencyManager";
 import { json, openAiError } from "../errors/responses";
@@ -14,6 +15,7 @@ import type { UsageService } from "../usage/usageService";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
 import {
+  authenticateClient,
   adminAuthStatus,
   adminSessionCookie,
   clearAdminSessionCookie,
@@ -96,6 +98,8 @@ export class AdminRoutes {
     if (path === "/admin/keys" && req.method === "POST") return this.createKey(req);
     if (path === "/admin/client-keys" && req.method === "GET") return json({ clientKeys: this.publicClientApiKeys() });
     if (path === "/admin/client-keys" && req.method === "POST") return this.createClientApiKey(req);
+    if (path === "/admin/client-key-summary" && req.method === "GET") return json(this.clientKeySummary());
+    if (path === "/admin/client-key-test" && req.method === "POST") return this.testClientApiKey(req);
 
     const clientKeyMatch = path.match(/^\/admin\/client-keys\/([^/]+)(?:\/([^/]+))?$/);
     if (clientKeyMatch) {
@@ -225,7 +229,7 @@ export class AdminRoutes {
         clientName: key.name,
       });
       const { encryptedToken: _encryptedToken, ...safe } = key;
-      return json({ clientKey: safe }, 201);
+      return json({ clientKey: safe, token }, 201);
     } catch (error) {
       return openAiError(400, "invalid_client_key", (error as Error).message);
     }
@@ -242,13 +246,12 @@ export class AdminRoutes {
     return openAiError(404, "not_found", "Admin client key action not found");
   }
 
-  private revealClientApiKey(id: string) {
-    try {
-      const key = this.store.getClientApiKeyOrThrow(id);
-      return json({ token: this.cipher.decrypt(key.encryptedToken) });
-    } catch (error) {
-      return openAiError(404, "client_key_not_found", (error as Error).message);
-    }
+  private revealClientApiKey(_id: string) {
+    return openAiError(
+      410,
+      "client_key_reveal_disabled",
+      "Existing Client API keys cannot be revealed. Create a replacement key and test it before disabling the old key."
+    );
   }
 
   private async patchClientApiKey(req: Request, id: string) {
@@ -280,7 +283,7 @@ export class AdminRoutes {
       });
       this.events.emit({ level: "info", type: "client_key_rotated", message: `Client key ${key.name} rotated`, clientName: key.name });
       const { encryptedToken: _encryptedToken, ...safe } = key;
-      return json({ clientKey: safe });
+      return json({ clientKey: safe, token });
     } catch (error) {
       return openAiError(400, "invalid_client_key", (error as Error).message);
     }
@@ -310,6 +313,66 @@ export class AdminRoutes {
       return json({ clientKey: safe });
     } catch (error) {
       return openAiError(400, "invalid_client_key", (error as Error).message);
+    }
+  }
+
+  private clientKeySummary() {
+    return buildClientKeySummary({
+      databaseKeys: this.store.listClientApiKeys(false),
+      environmentKeys: this.config.clientApiKeys,
+      clientActivity: this.store.getTodayClientStats().map((row) => ({
+        clientName: String(row.clientName),
+        lastRequestAt: row.lastRequestAt ? String(row.lastRequestAt) : null,
+      })),
+      decryptDatabaseToken: (key) => this.cipher.decrypt(key.encryptedToken),
+    });
+  }
+
+  private clientKeyPublicAccessSummary() {
+    const { items: _items, ...safe } = this.clientKeySummary();
+    return safe;
+  }
+
+  private async testClientApiKey(req: Request) {
+    try {
+      const body = await readJson(req);
+      const token = String(body.token || "").trim();
+      if (!token) throw new Error("token is required");
+
+      const authentication = authenticateClient(
+        new Request("http://localhost/v1/models", {
+headers: { authorization: `Bearer ${token}` },
+        }),
+        this.config,
+        this.store,
+        this.cipher,
+      );
+      const authenticationOk = !("response" in authentication);
+      const upstream = this.keyPool.summary();
+      const models = this.models.listModelsFromCache({ includeDisabled: false }) as {
+        count?: number;
+        models?: unknown[];
+      };
+      const modelCount = Number(models.count ?? models.models?.length ?? 0);
+
+      return json({
+        authentication: {
+ok: authenticationOk,
+message: authenticationOk ? "Proxy access key is valid" : "Proxy access key is invalid",
+        },
+        upstream: {
+ok: Number(upstream.availableKeys || 0) > 0,
+availableKeys: Number(upstream.availableKeys || 0),
+message: Number(upstream.availableKeys || 0) > 0 ? "An upstream key is available" : "No upstream key is currently available",
+        },
+        models: {
+ok: modelCount > 0,
+count: modelCount,
+message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is not ready yet",
+        },
+      });
+    } catch (error) {
+      return openAiError(400, "invalid_client_key_test", (error as Error).message);
     }
   }
 
@@ -875,6 +938,7 @@ export class AdminRoutes {
           .map(publicKey),
       },
       clients: persistedClients,
+      clientAccess: this.clientKeyPublicAccessSummary(),
       models: {
         aliases: this.config.modelAliases,
         ollamaNativeApplyAliases: this.config.ollamaNativeApplyAliases,

@@ -8,9 +8,18 @@ Ollama Cloud Proxy 是一個「放在你的工具和 Ollama Cloud 中間」的�
 - 讓 OpenClaw、Kilo Code、VS Code、自製工具共用同一個入口。
 - 在管理頁面看每把 key 的狀態、用量、錯誤紀錄，並建立不同服務使用的 client token。
 
-目前版本：`1.5.1`
+目前版本：`1.6.0`
 
 如果你只是想把服務裝起來，照下面步驟做就好。進階設定、API、開發文件都拆到 [docs](./docs/)。
+
+## 1.6.0 Proxy 專屬金鑰改善
+
+- 首頁明確區分「Ollama Cloud 上游金鑰」與提供給工具使用的「Proxy 專屬金鑰」。
+- 使用者可在首頁建立、查看、編輯、停用及安全刪除管理台型 Proxy 專屬金鑰。
+- `.env` 的 `CLIENT_API_KEYS` 會繼續有效，並以「環境變數管理｜唯讀」顯示，不會被自動遷移或改寫。
+- 建立與進階更換操作直接回傳一次性 token；既有完整 token 不再能透過一般 reveal endpoint 重新顯示。
+- 新金鑰可分別檢查驗證、上游可用性與模型狀態；安全切換流程允許新舊金鑰並存。
+- 沒有 Client API Key 的既有部署仍維持匿名模式，不會因升級中斷，只顯示非阻擋式安全建議。
 
 ## 1.5.x 管理台改善
 
@@ -116,7 +125,7 @@ curl http://localhost:11435/health
 如果看到類似下面內容，就代表服務活著：
 
 ```json
-{"status":"ok","version":"1.5.1"}
+{"status":"ok","version":"1.6.0"}
 ```
 
 ### 5. 打開管理頁面
@@ -194,7 +203,7 @@ docker compose -f docker-compose.release.yml up -d
 curl http://localhost:11435/health
 ```
 
-應看到版本 `1.5.1`。資料會保存在本機 `data/`，更新 container 不會清掉它。
+應看到版本 `1.6.0`。資料會保存在本機 `data/`，更新 container 不會清掉它。
 
 ## 備份方式
 

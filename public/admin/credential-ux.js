@@ -61,7 +61,7 @@ const words = {
     createFailed: "Client API Key 建立失敗",
     rotateFailed: "Client API Key 更換失敗",
     rotateConfirm: "確定要更換 Client API Key？舊 token 會立即失效，使用此金鑰的工具都必須更新。",
-    tokenUnavailable: "無法取得一次性 token，請刪除後重新建立，避免使用未知憑證。",
+    tokenUnavailable: "無法取得一次性 token，請建立替代金鑰並測試成功後，再停用舊金鑰。",
     loginRequired: "請先登入管理台再修改憑證。",
   },
   en: {
@@ -111,7 +111,7 @@ const words = {
     createFailed: "Client API Key creation failed",
     rotateFailed: "Client API Key rotation failed",
     rotateConfirm: "Rotate this Client API Key? The old token stops working immediately and every client must be updated.",
-    tokenUnavailable: "The one-time token could not be retrieved. Delete and recreate the key to avoid an unknown credential.",
+    tokenUnavailable: "The one-time token could not be retrieved. Create and test a replacement before disabling the old key.",
     loginRequired: "Sign in to Admin before changing credentials.",
   },
 };
@@ -448,10 +448,8 @@ async function createClientKeyOnce(event) {
       method: "POST",
       body: JSON.stringify({ name }),
     });
-    const id = created?.clientKey?.id;
-    const revealed = id ? await request(`/admin/client-keys/${encodeURIComponent(id)}/reveal`, { method: "POST" }) : null;
     clientKeyForm.reset();
-    showOneTimeToken(revealed?.token || "");
+    showOneTimeToken(created?.token || "");
     document.getElementById("refreshButton")?.click();
     scheduleSnapshot(700);
   } catch (error) {
@@ -466,12 +464,11 @@ async function rotateClientKeyOnce(button, row, event) {
   const id = row?.dataset.clientKeyId;
   if (!id) return;
   try {
-    await request(`/admin/client-keys/${encodeURIComponent(id)}/rotate`, {
+    const rotated = await request(`/admin/client-keys/${encodeURIComponent(id)}/rotate`, {
       method: "POST",
       body: JSON.stringify({}),
     });
-    const revealed = await request(`/admin/client-keys/${encodeURIComponent(id)}/reveal`, { method: "POST" });
-    showOneTimeToken(revealed?.token || "");
+    showOneTimeToken(rotated?.token || "");
     document.getElementById("refreshButton")?.click();
     scheduleSnapshot(700);
   } catch (error) {

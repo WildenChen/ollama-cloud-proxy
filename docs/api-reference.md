@@ -199,3 +199,13 @@ curl -H "Authorization: Bearer $ADMIN_PASSWORD" \
 | `/v1/search` | normalized web search |
 | `/v1/web/search` | Ollama Web Search proxy |
 | `/v1/web/fetch` | Ollama Web Fetch proxy |
+
+
+## Proxy 專屬金鑰摘要與測試
+
+以下路徑需要管理登入：
+
+- `GET /admin/client-key-summary`：回傳資料庫與環境變數來源的安全摘要、有效數量、匿名模式與唯讀來源資訊；不回傳環境變數 token。
+- `POST /admin/client-key-test`：在記憶體中檢查指定 token 的 Proxy 驗證、上游可用性與模型清單狀態，不保存 token。
+
+建立 `POST /admin/client-keys` 與進階更換 `POST /admin/client-keys/:id/rotate` 會在當次回應包含一次性 `token`。`POST /admin/client-keys/:id/reveal` 自 1.6.0 起回傳 `410 client_key_reveal_disabled`，既有完整 token 不再可重複揭露。

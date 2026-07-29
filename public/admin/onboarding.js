@@ -13,6 +13,8 @@ const words = {
     readyDescription: "代理、Client API 金鑰與模型清單都已就緒。",
     partialTitle: "部分可用",
     partialDescription: "服務可以使用，但部分金鑰或驗證項目需要注意。",
+    unprotectedTitle: "可用，但尚未啟用存取保護",
+    unprotectedDescription: "既有匿名連線維持可用；建議建立 Proxy 專屬金鑰，再逐步更新工具。",
     setupTitle: "尚未完成設定",
     setupDescription: "依照設定指南完成必要步驟後即可連線使用。",
     unavailableTitle: "暫時無可用金鑰",
@@ -64,6 +66,8 @@ const words = {
     readyDescription: "The proxy, Client API key, and model discovery are ready.",
     partialTitle: "Partially available",
     partialDescription: "The service works, but some keys or checks need attention.",
+    unprotectedTitle: "Available without access protection",
+    unprotectedDescription: "Existing anonymous clients remain available. Create a proxy access key and migrate clients gradually.",
     setupTitle: "Setup incomplete",
     setupDescription: "Complete the guided steps before connecting a client.",
     unavailableTitle: "No available upstream key",
@@ -147,14 +151,14 @@ async function loadReadiness() {
       fetchJson("/admin/stats"),
     ]);
 
-    let clientKeys = [];
+    let clientSummary = stats?.clientAccess || null;
     let models = null;
     if (authStatus.authenticated) {
       const [clientResponse, modelResponse] = await Promise.all([
-        fetchJson("/admin/client-keys"),
+        fetchJson("/admin/client-key-summary"),
         fetchJson("/admin/models"),
       ]);
-      clientKeys = clientResponse.clientKeys || [];
+      clientSummary = clientResponse;
       models = modelResponse;
     }
 
@@ -164,7 +168,9 @@ async function loadReadiness() {
       authenticated: authStatus.authenticated,
       totalKeys: stats?.keys?.totalKeys,
       availableKeys: stats?.keys?.availableKeys,
-      enabledClientKeys: clientKeys.filter((key) => key.enabled !== false).length,
+      enabledClientKeys: clientSummary?.effectiveTotal ?? 0,
+      protectionEnabled: clientSummary?.protectionEnabled === true,
+      anonymousMode: clientSummary?.anonymousMode === true,
       modelCount: models?.count ?? models?.models?.length ?? 0,
       usageCookieCount: totals?.official?.available ?? 0,
     });
@@ -176,6 +182,7 @@ async function loadReadiness() {
 
 function statusCopy(status) {
   if (status === "ready") return [w("readyTitle"), w("readyDescription")];
+  if (status === "partial" && snapshot?.anonymousMode) return [w("unprotectedTitle"), w("unprotectedDescription")];
   if (status === "partial") return [w("partialTitle"), w("partialDescription")];
   if (status === "setup") return [w("setupTitle"), w("setupDescription")];
   if (status === "unavailable") return [w("unavailableTitle"), w("unavailableDescription")];
@@ -330,8 +337,15 @@ function runAction(action, button) {
     return;
   }
   if (action === "create-client-key") {
-    clickTab("settings");
-    window.setTimeout(() => document.getElementById("clientKeyForm")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    clickTab("overview");
+    window.setTimeout(() => {
+      const button = document.querySelector("#proxyKeyRoot button[data-proxy-action='create']");
+      if (button) button.click();
+      else {
+        clickTab("settings");
+        document.getElementById("clientKeyForm")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
     return;
   }
   if (action === "test-models") {
