@@ -71,10 +71,11 @@ export function buildClientKeySummary(input: BuildSummaryInput): ProxyClientKeyS
     try {
       databaseTokens.set(key.id, input.decryptDatabaseToken(key));
     } catch {
-      // A damaged encrypted token remains visible as a database record, but is not counted as usable.
+      // The configured key still enables authentication, but cannot be counted as usable.
     }
   }
 
+  const databaseTokenValues = new Set(databaseTokens.values());
   const duplicateDatabaseIds = new Set(
     Array.from(databaseTokens.entries())
       .filter(([, token]) => environmentTokenSet.has(token))
@@ -82,7 +83,7 @@ export function buildClientKeySummary(input: BuildSummaryInput): ProxyClientKeyS
   );
   const duplicateEnvironmentTokens = new Set(
     environmentEntries
-      .filter((entry) => Array.from(databaseTokens.values()).includes(entry.token))
+      .filter((entry) => databaseTokenValues.has(entry.token))
       .map((entry) => entry.token),
   );
 
@@ -126,9 +127,10 @@ export function buildClientKeySummary(input: BuildSummaryInput): ProxyClientKeyS
 
   const items = [...databaseItems, ...environmentItems];
   const effectiveTotal = effectiveTokens.size;
+  const protectionEnabled = enabledDatabaseKeys.length > 0 || environmentEntries.length > 0;
   return {
-    protectionEnabled: effectiveTotal > 0,
-    anonymousMode: effectiveTotal === 0,
+    protectionEnabled,
+    anonymousMode: !protectionEnabled,
     effectiveTotal,
     databaseManagedTotal: databaseKeys.length,
     enabledDatabaseTotal: enabledDatabaseKeys.length,
