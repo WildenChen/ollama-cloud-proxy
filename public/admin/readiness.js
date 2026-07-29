@@ -4,8 +4,10 @@ export function deriveServiceReadiness(input = {}) {
   const totalKeys = Math.max(0, Number(input.totalKeys || 0));
   const availableKeys = Math.max(0, Number(input.availableKeys || 0));
   const enabledClientKeys = Math.max(0, Number(input.enabledClientKeys || 0));
-  const protectionEnabled = input.protectionEnabled === true || enabledClientKeys > 0;
-  const anonymousMode = input.anonymousMode === true || !protectionEnabled;
+  const protectionEnabled =
+    typeof input.protectionEnabled === "boolean" ? input.protectionEnabled : enabledClientKeys > 0;
+  const anonymousMode =
+    typeof input.anonymousMode === "boolean" ? input.anonymousMode : !protectionEnabled;
   const modelCount = Math.max(0, Number(input.modelCount || 0));
   const usageCookieCount = Math.max(0, Number(input.usageCookieCount || 0));
   const loadError = input.loadError === true;
@@ -13,7 +15,7 @@ export function deriveServiceReadiness(input = {}) {
   const steps = {
     adminReady: initialized && authenticated,
     upstreamKeyReady: totalKeys > 0,
-    clientKeyReady: enabledClientKeys > 0,
+    clientKeyReady: protectionEnabled && enabledClientKeys > 0,
     proxyReady: availableKeys > 0,
     modelDiscoveryReady: modelCount > 0,
     usageCookieReady: usageCookieCount > 0,
