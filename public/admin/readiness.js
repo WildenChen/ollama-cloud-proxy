@@ -13,7 +13,7 @@ export function deriveServiceReadiness(input = {}) {
   const steps = {
     adminReady: initialized && authenticated,
     upstreamKeyReady: totalKeys > 0,
-    clientKeyReady: protectionEnabled,
+    clientKeyReady: enabledClientKeys > 0,
     proxyReady: availableKeys > 0,
     modelDiscoveryReady: modelCount > 0,
     usageCookieReady: usageCookieCount > 0,
@@ -56,6 +56,7 @@ export function deriveServiceReadiness(input = {}) {
     nextAction,
     requiredComplete,
     securityComplete: steps.clientKeyReady,
+    protectionEnabled,
     anonymousMode,
     steps,
     counts: {
