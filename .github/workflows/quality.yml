@@ -8,31 +8,33 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  sync-version-tests:
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/1.6.1-auth-dialog-hotfix' && github.actor != 'github-actions[bot]'
+  test-and-build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout hotfix branch
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          ref: fix/1.6.1-auth-dialog-hotfix
-          fetch-depth: 0
-      - name: Apply exact version sync
-        run: python3 scripts/sync-1.6.1-version-tests.py
-      - name: Restore formal Quality workflow
-        run: git show origin/main:.github/workflows/quality.yml > .github/workflows/quality.yml
-      - name: Commit synchronized assertions
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Synchronize 1.6.1 version assertions"
-          git push origin HEAD:fix/1.6.1-auth-dialog-hotfix
+          bun-version: 1.2.19
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check environment initializer
+        run: sh -n scripts/init-env.sh
+
+      - name: Run tests
+        run: bun test
+
+      - name: Validate Docker build
+        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .

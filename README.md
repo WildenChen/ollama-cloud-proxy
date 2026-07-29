@@ -130,7 +130,7 @@ curl http://localhost:11435/health
 如果看到類似下面內容，就代表服務活著：
 
 ```json
-{"status":"ok","version":"1.6.0"}
+{"status":"ok","version":"1.6.1"}
 ```
 
 ### 5. 打開管理頁面
