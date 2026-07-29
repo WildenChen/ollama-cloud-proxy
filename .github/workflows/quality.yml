@@ -126,48 +126,9 @@ jobs:
           )
 
           Path(".github/workflows/apply-proxy-key-test-sync.yml").unlink(missing_ok=True)
-          Path(".github/workflows/quality.yml").write_text('''name: Quality
-
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  test-and-build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.2.19
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Check environment initializer
-        run: sh -n scripts/init-env.sh
-
-      - name: Run tests
-        run: bun test
-
-      - name: Validate Docker build
-        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .
-''')
           PY
+      - name: Restore formal Quality workflow
+        run: git checkout origin/main -- .github/workflows/quality.yml
       - name: Commit synchronized files
         run: |
           git config user.name "github-actions[bot]"
