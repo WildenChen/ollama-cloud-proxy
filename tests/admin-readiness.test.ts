@@ -191,7 +191,7 @@ describe("admin onboarding and proxy key assets", () => {
     expect(proxyCss).toContain("@media (max-width: 560px)");
     expect(proxyCss).toContain("min-height: 44px");
     expect(proxyJs).not.toContain("/reveal");
-    expect(proxyJs).not.toContain("localStorage.setItem(\"token");");
+    expect(proxyJs).not.toContain('localStorage.setItem("token"');
     expect(proxyJs).not.toContain("sessionStorage");
   });
 });
