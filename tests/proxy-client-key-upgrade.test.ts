@@ -174,7 +174,7 @@ describe("Proxy access key upgrade compatibility", () => {
 
   test("creation returns a one-time token, lists only a preview, and disables later reveal", async () => {
     const upstreamBaseUrl = createMockUpstream(() => Response.json({ data: [] }));
-    const app = createApp(config({ upstreamBaseUrl }));
+    const app = createApp(config({ upstreamBaseUrl, ollamaCompatDiscoveryPublic: false }));
     app.keyPool.create({ name: "upstream", apiKey: "upstream-key" });
 
     const createResponse = await fetch(`${app.baseUrl}/admin/client-keys`, {
