@@ -1,90 +1,82 @@
 # Ollama Cloud Proxy
 
-Ollama Cloud Proxy 是一個「放在你的工具和 Ollama Cloud 中間」的小服務。
-
-它幫你做三件事：
-
-- 把多把 Ollama Cloud API key 集中管理。
-- 讓 OpenClaw、Kilo Code、VS Code、自製工具共用同一個入口。
-- 在管理頁面看每把 key 的狀態、用量、錯誤紀錄，並建立不同服務使用的 client token。
+把多把 Ollama Cloud API Key 集中管理，讓 OpenClaw、Kilo Code、VS Code 或其他工具共用同一個安全入口。
 
 目前版本：`1.6.1`
 
-如果你只是想把服務裝起來，照下面步驟做就好。進階設定、API、開發文件都拆到 [docs](./docs/)。
+## 這個服務能做什麼
 
-## 1.6.1 管理台修正
+Ollama Cloud Proxy 會放在你的工具和 Ollama Cloud 之間：
 
-- 已設定管理密碼但尚未登入時，設定指南改為正確顯示「登入管理台」，不再誤稱首次設定。
-- 修正一次性 Client API Key 對話框水平溢位、右側按鈕裁切與長 token 撐寬版面。
+```text
+OpenClaw / Kilo Code / VS Code / 自製工具
+                  ↓
+          Proxy 專屬金鑰
+                  ↓
+          Ollama Cloud Proxy
+                  ↓
+       Ollama Cloud 上游金鑰池
+```
 
-## 1.6.0 Proxy 專屬金鑰改善
+主要功能：
 
-- 首頁明確區分「Ollama Cloud 上游金鑰」與提供給工具使用的「Proxy 專屬金鑰」。
-- 使用者可在首頁建立、查看、編輯、停用及安全刪除管理台型 Proxy 專屬金鑰。
-- `.env` 的 `CLIENT_API_KEYS` 會繼續有效，並以「環境變數管理｜唯讀」顯示，不會被自動遷移或改寫。
-- 建立與進階更換操作直接回傳一次性 token；既有完整 token 不再能透過一般 reveal endpoint 重新顯示。
-- 新金鑰可分別檢查驗證、上游可用性與模型狀態；安全切換流程允許新舊金鑰並存。
-- 沒有 Client API Key 的既有部署仍維持匿名模式，不會因升級中斷，只顯示非阻擋式安全建議。
+- 集中管理一把或多把 Ollama Cloud 上游 API Key。
+- 自動避開失效、冷卻中或額度受限的上游金鑰。
+- 支援 `ordered` 與 `balanced` 兩種金鑰選取模式。
+- 為不同工具建立獨立的 Proxy 專屬金鑰。
+- 提供 OpenAI-compatible 與 Ollama native 兩種連線方式。
+- 顯示每把金鑰的 5hr、每週用量、重置時間與可用狀態。
+- 顯示請求、模型、錯誤與客戶端活動紀錄。
+- 提供首次設定指南、錯誤修復指引與安全診斷資訊。
+- 支援手機與桌面管理介面。
+- 支援 YAML 匯入、匯出與 Docker 持久化更新。
 
-## 1.5.x 管理台改善
+## 三種憑證不要混用
 
-1.5 系列聚焦在讓一般使用者更容易完成設定與排除問題：
+| 名稱 | 用途 | 必要性 |
+| --- | --- | --- |
+| Ollama Cloud 上游金鑰 | Proxy 連線到 Ollama Cloud | 至少一把 |
+| Proxy 專屬金鑰 | OpenClaw、Kilo Code 等工具連線到 Proxy | 建議啟用 |
+| Usage Cookie | 讀取 Ollama Cloud 官方用量 | 選填 |
 
-- 首次設定指南會依目前狀態告訴你下一步，不必自行在頁籤間尋找。
-- 總覽會直接顯示服務是否可用、部分可用或目前沒有可用金鑰。
-- 清楚區分 Ollama Cloud API Key、選填的 Usage Cookie 與工具使用的 Client API Key。
-- 新增金鑰狀態篩選、不可用原因、預計恢復時間與建立後自動驗證。
-- Client API Key 完整 token 只在建立或更換時顯示一次。
-- 常見錯誤會顯示影響範圍、修復步驟與直接操作，並可複製已遮蔽敏感資料的診斷資訊。
-- 改善手機、小螢幕、鍵盤操作、文字對比與狀態辨識。
-- 1.5.1 修正手機版 Key 卡片的方案標籤／開關重疊，並將操作按鈕改為緊湊的兩欄配置。
+外部工具應使用 **Proxy 專屬金鑰**，不要直接填入真正的 Ollama Cloud 上游金鑰。
 
 ## 適合誰
 
-你可能需要這個服務，如果你有以下狀況：
+這個服務適合以下情境：
 
-- 你有一把或多把 Ollama Cloud API key。
-- 你想讓多個工具共用同一組 Ollama Cloud key。
-- 你不想把真正的 Ollama Cloud API key 填進每個工具。
-- 你想知道哪個工具在連線、哪把 key 壞了、哪把 key 額度快用完。
+- 有多把 Ollama Cloud API Key，希望集中管理。
+- 多個工具需要共用同一組 Ollama Cloud 額度。
+- 不想把真正的上游金鑰分散填進每個工具。
+- 想知道哪把金鑰失效、冷卻或即將用完。
+- 想為不同工具建立可獨立停用的專屬金鑰。
 
-你不需要懂程式碼。只要會複製指令、啟動 Docker、打開瀏覽器即可。
+不需要具備程式開發經驗，只要能使用 Docker、複製指令並打開瀏覽器即可。
 
-## 你需要準備
+## 安裝前準備
 
-安裝前請先確認有這些東西：
+你需要：
 
-- 一台可以跑 Docker 的電腦、NAS 或小主機。
-- 已安裝 Docker Desktop 或 Docker Engine。
-- 至少一把 Ollama Cloud API key。
-- 這個專案資料夾。
+- 一台可執行 Docker 的電腦、NAS 或小主機。
+- Docker Desktop 或 Docker Engine。
+- 至少一把 Ollama Cloud API Key。
 
-如果你不知道 Docker 是否已安裝，打開終端機輸入：
+確認 Docker 是否可用：
 
 ```bash
 docker --version
 ```
 
-有看到版本號就可以繼續。
+## 五分鐘快速安裝
 
-## 最簡單安裝方式
-
-這個方式使用已經建好的 Docker image，不需要自己編譯。
-
-### 1. 下載或進入專案資料夾
-
-如果你已經有這個資料夾，直接進入：
-
-```bash
-cd ollama-cloud-proxy
-```
-
-如果你還沒有，請先從 GitHub 下載或 clone：
+### 1. 下載專案
 
 ```bash
 git clone https://github.com/WildenChen/ollama-cloud-proxy.git
 cd ollama-cloud-proxy
 ```
+
+已經有專案資料夾時，只需進入該資料夾。
 
 ### 2. 安全初始化設定
 
@@ -98,22 +90,7 @@ sh scripts/init-env.sh
 - 自動產生安全的 `KEY_ENCRYPTION_SECRET`。
 - 再次執行時保留既有設定，不會重設密鑰。
 
-正常安裝不需要在 `.env` 預先填入 Client API key；稍後直接在管理頁建立即可。
-
-如果系統沒有 `openssl`，也可以手動執行：
-
-```bash
-cp .env.example .env
-openssl rand -hex 32
-```
-
-把輸出的字串填入 `.env`：
-
-```env
-KEY_ENCRYPTION_SECRET=剛才產生的字串
-```
-
-服務會拒絕空白、太短或已知範例密鑰，並顯示可直接採用的修正方式。
+一般使用者不需要手動設定 `CLIENT_API_KEYS`，稍後可直接從管理頁建立 Proxy 專屬金鑰。
 
 ### 3. 啟動服務
 
@@ -121,80 +98,111 @@ KEY_ENCRYPTION_SECRET=剛才產生的字串
 docker compose -f docker-compose.release.yml up -d
 ```
 
-### 4. 確認服務有起來
+### 4. 確認服務正常
 
 ```bash
 curl http://localhost:11435/health
 ```
 
-如果看到類似下面內容，就代表服務活著：
+應看到類似：
 
 ```json
 {"status":"ok","version":"1.6.1"}
 ```
 
-### 5. 打開管理頁面
-
-在瀏覽器打開：
+### 5. 開啟管理頁
 
 ```text
 http://localhost:11435/admin
 ```
 
-第一次使用時：
+## 第一次設定
 
-1. 建立日後登入使用的管理密碼。
-2. 依首次設定指南新增第一把 Ollama Cloud API key。
-3. 建立一個 Client API key，給 OpenClaw、Kilo Code 或其他工具使用。
-4. 複製管理台顯示的 Base URL 與一次性 Client API key 到工具。
+管理頁會依目前狀態提示下一步。建議依序完成：
 
-## 第一次進管理頁要做什麼
+1. 建立管理密碼。
+2. 新增第一把 Ollama Cloud 上游 API Key。
+3. 等待管理台自動驗證上游金鑰。
+4. 建立 Proxy 專屬金鑰，例如 `openclaw`、`kilo` 或 `vscode`。
+5. 立即複製並保存完整 Proxy 專屬金鑰。
+6. 把 Base URL 與 Proxy 專屬金鑰填入外部工具。
+7. 測試連線。
+8. 確認所有工具完成切換後，再啟用存取保護。
 
-打開 `/admin` 後，管理台會依目前狀態顯示待完成步驟。基本順序是：
+完整 Proxy 專屬金鑰只會在建立或進階更換時顯示一次。關閉視窗後，管理台只保留安全前綴，無法重新顯示完整 token。
 
-1. 設定或變更管理密碼。
-2. 新增 Ollama Cloud API key；建立後管理台會自動驗證。
-3. 如果你想看官方用量，替 key 填入 Ollama Cloud usage cookie。
-4. 建立 Client API key，例如 `openclaw`、`kilo`、`vscode`。
-5. 立即複製並保存完整 Client API key；關閉後只會保留前綴預覽。
-6. 把 Client API key 與管理台顯示的 Base URL 填到工具裡。
+### Usage Cookie 是選填
 
-Usage cookie 是選填項目；沒有設定仍可正常代理模型請求，只是不會顯示官方用量資料。
+沒有 Usage Cookie 時，模型代理仍可正常運作；只是管理台無法顯示 Ollama Cloud 官方 5hr 與每週剩餘用量。
 
-## 金鑰選取模式
+## 外部工具怎麼設定
 
-預設是 `ordered`：固定從第一把可用金鑰開始使用；當該金鑰的 5hr 或每週額度受限時，請求會改用下一把可用金鑰。也可以在管理頁面的「設定」切換成 `balanced`，讓請求依可用狀態與近期負載分散到多把金鑰。設定會保存在資料庫，不需要重新啟動服務。
-
-請注意：
-
-- Ollama Cloud API key 是 proxy 連上游用的。
-- Client API key 是你的工具連 proxy 用的。
-- Usage Cookie 只用來讀取官方用量，是選填項目。
-- 工具不要直接拿 Ollama Cloud API key，這樣比較好管理，也比較安全。
-- `.env` 裡的 `CLIENT_API_KEYS` 只是進階部署的 fallback，一般使用者留空即可。
-
-## 工具要怎麼填
-
-大多數工具只需要兩個值：
+大多數工具只需要 Base URL 和 Proxy 專屬金鑰。
 
 | 工具類型 | Base URL | API Key |
 | --- | --- | --- |
-| OpenAI-compatible 工具 | `http://你的主機:11435/v1` | 管理頁建立的 Client API key |
-| Ollama native 工具 | `http://你的主機:11435` | 管理頁建立的 Client API key |
+| OpenAI-compatible | `http://你的主機:11435/v1` | 管理頁建立的 Proxy 專屬金鑰 |
+| Ollama native | `http://你的主機:11435` | 管理頁建立的 Proxy 專屬金鑰 |
 
-如果你是在同一台電腦測試，可以先用：
+同一台電腦測試可先使用：
 
 ```text
 http://localhost:11435/v1
 ```
 
-如果工具在另一台電腦，請把 `localhost` 換成跑 Docker 那台機器的 IP 或網域。
+工具在其他裝置時，請把 `localhost` 改成 Docker 主機的 LAN IP 或網域。
 
-更多工具範例看 [工具接入指南](./docs/tool-integrations.md)。
+更多設定範例請看 [工具接入指南](./docs/tool-integrations.md)。
+
+## 金鑰管理方式
+
+### Ollama Cloud 上游金鑰
+
+上游金鑰由 Proxy 用來呼叫 Ollama Cloud。管理頁可：
+
+- 新增、測試、停用及刪除金鑰。
+- 設定名稱、備註與 Usage Cookie。
+- 查看可用、冷卻、失效與額度受限狀態。
+- 設定 5hr 與每週最低剩餘百分比。
+- 手動刷新官方用量。
+
+### Proxy 專屬金鑰
+
+Proxy 專屬金鑰提供給外部工具使用。管理頁可：
+
+- 為不同工具建立獨立金鑰。
+- 查看來源、狀態、前綴與最近使用時間。
+- 停用、重新啟用或刪除資料庫型金鑰。
+- 建立替代金鑰，讓新舊金鑰並存後再逐步切換。
+- 分別測試金鑰驗證、上游可用性與模型狀態。
+
+`.env` 中既有的 `CLIENT_API_KEYS` 仍可使用，但在管理頁只會顯示為「環境變數管理｜唯讀」，不會顯示完整 token，也不會自動遷移。
+
+## 存取保護與升級相容性
+
+若既有部署原本沒有任何 Proxy 專屬金鑰，升級後仍會維持匿名模式，不會突然中斷已連線工具。
+
+建立第一把 Proxy 專屬金鑰後，也不會立即強制驗證。建議流程：
+
+1. 建立新金鑰。
+2. 複製並測試。
+3. 更新所有外部工具。
+4. 確認新金鑰已有成功使用紀錄。
+5. 在管理頁明確啟用存取保護。
+6. 確認服務正常後，再停用舊金鑰。
+
+## 金鑰選取模式
+
+在管理頁「設定」可選擇：
+
+- `ordered`：固定從第一把可用金鑰開始；額度受限後才切換下一把。
+- `balanced`：依可用狀態與近期負載分散到多把金鑰。
+
+設定保存在資料庫中，不需要重啟服務。
 
 ## 更新方式
 
-如果你使用 `docker-compose.release.yml`，更新很簡單：
+使用 release compose 時：
 
 ```bash
 git pull
@@ -202,114 +210,110 @@ docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```
 
-確認更新成功：
+確認版本：
 
 ```bash
 curl http://localhost:11435/health
 ```
 
-應看到版本 `1.6.0`。資料會保存在本機 `data/`，更新 container 不會清掉它。
+目前應顯示版本 `1.6.1`。資料保存在本機 `data/`，更新容器不會刪除既有設定。
 
-## 備份方式
+## 備份與還原
 
-最重要的是這兩個：
+更新前至少備份：
 
 - `.env`
 - `data/`
 
-其中 `KEY_ENCRYPTION_SECRET` 一定要保存好。沒有它，資料庫裡加密保存的 key 會無法解密。
+`KEY_ENCRYPTION_SECRET` 必須妥善保存。若遺失，資料庫內加密保存的上游金鑰、Cookie 與 Proxy 專屬金鑰將無法解密。
 
-你也可以在管理頁使用 YAML 匯出功能，把 key、cookie、client token 和用量設定匯成單一 YAML 檔案。
-
-提醒：YAML 匯出檔包含明文密鑰，請把它當成密碼檔保存。
+管理頁也提供 YAML 匯出與匯入。匯出檔含有敏感憑證，請將它視為密碼檔保存。
 
 ## 常見問題
 
-### 啟動時顯示 KEY_ENCRYPTION_SECRET 錯誤
+### 啟動時出現 KEY_ENCRYPTION_SECRET 錯誤
 
-執行下列指令即可安全建立或補齊設定：
+重新執行：
 
 ```bash
 sh scripts/init-env.sh
 ```
 
-不要使用 README 或 `.env.example` 中的說明文字作為真正密鑰。
+不要把 README 或 `.env.example` 中的範例文字直接當成正式密鑰。
 
 ### 打不開管理頁
 
-先檢查 container 是否有跑：
+先確認容器：
 
 ```bash
 docker ps
 ```
 
-再檢查健康狀態：
+再確認健康狀態：
 
 ```bash
 curl http://localhost:11435/health
 ```
 
-如果你不是在同一台電腦開瀏覽器，`localhost` 要換成 Docker 主機的 IP。
-
-### 工具顯示 unauthorized
-
-通常是 API key 填錯。
-
-- 連 `/admin` 只使用管理密碼。
-- 工具連 `/v1` 或 `/api/chat` 要用 Client API key。
-- 不要把 Ollama Cloud API key 直接填到工具裡。
-- 若剛更換 Client API key，所有使用舊 token 的工具都必須同步更新。
-
-### 顯示 no_available_key
-
-代表目前沒有可用的 Ollama Cloud key。可能原因：
-
-- 還沒新增 key。
-- key 無效。
-- key 被手動停用。
-- key 正在冷卻。
-- 5hr 或 weekly 額度用完。
-
-管理台會顯示每把金鑰的人類可讀原因與預計恢復時間，也可使用「需要注意」篩選快速定位。
-
-### 官方用量讀取失敗
-
-這通常是 Usage Cookie 缺失或過期。它只影響官方用量顯示，不影響模型代理；可以更新 Cookie，也可以暫時忽略。
-
-### 更新後版本沒有變
-
-如果你使用 release image，請確認有跑：
+查看服務紀錄：
 
 ```bash
-docker compose -f docker-compose.release.yml pull
-docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml logs --tail=100
 ```
 
-再看：
+### 管理頁要求重新登入
 
-```bash
-curl http://localhost:11435/api/version
-```
+管理密碼不會因容器更新而消失。若登入 Cookie 過期或更換瀏覽器，直接使用原本的管理密碼登入即可。
 
-## 文件入口
+### 金鑰建立後找不到完整 token
 
-- [進階設定](./docs/advanced-configuration.md)
+這是正常的安全設計。完整 token 只顯示一次；請建立替代金鑰、更新工具後，再停用舊金鑰。
+
+### 沒有官方用量資料
+
+確認該上游金鑰是否設定有效的 Usage Cookie。Cookie 只影響官方用量，不影響模型請求。
+
+### 工具回傳 401
+
+確認：
+
+- 工具填的是 Proxy 專屬金鑰，而不是 Ollama Cloud 上游金鑰。
+- Base URL 是否正確。
+- 該 Proxy 專屬金鑰是否啟用。
+- 是否已啟用存取保護。
+
+## 進階文件
+
+- [文件索引](./docs/README.md)
 - [工具接入指南](./docs/tool-integrations.md)
-- [Admin API 與路徑參考](./docs/api-reference.md)
+- [API 與路徑參考](./docs/api-reference.md)
+- [環境變數參考](./docs/configuration.md)
+- [Proxy 金鑰升級指南](./docs/proxy-key-upgrade.md)
 - [OpenClaw 用量整合](./docs/openclaw-usage-integration.md)
-- [開發與測試](./docs/development.md)
+- [開發與發布](./docs/development.md)
 - [版本更新紀錄](./docs/changelog.md)
 
-## 安全提醒
+## 開發方式
 
-- 不要把 `.env`、`data/`、API key、Client API key、Cookie 貼到公開地方。
-- 不要使用範例 secret 或固定 token；程式會拒絕已知不安全範例值。
-- Client API key 完整 token 只在建立或更換時顯示一次，請立即保存。
-- 複製診斷資訊時，管理台會遮蔽常見敏感資料；分享前仍應快速確認內容。
-- 不建議直接把 `/admin` 暴露到 Internet。
-- 外網使用請放在 HTTPS、VPN、Tailscale、Cloudflare Access 或反向代理保護後面。
-- 匯出的 YAML 包含明文 secret，請妥善保存。
+本機開發：
 
-## License
+```bash
+bun install
+bun run dev
+```
 
-MIT License. See [LICENSE](./LICENSE).
+執行測試：
+
+```bash
+bun test
+```
+
+建立 Docker image：
+
+```bash
+docker build -t ollama-cloud-proxy:local .
+```
+
+## 授權
+
+MIT
