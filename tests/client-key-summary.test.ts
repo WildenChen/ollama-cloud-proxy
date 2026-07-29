@@ -22,6 +22,7 @@ describe("proxy client key summary", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [],
       environmentKeys: new Map([["env-secret", "legacy-openclaw"]]),
+      protectionEnabled: true,
       decryptDatabaseToken: () => "",
     });
 
@@ -38,10 +39,24 @@ describe("proxy client key summary", () => {
     expect(JSON.stringify(summary)).not.toContain("env-secret");
   });
 
+  test("keeps created keys in transition mode until protection is explicitly enabled", () => {
+    const summary = buildClientKeySummary({
+      databaseKeys: [dbKey()],
+      environmentKeys: new Map(),
+      protectionEnabled: false,
+      decryptDatabaseToken: () => "db-secret",
+    });
+
+    expect(summary.effectiveTotal).toBe(1);
+    expect(summary.protectionEnabled).toBe(false);
+    expect(summary.anonymousMode).toBe(true);
+  });
+
   test("preserves anonymous mode when no client key source exists", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [],
       environmentKeys: new Map(),
+      protectionEnabled: false,
       decryptDatabaseToken: () => "",
     });
 
@@ -54,6 +69,7 @@ describe("proxy client key summary", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [dbKey()],
       environmentKeys: new Map([["same-secret", "legacy-openclaw"]]),
+      protectionEnabled: true,
       decryptDatabaseToken: () => "same-secret",
     });
 
@@ -69,6 +85,7 @@ describe("proxy client key summary", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [dbKey()],
       environmentKeys: new Map([["different-secret", "openclaw"]]),
+      protectionEnabled: true,
       clientActivity: [{ clientName: "openclaw", lastRequestAt: "2026-07-29T00:00:00.000Z" }],
       decryptDatabaseToken: () => "db-secret",
     });
@@ -82,6 +99,7 @@ describe("proxy client key summary", () => {
     const summary = buildClientKeySummary({
       databaseKeys: [dbKey({ enabled: false }), dbKey({ id: "broken", name: "broken", encryptedToken: "bad" })],
       environmentKeys: new Map(),
+      protectionEnabled: true,
       decryptDatabaseToken: (key) => {
         if (key.id === "broken") throw new Error("decrypt failed");
         return "unused";
