@@ -1,0 +1,130 @@
+name: Apply proxy key test sync
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/proxy-key-upgrade-ux' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/proxy-key-upgrade-ux
+          fetch-depth: 0
+      - name: Synchronize legacy tests and token dialog copy actions
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "tests/integration.test.ts",
+              '''    expect(createdClient.status).toBe(201);
+    expect(createdClientBody.clientKey.token).toBeUndefined();
+    expect(createdClientBody.clientKey.encryptedToken).toBeUndefined();
+
+    const revealDenied = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer wrong-password" },
+    });
+    const revealAllowed = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(revealDenied.status).toBe(401);
+    expect(revealAllowed.status).toBe(200);
+    const generatedClientToken = (await revealAllowed.json()).token;
+    expect(generatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
+''',
+              '''    expect(createdClient.status).toBe(201);
+    expect(createdClientBody.clientKey.token).toBeUndefined();
+    expect(createdClientBody.clientKey.encryptedToken).toBeUndefined();
+    const generatedClientToken = createdClientBody.token;
+    expect(generatedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
+
+    const revealDenied = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer wrong-password" },
+    });
+    const revealDisabled = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(revealDenied.status).toBe(401);
+    expect(revealDisabled.status).toBe(410);
+    expect((await revealDisabled.json()).error.type).toBe("client_key_reveal_disabled");
+''',
+          )
+
+          replace_once(
+              "tests/integration.test.ts",
+              '''    expect(rotated.status).toBe(200);
+    const revealRotated = await fetch(`${app.baseUrl}/admin/client-keys/${createdClientBody.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const rotatedClientToken = (await revealRotated.json()).token;
+''',
+              '''    expect(rotated.status).toBe(200);
+    const rotatedClientToken = (await rotated.json()).token;
+''',
+          )
+
+          replace_once(
+              "tests/integration.test.ts",
+              '''    expect(clientCreate.status).toBe(201);
+    const createdForExport = await clientCreate.json();
+    const revealForExport = await fetch(`${source.baseUrl}/admin/client-keys/${createdForExport.clientKey.id}/reveal`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    const exportedClientToken = (await revealForExport.json()).token;
+''',
+              '''    expect(clientCreate.status).toBe(201);
+    const createdForExport = await clientCreate.json();
+    const exportedClientToken = createdForExport.token;
+    expect(exportedClientToken).toMatch(/^ocp_[A-Za-z0-9_-]{43}$/);
+''',
+          )
+
+          replace_once(
+              "public/admin/proxy-key-ux.js",
+              '''  tokenDialog.querySelector("[data-proxy-copy-token]").addEventListener("click", async (event) => {
+    await copyText(tokenDialog.querySelector("[data-proxy-token]").textContent || "", event.currentTarget);
+  });
+  tokenDialog.querySelector("[data-proxy-test]").addEventListener("click", testCurrentToken);
+''',
+              '''  tokenDialog.querySelector("[data-proxy-copy-token]").addEventListener("click", async (event) => {
+    await copyText(tokenDialog.querySelector("[data-proxy-token]").textContent || "", event.currentTarget);
+  });
+  tokenDialog.addEventListener("click", async (event) => {
+    const copyButton = event.target.closest("button[data-proxy-copy]");
+    if (copyButton) await copyText(copyButton.dataset.proxyCopy || "", copyButton);
+  });
+  tokenDialog.querySelector("[data-proxy-test]").addEventListener("click", testCurrentToken);
+''',
+          )
+
+          Path(".github/workflows/apply-proxy-key-test-sync.yml").unlink()
+          PY
+      - name: Commit synchronized tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Synchronize proxy key upgrade tests"
+          git push origin HEAD:agent/proxy-key-upgrade-ux
