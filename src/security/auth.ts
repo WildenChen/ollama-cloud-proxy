@@ -12,6 +12,7 @@ function bearerToken(req: Request): string | null {
 }
 
 const ADMIN_PASSWORD_SETTING = "auth.adminPasswordHash";
+const CLIENT_ACCESS_PROTECTION_SETTING = "auth.clientKeyRequired";
 const HASH_ITERATIONS = 210_000;
 const ADMIN_SESSION_COOKIE = "ocp_admin_session";
 const ADMIN_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -35,7 +36,7 @@ export function verifyPassword(password: string, stored: string): boolean {
   if (!Number.isInteger(iterations) || iterations < 1) return false;
   const expected = Buffer.from(hashText, "base64");
   const actual = pbkdf2Sync(password.trim(), Buffer.from(saltText, "base64"), iterations, expected.length, "sha256");
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  return actual.length === expected.length && timingSafeEqual(expected, actual);
 }
 
 export function isAdminInitialized(store: DatabaseStore): boolean {
@@ -44,6 +45,26 @@ export function isAdminInitialized(store: DatabaseStore): boolean {
 
 export function setAdminPassword(store: DatabaseStore, password: string): void {
   store.setSetting(ADMIN_PASSWORD_SETTING, hashPassword(password));
+}
+
+export function initializeClientAccessProtection(config: AppConfig, store: DatabaseStore): boolean {
+  const stored = store.getSetting(CLIENT_ACCESS_PROTECTION_SETTING);
+  if (stored === "true" || stored === "false") return stored === "true";
+  const legacyProtectionEnabled =
+    config.clientApiKeys.size > 0 || store.listClientApiKeys(false).some((key) => key.enabled);
+  store.setSetting(CLIENT_ACCESS_PROTECTION_SETTING, legacyProtectionEnabled ? "true" : "false");
+  return legacyProtectionEnabled;
+}
+
+export function isClientAccessProtectionEnabled(config: AppConfig, store: DatabaseStore): boolean {
+  const stored = store.getSetting(CLIENT_ACCESS_PROTECTION_SETTING);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return config.clientApiKeys.size > 0 || store.listClientApiKeys(false).some((key) => key.enabled);
+}
+
+export function setClientAccessProtection(store: DatabaseStore, enabled: boolean): void {
+  store.setSetting(CLIENT_ACCESS_PROTECTION_SETTING, enabled ? "true" : "false");
 }
 
 function cookieValue(req: Request, name: string): string | null {
@@ -113,33 +134,38 @@ export function requireAdmin(req: Request, store: DatabaseStore, secret: string)
   return null;
 }
 
+export function matchClientToken(
+  token: string | null,
+  config: AppConfig,
+  store: DatabaseStore,
+  cipher: KeyCipher,
+): ClientIdentity | null {
+  if (!token) return null;
+  for (const key of store.listClientApiKeys(false)) {
+    if (!key.enabled) continue;
+    try {
+      if (cipher.decrypt(key.encryptedToken) === token) {
+        return { clientName: key.name, authenticated: true };
+      }
+    } catch {
+      continue;
+    }
+  }
+  const environmentClientName = config.clientApiKeys.get(token);
+  return environmentClientName ? { clientName: environmentClientName, authenticated: true } : null;
+}
+
 export function authenticateClient(
   req: Request,
   config: AppConfig,
   store: DatabaseStore,
-  cipher: KeyCipher
+  cipher: KeyCipher,
 ): { identity: ClientIdentity } | { response: Response } {
-  const token = bearerToken(req);
-  const dbKeys = store.listClientApiKeys(false);
-  const hasDbClientKeys = dbKeys.some((key) => key.enabled);
-  if (token) {
-    for (const key of dbKeys) {
-      if (!key.enabled) continue;
-      try {
-        if (cipher.decrypt(key.encryptedToken) === token) {
-          return { identity: { clientName: key.name, authenticated: true } };
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-  if (config.clientApiKeys.size > 0 || hasDbClientKeys) {
-    const clientName = token ? config.clientApiKeys.get(token) : null;
-    if (!clientName) {
-      return { response: openAiError(401, "unauthorized", "Valid client token required") };
-    }
-    return { identity: { clientName, authenticated: true } };
+  const identity = matchClientToken(bearerToken(req), config, store, cipher);
+  if (identity) return { identity };
+
+  if (isClientAccessProtectionEnabled(config, store)) {
+    return { response: openAiError(401, "unauthorized", "Valid client token required") };
   }
 
   return {
