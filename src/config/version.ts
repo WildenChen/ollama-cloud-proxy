@@ -1,2 +1,2 @@
-// Runtime version; validated against package.json, README, and changelog by tests.
+// Runtime release version; tests keep package.json, README, and changelog synchronized.
 export const APP_VERSION = "1.6.1";
