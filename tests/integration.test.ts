@@ -1812,6 +1812,21 @@ describe("proxy integration", () => {
     expect(revealDisabled.status).toBe(410);
     expect((await revealDisabled.json()).error.type).toBe("client_key_reveal_disabled");
 
+    const transitionAnonymous = await fetch(`${app.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-oss", messages: [{ role: "user", content: "transition" }] }),
+    });
+    expect(transitionAnonymous.status).toBe(200);
+
+    const enableProtection = await fetch(`${app.baseUrl}/admin/client-access`, {
+      method: "PATCH",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enableProtection.status).toBe(200);
+    expect((await enableProtection.json()).protectionEnabled).toBe(true);
+
     const denied = await fetch(`${app.baseUrl}/v1/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json" },

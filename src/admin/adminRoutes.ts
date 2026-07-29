@@ -15,15 +15,18 @@ import type { UsageService } from "../usage/usageService";
 import { getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, parseIso } from "../utils/time";
 import { APP_VERSION } from "../config/version";
 import {
-  authenticateClient,
   adminAuthStatus,
   adminSessionCookie,
   clearAdminSessionCookie,
   generateClientToken,
   hashPassword,
+  initializeClientAccessProtection,
   isAdminInitialized,
+  isClientAccessProtectionEnabled,
+  matchClientToken,
   publicTokenPreview,
   setAdminPassword,
+  setClientAccessProtection,
   verifyPassword,
 } from "../security/auth";
 import type { KeyCipher } from "../security/encryption";
@@ -70,7 +73,9 @@ export class AdminRoutes {
     private readonly models: ModelManager,
     private readonly cipher: KeyCipher,
     private readonly usageService: UsageService
-  ) {}
+  ) {
+    initializeClientAccessProtection(this.config, this.store);
+  }
 
   async handle(req: Request, path: string): Promise<Response> {
     if (path === "/admin/auth/status" && req.method === "GET") return this.adminStatus(req);
@@ -99,6 +104,8 @@ export class AdminRoutes {
     if (path === "/admin/client-keys" && req.method === "GET") return json({ clientKeys: this.publicClientApiKeys() });
     if (path === "/admin/client-keys" && req.method === "POST") return this.createClientApiKey(req);
     if (path === "/admin/client-key-summary" && req.method === "GET") return json(this.clientKeySummary());
+    if (path === "/admin/client-access" && req.method === "GET") return json(this.clientKeyPublicAccessSummary());
+    if (path === "/admin/client-access" && req.method === "PATCH") return this.patchClientAccess(req);
     if (path === "/admin/client-key-test" && req.method === "POST") return this.testClientApiKey(req);
 
     const clientKeyMatch = path.match(/^\/admin\/client-keys\/([^/]+)(?:\/([^/]+))?$/);
@@ -317,10 +324,19 @@ export class AdminRoutes {
   }
 
   private clientKeySummary() {
+    const activity = this.store.db
+      .query(
+        `SELECT clientName, MAX(lastRequestAt) AS lastRequestAt
+         FROM client_stats
+         GROUP BY clientName
+         ORDER BY clientName ASC`
+      )
+      .all() as Array<Record<string, unknown>>;
     return buildClientKeySummary({
       databaseKeys: this.store.listClientApiKeys(false),
       environmentKeys: this.config.clientApiKeys,
-      clientActivity: this.store.getTodayClientStats().map((row) => ({
+      protectionEnabled: isClientAccessProtectionEnabled(this.config, this.store),
+      clientActivity: activity.map((row) => ({
         clientName: String(row.clientName),
         lastRequestAt: row.lastRequestAt ? String(row.lastRequestAt) : null,
       })),
@@ -333,21 +349,33 @@ export class AdminRoutes {
     return safe;
   }
 
+  private async patchClientAccess(req: Request) {
+    try {
+      const body = await readJson(req);
+      if (typeof body.enabled !== "boolean") throw new Error("enabled must be a boolean");
+      const summary = this.clientKeySummary();
+      if (body.enabled && summary.effectiveTotal < 1) {
+        return openAiError(
+          409,
+          "client_key_required",
+          "Create and test at least one Proxy access key before enabling protection"
+        );
+      }
+      setClientAccessProtection(this.store, body.enabled);
+      return json(this.clientKeyPublicAccessSummary());
+    } catch (error) {
+      return openAiError(400, "invalid_client_access_setting", (error as Error).message);
+    }
+  }
+
   private async testClientApiKey(req: Request) {
     try {
       const body = await readJson(req);
       const token = String(body.token || "").trim();
       if (!token) throw new Error("token is required");
 
-      const authentication = authenticateClient(
-        new Request("http://localhost/v1/models", {
-headers: { authorization: `Bearer ${token}` },
-        }),
-        this.config,
-        this.store,
-        this.cipher,
-      );
-      const authenticationOk = !("response" in authentication);
+      const authentication = matchClientToken(token, this.config, this.store, this.cipher);
+      const authenticationOk = authentication !== null;
       const upstream = this.keyPool.summary();
       const models = this.models.listModelsFromCache({ includeDisabled: false }) as {
         count?: number;

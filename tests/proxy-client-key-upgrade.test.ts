@@ -194,7 +194,30 @@ describe("Proxy access key upgrade compatibility", () => {
       headers: { authorization: "Bearer admin-token" },
     })).json();
     expect(summary.items[0].tokenPreview).toBe(created.clientKey.tokenPreview);
+    expect(summary).toMatchObject({
+      protectionEnabled: false,
+      anonymousMode: true,
+      effectiveTotal: 1,
+    });
     expect(JSON.stringify(summary)).not.toContain(token);
+
+    const transitionAnonymous = await fetch(`${app.baseUrl}/v1/models`);
+    expect(transitionAnonymous.status).toBe(200);
+
+    const enableProtection = await fetch(`${app.baseUrl}/admin/client-access`, {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enableProtection.status).toBe(200);
+    expect(await enableProtection.json()).toMatchObject({
+      protectionEnabled: true,
+      anonymousMode: false,
+      effectiveTotal: 1,
+    });
+
+    const missingTokenDenied = await fetch(`${app.baseUrl}/v1/models`);
+    expect(missingTokenDenied.status).toBe(401);
 
     const revealResponse = await fetch(`${app.baseUrl}/admin/client-keys/${created.clientKey.id}/reveal`, {
       method: "POST",
@@ -255,5 +278,20 @@ describe("Proxy access key upgrade compatibility", () => {
     expect(invalid.authentication.ok).toBe(false);
     expect(invalid.upstream.ok).toBe(true);
     expect(invalid.models.ok).toBe(true);
+  });
+
+  test("cannot enable protection before at least one usable key exists", async () => {
+    const app = createApp(config());
+
+    const response = await fetch(`${app.baseUrl}/admin/client-access`, {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.type).toBe("client_key_required");
+    const stats = await (await fetch(`${app.baseUrl}/admin/stats`)).json();
+    expect(stats.clientAccess.anonymousMode).toBe(true);
   });
 });

@@ -17,6 +17,11 @@ const words = {
     protection: "存取保護",
     protected: "已啟用",
     anonymous: "尚未啟用",
+    enableProtection: "啟用存取保護",
+    pauseProtection: "暫停存取保護",
+    confirmEnableProtection: "啟用後，沒有有效 Proxy 專屬金鑰的工具會立即無法連線。請先確認新金鑰已測試成功且所有必要工具都已更新。確定啟用嗎？",
+    confirmPauseProtection: "暫停後，未帶金鑰的匿名工具也能連線。這會降低存取保護，確定暫停嗎？",
+    protectionUpdateFailed: "存取保護設定失敗",
     create: "建立 Proxy 專屬金鑰",
     signIn: "登入後管理",
     manage: "前往完整設定",
@@ -86,6 +91,11 @@ const words = {
     protection: "Access protection",
     protected: "Enabled",
     anonymous: "Not enabled",
+    enableProtection: "Enable access protection",
+    pauseProtection: "Pause access protection",
+    confirmEnableProtection: "After enabling protection, clients without a valid Proxy access key immediately lose access. Confirm the new key was tested and required clients were updated. Enable protection?",
+    confirmPauseProtection: "Pausing allows anonymous clients without a key to connect and reduces access protection. Pause protection?",
+    protectionUpdateFailed: "Access protection update failed",
     create: "Create proxy access key",
     signIn: "Sign in to manage",
     manage: "Open full settings",
@@ -277,6 +287,7 @@ function render() {
         </div>
         <div class="proxyKeyHeaderActions">
           <button class="button primary" type="button" data-proxy-action="${snapshot.authenticated ? "create" : "sign-in"}">${escapeHtml(snapshot.authenticated ? w("create") : w("signIn"))}</button>
+          ${snapshot.authenticated && Number(summary.effectiveTotal || 0) > 0 ? `<button class="button" type="button" data-proxy-action="toggle-protection">${escapeHtml(summary.protectionEnabled ? w("pauseProtection") : w("enableProtection"))}</button>` : ""}
           <button class="button" type="button" data-proxy-action="settings">${escapeHtml(w("manage"))}</button>
         </div>
       </div>
@@ -287,7 +298,7 @@ function render() {
         ${fact(w("protection"), summary.protectionEnabled ? w("protected") : w("anonymous"))}
         <div class="proxyKeyFlow">${escapeHtml(w("flow"))}</div>
       </div>
-      ${showAnonymousNotice ? `<div class="proxyKeyUpgradeNotice"><strong>${escapeHtml(w("anonymousTitle"))}</strong><p>${escapeHtml(w("anonymousDescription"))}</p><div class="proxyKeyHeaderActions"><button class="button primary" type="button" data-proxy-action="create">${escapeHtml(w("create"))}</button><button class="button" type="button" data-proxy-action="dismiss-security">${escapeHtml(w("later"))}</button></div></div>` : ""}
+      ${showAnonymousNotice ? `<div class="proxyKeyUpgradeNotice"><strong>${escapeHtml(w("anonymousTitle"))}</strong><p>${escapeHtml(w("anonymousDescription"))}</p><div class="proxyKeyHeaderActions"><button class="button primary" type="button" data-proxy-action="${Number(summary.effectiveTotal || 0) > 0 ? "toggle-protection" : "create"}">${escapeHtml(Number(summary.effectiveTotal || 0) > 0 ? w("enableProtection") : w("create"))}</button><button class="button" type="button" data-proxy-action="dismiss-security">${escapeHtml(w("later"))}</button></div></div>` : ""}
       ${summary.duplicateSourceCount > 0 ? `<div class="proxyKeyUpgradeNotice"><strong>${escapeHtml(w("duplicateSource"))}</strong><p>${escapeHtml(w("duplicateHint"))}</p></div>` : ""}
       <div class="proxyKeyConnection">
         ${connectionValue(w("openAiUrl"), `${origin}/v1`)}
@@ -479,6 +490,22 @@ async function runAction(action, id = "") {
     return;
   }
   const item = findItem(id);
+  if (action === "toggle-protection") {
+    const next = snapshot.summary?.protectionEnabled !== true;
+    const confirmation = next ? w("confirmEnableProtection") : w("confirmPauseProtection");
+    if (!window.confirm(confirmation)) return;
+    try {
+      await request("/admin/client-access", {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: next }),
+      });
+      localStorage.removeItem(securityNoticeKey);
+      scheduleLoad(100);
+    } catch (error) {
+      window.alert(`${w("protectionUpdateFailed")}：${error.message}`);
+    }
+    return;
+  }
   if (action === "create") {
     openCreateDialog({ title: w("createTitle") });
     return;
