@@ -320,6 +320,7 @@ function findItem(id) {
 function ensureCreateDialog() {
   if (createDialog) return createDialog;
   createDialog = document.createElement("dialog");
+  createDialog.className = "proxyKeyModal";
   createDialog.innerHTML = `
     <form class="dialogCard proxyKeyDialog" data-proxy-create-form>
       <header><h2 data-proxy-create-title></h2></header>
@@ -373,6 +374,7 @@ async function submitCreateDialog(event) {
 function ensureTokenDialog() {
   if (tokenDialog) return tokenDialog;
   tokenDialog = document.createElement("dialog");
+  tokenDialog.className = "proxyKeyModal";
   tokenDialog.innerHTML = `
     <form method="dialog" class="dialogCard proxyKeyDialog">
       <header><h2 data-proxy-token-title></h2></header>

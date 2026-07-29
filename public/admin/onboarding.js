@@ -40,6 +40,8 @@ const words = {
     pending: "待完成",
     adminStep: "建立管理密碼並登入",
     adminHint: "保護管理設定與測試操作。",
+    adminLoginStep: "登入管理台",
+    adminLoginHint: "管理密碼已設定，請使用既有密碼登入。",
     upstreamStep: "新增 Ollama Cloud API Key",
     upstreamHint: "這是代理連接 Ollama Cloud 使用的上游憑證。",
     clientStep: "建立 Client API Key",
@@ -93,6 +95,8 @@ const words = {
     pending: "Pending",
     adminStep: "Create an admin password and sign in",
     adminHint: "Protects settings and test actions.",
+    adminLoginStep: "Sign in to Admin",
+    adminLoginHint: "An admin password already exists. Sign in with the existing password.",
     upstreamStep: "Add an Ollama Cloud API key",
     upstreamHint: "The proxy uses this upstream credential to reach Ollama Cloud.",
     clientStep: "Create a Client API key",
@@ -174,6 +178,7 @@ async function loadReadiness() {
       modelCount: models?.count ?? models?.models?.length ?? 0,
       usageCookieCount: totals?.official?.available ?? 0,
     });
+    snapshot.initialized = authStatus.initialized === true;
   } catch {
     snapshot = deriveServiceReadiness({ loadError: true });
   }
@@ -241,7 +246,7 @@ function render() {
   }
 
   const requiredSteps = [
-    ["adminReady", "adminStep", "adminHint", "sign-in"],
+    ["adminReady", snapshot.initialized ? "adminLoginStep" : "adminStep", snapshot.initialized ? "adminLoginHint" : "adminHint", "sign-in"],
     ["upstreamKeyReady", "upstreamStep", "upstreamHint", "add-key"],
     ["clientKeyReady", "clientStep", "clientHint", "create-client-key"],
     ["proxyReady", "proxyStep", "proxyHint", "refresh"],
