@@ -36,11 +36,11 @@ jobs:
           end = workflow.index(end_marker, start)
           body = workflow[start:end]
           body = "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
-          original_helper = 'def replace_once(path, old, new):\n    file = Path(path)\n    text = file.read_text()\n    count = text.count(old)\n    if count != 1:\n        raise SystemExit(f"{path}: expected one match, found {count}\\\\n--- OLD ---\\\\n{old[:500]}")\n    file.write_text(text.replace(old, new, 1))'
-          robust_helper = 'def replace_once(path, old, new):\n    file = Path(path)\n    text = file.read_text()\n    count = text.count(old)\n    if count == 1:\n        file.write_text(text.replace(old, new, 1))\n        return\n    if path == "src/usage/usageService.ts" and old.lstrip().startswith("async refreshMany"):\n        method_start = text.find("  async refreshMany(")\n        method_end = text.find("\\n\\n  refreshKey(", method_start)\n        if method_start >= 0 and method_end > method_start:\n            file.write_text(text[:method_start] + new + text[method_end:])\n            return\n    raise SystemExit(f"{path}: expected one match, found {count}\\\\n--- OLD ---\\\\n{old[:500]}")'
-          if body.count(original_helper) != 1:
-              raise SystemExit('Unable to locate precise replace_once helper')
-          body = body.replace(original_helper, robust_helper, 1)
+          marker = "    count = text.count(old)\n"
+          fallback = '    if count != 1 and path == "src/usage/usageService.ts" and old.lstrip().startswith("async refreshMany"):\n        method_start = text.find("  async refreshMany(")\n        method_end = text.find("\\n\\n  refreshKey(", method_start)\n        if method_start >= 0 and method_end > method_start:\n            file.write_text(text[:method_start] + new + text[method_end:])\n            return\n'
+          if body.count(marker) != 1:
+              raise SystemExit(f'Expected one helper marker, found {body.count(marker)}')
+          body = body.replace(marker, marker + fallback, 1)
           exec(compile(body, 'usage-refresh-patch.py', 'exec'))
           PY
 
