@@ -107,14 +107,16 @@ describe("usage refresh stability", () => {
     servers.push(settings);
 
     const appConfig = config({ ollamaCloudUsageUrl: `http://127.0.0.1:${settings.port}/settings` });
+    expect(appConfig.ollamaUsageRefreshTtlSeconds).toBe(600);
     const { store, keyPool, usage } = setup(appConfig);
     const created = keyPool.create({ name: "key-1", apiKey: "good-key", ollamaUsageCookie: "cookie-1" });
 
     keyPool.markSuccess(created.id, 20);
-    await waitFor(() => calls === 1);
+    await waitFor(() => store.getUsageAccountState(created.id)?.lastErrorCode === "upstream_error");
 
     const afterFailure = store.getKey(created.id, false)!;
     const usageState = store.getUsageAccountState(created.id)!;
+    expect(calls).toBe(1);
     expect(afterFailure.status).toBe("available");
     expect(afterFailure.consecutiveFailures).toBe(0);
     expect(usageState.lastErrorCode).toBe("upstream_error");
@@ -128,8 +130,10 @@ describe("usage refresh stability", () => {
       ...usageState,
       officialCheckedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
     });
+    const previousErrorAt = usageState.lastErrorAt;
     keyPool.markSuccess(created.id, 20);
-    await waitFor(() => calls === 2);
+    await waitFor(() => store.getUsageAccountState(created.id)?.lastErrorAt !== previousErrorAt);
+    expect(calls).toBe(2);
     expect(store.getKey(created.id, false)!.status).toBe("available");
     expect(usage.cachedSnapshot(created.id)).toBeNull();
   });
