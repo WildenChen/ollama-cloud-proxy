@@ -41,6 +41,10 @@ jobs:
           if body.count(marker) != 1:
               raise SystemExit(f'Expected one helper marker, found {body.count(marker)}')
           body = body.replace(marker, marker + fallback, 1)
+          admin_version_line = 'replace_if_present("public/admin/index.html", "1.6.1", "1.6.2")\n'
+          if body.count(admin_version_line) != 1:
+              raise SystemExit(f'Expected one admin version line, found {body.count(admin_version_line)}')
+          body = body.replace(admin_version_line, '', 1)
           exec(compile(body, 'usage-refresh-patch.py', 'exec'))
           PY
 
