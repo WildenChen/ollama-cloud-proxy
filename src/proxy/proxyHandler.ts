@@ -404,7 +404,6 @@ export class ProxyHandler {
 
       if (!upstream.ok) {
         const errorBody = await upstream.text();
-        if (upstream.status === 429) this.keyPool.notifyUsageRateLimit(key.id);
         if (
           options.responseFormat === "passthrough" &&
           upstream.status >= 400 &&

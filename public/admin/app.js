@@ -173,7 +173,9 @@ const dictionaries = {
     combinedQuotaDescription: "合計所有已啟用金鑰的官方剩餘額度。",
     quotaPoolAccounts: (count, total) => `${count}/${total} 把計入`,
     quotaUnavailableLabel: "目前不可用",
-    refreshOfficialUsage: "刷新官方用量",
+    refreshOfficialUsage: "全部更新",
+    refreshingOfficialUsage: "正在更新全部官方用量…",
+    refreshOfficialUsageDone: (succeeded, failed) => `全部更新完成：${succeeded} 成功，${failed} 失敗`,
     officialUsageTitle: "官方用量",
     proxyActivityTitle: "代理活動記錄",
     remainingLabel: "剩餘",
@@ -188,7 +190,9 @@ const dictionaries = {
     cookieReadyLabel: "Cookie 已設定",
     cookieMissingLabel: "未設定 Cookie",
     usageSyncedLabel: "用量已同步",
+    usageStaleLabel: "沿用上次成功用量",
     usageReadFailedLabel: "用量讀取失敗",
+    usageReadFailedDetail: "官方用量讀取失敗，只影響用量顯示；API Key 驗證與模型代理不受影響。",
     officialUnavailable: "尚無官方用量資料",
     quotaOkLabel: "正常",
     quotaWarningLabel: "接近用盡",
@@ -562,7 +566,9 @@ const dictionaries = {
     combinedQuotaDescription: "Counts official quota from every enabled key.",
     quotaPoolAccounts: (count, total) => `${count}/${total} included`,
     quotaUnavailableLabel: "Currently unavailable",
-    refreshOfficialUsage: "Refresh Official Usage",
+    refreshOfficialUsage: "Refresh All",
+    refreshingOfficialUsage: "Refreshing all official usage…",
+    refreshOfficialUsageDone: (succeeded, failed) => `Refresh complete: ${succeeded} succeeded, ${failed} failed`,
     officialUsageTitle: "Official Usage",
     proxyActivityTitle: "Proxy Activity",
     remainingLabel: "Remaining",
@@ -577,7 +583,9 @@ const dictionaries = {
     cookieReadyLabel: "Cookie set",
     cookieMissingLabel: "Cookie missing",
     usageSyncedLabel: "Usage synced",
+    usageStaleLabel: "Using last successful usage",
     usageReadFailedLabel: "Usage read failed",
+    usageReadFailedDetail: "Official usage could not be read. Only usage display is affected; API-key validation and model proxying are unchanged.",
     officialUnavailable: "No official usage data yet",
     quotaOkLabel: "OK",
     quotaWarningLabel: "Running low",
@@ -1429,7 +1437,7 @@ function renderOfficialKeyUsage(card) {
         ${officialUsageMeter(t("sessionUsageLabel"), card.session, card.sessionRemainingThresholdPercent, { blocked: !usable })}
         ${officialUsageMeter(t("weeklyUsageLabel"), card.weekly, card.weeklyRemainingThresholdPercent, { blocked: !usable })}
       </div>
-      ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}
+      ${card.lastError ? `<small class="usageError">${escapeHtml(t("usageReadFailedDetail"))}</small>` : ""}
       <div class="officialQuotaFooter">
         <span>${escapeHtml(t("usageFreshnessLabel"))} ${card.fetchedAt ? relativeDate(card.fetchedAt) : "-"}</span>
         <span class="usageState ${usageState.className}">${escapeHtml(usageState.text)}</span>
@@ -1452,6 +1460,9 @@ function renderOfficialKeyUsage(card) {
 }
 
 function officialUsageStateLabel(card) {
+  if (card.lastError && card.fetchedAt) {
+    return { text: t("usageStaleLabel"), className: "warning" };
+  }
   if (card.lastError) {
     return { text: t("usageReadFailedLabel"), className: "bad" };
   }
@@ -1924,21 +1935,29 @@ async function refreshOfficialUsage() {
     requestAdminLogin();
     return;
   }
+  const refreshButton = $("refreshUsageButton");
+  const originalLabel = refreshButton?.textContent || t("refreshOfficialUsage");
   try {
-    const refreshButton = $("refreshUsageButton");
-    if (refreshButton) refreshButton.disabled = true;
+    if (refreshButton) {
+      refreshButton.disabled = true;
+      refreshButton.textContent = t("refreshingOfficialUsage");
+    }
     const overview = await api("/admin/usage-overview/refresh", { method: "POST" });
     state.stats = state.stats || {};
     state.stats.usage = state.stats.usage || {};
     state.stats.usage.overview = overview;
     state.keys = (await api("/admin/keys")).keys || state.keys;
     renderAll();
-    showNotice(t("refreshOfficialUsage"));
+    const summary = overview.refresh || { succeeded: 0, failed: 0 };
+    showNotice(t("refreshOfficialUsageDone")(summary.succeeded || 0, summary.failed || 0), summary.failed ? "warning" : "success");
   } catch (error) {
     showNotice(error.message, "error");
   } finally {
-    const refreshButton = $("refreshUsageButton");
-    if (refreshButton) refreshButton.disabled = false;
+    const currentButton = $("refreshUsageButton");
+    if (currentButton) {
+      currentButton.disabled = false;
+      currentButton.textContent = originalLabel;
+    }
   }
 }
 

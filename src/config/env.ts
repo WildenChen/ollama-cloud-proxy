@@ -194,7 +194,7 @@ export function loadConfig(): AppConfig {
       process.env.OLLAMA_USAGE_COOKIE?.trim() ||
       process.env.OLLAMA_CLOUD_USAGE_COOKIE?.trim() ||
       null,
-    ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 300),
+    ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 600),
     usageApiEnabled: booleanEnv("USAGE_API_ENABLED", true),
     usageOfficialStaleSeconds: positiveNumberEnv("USAGE_OFFICIAL_STALE_SECONDS", 900),
     usageRefreshDebounceSeconds: nonNegativeNumberEnv("USAGE_REFRESH_DEBOUNCE_SECONDS", 300),

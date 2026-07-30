@@ -81,9 +81,7 @@ function createApp(appConfig: AppConfig, initializeAdmin = true) {
   const keyPool = new KeyPoolManager(appConfig, store, events, new KeyCipher(appConfig.keyEncryptionSecret));
   const usageService = new UsageService(appConfig, store, keyPool, events);
   keyPool.setUsageHooks({
-    onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
     onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
-    onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
     onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
   });
   const models = new ModelManager(appConfig, store);
@@ -1154,7 +1152,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.6.1");
+    expect(body.proxy_version).toBe("1.6.2");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

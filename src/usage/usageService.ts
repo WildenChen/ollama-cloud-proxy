@@ -55,6 +55,13 @@ export type UsageAccountSnapshot = {
   last_error_at: string | null;
 };
 
+export type UsageRefreshSummary = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  completed_at: string;
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -71,7 +78,6 @@ function safeDate(value: string | null | undefined): number | null {
 
 export class UsageService {
   private readonly flights = new Map<string, Promise<OllamaCloudUsageSnapshot | null>>();
-  private readonly timers = new Map<string, { timer: ReturnType<typeof setTimeout>; dueAt: number }>();
 
   constructor(
     private readonly config: AppConfig,
@@ -83,58 +89,77 @@ export class UsageService {
   recordSuccess(keyId: string, usage?: TokenUsageInput): void {
     if (!this.config.usageApiEnabled) return;
     this.store.recordUsageLedger(keyId, this.config.usageEstimateUnitsPerSuccess, usage);
-    this.scheduleRefresh(keyId, this.config.usageRefreshDebounceSeconds * 1000);
-  }
-
-  maybeScheduleStale(keyId: string): void {
-    if (!this.config.usageApiEnabled) return;
-    const key = this.store.getKey(keyId, false);
-    if (!key) return;
-    const state = this.ensureState(key);
-    const checkedAt = safeDate(state?.officialCheckedAt);
-    if (!checkedAt || Date.now() - checkedAt > this.config.usageOfficialStaleSeconds * 1000) {
-      this.scheduleRefresh(keyId, 0);
-    }
-  }
-
-  notifyRateLimit(keyId: string): void {
-    if (!this.config.usageApiEnabled) return;
-    this.scheduleRefresh(keyId, 0);
+    void this.maybeRefreshAfterSuccess(keyId).catch((error) => {
+      this.events.emit({
+        level: "warn",
+        type: "official_usage_refresh_failed",
+        message: `Unable to schedule official usage refresh: ${(error as Error).message}`,
+        keyId,
+        details: { status: "schedule_error" },
+      });
+    });
   }
 
   notifyCookieChanged(keyId: string): void {
     if (!this.config.usageApiEnabled) return;
-    this.scheduleRefresh(keyId, 0);
+    const key = this.store.getKey(keyId, false);
+    if (!key) return;
+    this.store.upsertUsageAccountState({
+      keyId,
+      officialJson: null,
+      officialFetchedAt: null,
+      officialCheckedAt: null,
+      officialChangedAt: null,
+      baselineLedgerId: this.store.latestUsageLedgerId(keyId),
+      lastErrorCode: null,
+      lastErrorAt: null,
+    });
+    this.store.patchKey(keyId, {
+      ollamaUsageJson: null,
+      ollamaUsageLastRefreshAt: null,
+      ollamaUsageLastError: null,
+    });
   }
 
-  scheduleRefresh(keyId: string, delayMs: number): void {
-    if (!this.config.usageApiEnabled || this.flights.has(keyId)) return;
-    const totalDelay = Math.max(0, delayMs + this.jitterMs());
-    const dueAt = Date.now() + totalDelay;
-    const existing = this.timers.get(keyId);
-    if (existing && existing.dueAt <= dueAt) return;
-    if (existing) clearTimeout(existing.timer);
-    const timer = setTimeout(() => {
-      this.timers.delete(keyId);
-      void this.refreshKey(keyId, true);
-    }, totalDelay);
-    timer.unref?.();
-    this.timers.set(keyId, { timer, dueAt });
+  cachedSnapshot(keyId: string): OllamaCloudUsageSnapshot | null {
+    const key = this.store.getKey(keyId, false);
+    if (!key) return null;
+    const state = this.stateForRead(key);
+    return this.parseStored(state?.officialJson)?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
   }
 
-  async refreshMany(keyIds: string[], concurrency = 3): Promise<void> {
+  private async maybeRefreshAfterSuccess(keyId: string): Promise<void> {
+    const key = this.store.getKey(keyId, false);
+    if (!key || !key.enabled) return;
+    if (!key.encryptedOllamaUsageCookie && !this.config.ollamaUsageCookie) return;
+    const state = this.ensureState(key);
+    const lastAttemptAt = safeDate(state?.officialCheckedAt) ?? safeDate(key.ollamaUsageLastRefreshAt);
+    if (lastAttemptAt && Date.now() - lastAttemptAt < this.config.ollamaUsageRefreshTtlSeconds * 1000) return;
+    await this.refreshKey(keyId, false);
+  }
+
+  async refreshMany(keyIds: string[], concurrency = 3): Promise<UsageRefreshSummary> {
     const queue = [...new Set(keyIds)];
+    const total = queue.length;
+    const startedAt = Date.now();
+    let succeeded = 0;
+    let failed = 0;
     const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
       while (queue.length) {
         const keyId = queue.shift();
         if (!keyId) return;
         await this.refreshKey(keyId, true);
+        const state = this.store.getUsageAccountState(keyId);
+        const errorAt = safeDate(state?.lastErrorAt);
+        if (state?.lastErrorCode && errorAt && errorAt >= startedAt) failed += 1;
+        else succeeded += 1;
         if (queue.length && this.config.usageRefreshJitterSeconds > 0) {
-          await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
+await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
         }
       }
     });
     await Promise.all(workers);
+    return { total, succeeded, failed, completed_at: new Date().toISOString() };
   }
 
   refreshKey(keyId: string, force = false): Promise<OllamaCloudUsageSnapshot | null> {
@@ -150,9 +175,9 @@ export class UsageService {
     if (!key) return null;
     const state = this.ensureState(key);
     const stored = this.parseStored(state?.officialJson);
-    const checkedAt = safeDate(state?.officialCheckedAt);
-    if (!force && stored && checkedAt && Date.now() - checkedAt <= this.config.ollamaUsageRefreshTtlSeconds * 1000) {
-      return stored.snapshot;
+    const checkedAt = safeDate(state?.officialCheckedAt) ?? safeDate(key.ollamaUsageLastRefreshAt);
+    if (!force && checkedAt && Date.now() - checkedAt < this.config.ollamaUsageRefreshTtlSeconds * 1000) {
+      return stored?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
     }
 
     let cookie: string | null = null;
@@ -232,7 +257,7 @@ export class UsageService {
       keyId: key.id,
       officialJson: state?.officialJson ?? null,
       officialFetchedAt: state?.officialFetchedAt ?? null,
-      officialCheckedAt: state?.officialCheckedAt ?? null,
+      officialCheckedAt: now,
       officialChangedAt: state?.officialChangedAt ?? null,
       baselineLedgerId: state?.baselineLedgerId ?? 0,
       lastErrorCode: code,
@@ -358,8 +383,9 @@ export class UsageService {
     const state = this.stateForRead(key);
     const stored = this.parseStored(state?.officialJson);
     const official = stored?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
+    const fetchedAt = state?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt ?? official?.fetchedAt ?? null;
     const checkedAt = state?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
-    const stale = !checkedAt || Date.now() - (safeDate(checkedAt) ?? 0) > this.config.usageOfficialStaleSeconds * 1000;
+    const stale = !fetchedAt || Date.now() - (safeDate(fetchedAt) ?? 0) > this.config.usageOfficialStaleSeconds * 1000;
     const fiveHour = this.windowSnapshot(key, state, official?.session ?? null, key.sessionQuotaLimit ?? 100, "five_hour");
     const weekly = this.windowSnapshot(key, state, official?.weekly ?? null, key.weeklyQuotaLimit ?? 100, "weekly");
     const sources = [fiveHour.source, weekly.source];
@@ -377,7 +403,7 @@ export class UsageService {
       official: {
         five_hour: fiveHour.official,
         weekly: weekly.official,
-        fetched_at: state?.officialFetchedAt ?? official?.fetchedAt ?? null,
+        fetched_at: fetchedAt,
         checked_at: checkedAt ?? null,
         changed_at: state?.officialChangedAt ?? official?.fetchedAt ?? null,
         source: official ? "ollama_cloud_settings" : null,

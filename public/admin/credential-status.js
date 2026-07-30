@@ -29,6 +29,9 @@ export function deriveCredentialKeyState(card = {}) {
 }
 
 export function deriveUsageCookieState(card = {}) {
+  if (card.lastError && card.fetchedAt) {
+    return { category: "usage-stale", tone: "warning", label: "usage_stale" };
+  }
   if (card.lastError) {
     return { category: "usage-error", tone: "warning", label: "usage_error" };
   }

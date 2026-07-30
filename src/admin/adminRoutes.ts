@@ -55,7 +55,10 @@ type OfficialKeyUsageCard = {
   hasCookie: boolean;
   plan: string | null;
   fetchedAt: string | null;
+  checkedAt: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
+  lastErrorAt: string | null;
   session: OfficialUsageWindow | null;
   weekly: OfficialUsageWindow | null;
   sessionRemainingThresholdPercent: number;
@@ -569,22 +572,11 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
   private async refreshKeyUsage(id: string) {
     const key = this.store.getKey(id, false);
     if (!key) return openAiError(404, "key_not_found", "Key not found");
-    const official = await this.officialUsageForKey(key, true);
-    const currentKey = this.store.getKey(id, false) ?? key;
-    let probeResult: unknown = null;
-    if (currentKey.status === "invalid") {
-      const probeResponse = await this.testKey(id);
-      try {
-        probeResult = await probeResponse.clone().json();
-      } catch {
-        probeResult = { ok: false };
-      }
-    }
-    const refreshedKey = this.store.getKey(id, false) ?? currentKey;
+    const official = await this.usageService.refreshKey(id, true);
+    const refreshedKey = this.store.getKey(id, false) ?? key;
     return json({
       key: this.keyPool.getPublic(id),
-      usage: this.officialUsageCardForKey(refreshedKey, official ?? this.parseUsageSnapshot(refreshedKey.ollamaUsageJson)),
-      probe: probeResult,
+      usage: this.officialUsageCardForKey(refreshedKey, official ?? this.usageService.cachedSnapshot(id)),
     });
   }
 
@@ -1003,8 +995,13 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
     const totals = this.emptyAccountUsage("all", "All accounts");
     const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
     const keyCards: OfficialKeyUsageCard[] = [];
-
-    if (forceRefresh) await this.usageService.refreshMany(keys.map((key) => key.id));
+    const refreshSummary = forceRefresh
+      ? await this.usageService.refreshMany(
+keys
+  .filter((key) => key.enabled && Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie))
+  .map((key) => key.id)
+        )
+      : null;
 
     for (const key of keys) {
       const official = await this.officialUsageForKey(key, false);
@@ -1023,7 +1020,8 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
     return {
       source: totals.official.available > 0 ? "ollama_cloud_settings" : "estimated_by_proxy",
       accountGrouping: "none",
-      note: "Official Ollama Cloud usage is shown when a usage cookie is configured. Proxy request/token stats are local activity only.",
+      note: "Official Ollama Cloud usage is cached locally and refreshed after successful model traffic when at least 10 minutes have elapsed, or when an administrator forces a refresh.",
+      refresh: refreshSummary,
       totals,
       accounts: Array.from(accounts.values()).sort((a, b) => {
         const aRemaining = a.official.weekly?.remainingPercent ?? -1;
@@ -1124,7 +1122,10 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
       hasCookie: Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie),
       plan: official?.plan ?? null,
       fetchedAt: usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt,
+      checkedAt: usageState?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt,
       lastError: key.ollamaUsageLastError,
+      lastErrorCode: usageState?.lastErrorCode ?? null,
+      lastErrorAt: usageState?.lastErrorAt ?? null,
       session: official?.session ?? null,
       weekly: official?.weekly ?? null,
       sessionRemainingThresholdPercent: this.effectiveRemainingThreshold(key.sessionRemainingThresholdPercent),
@@ -1146,7 +1147,8 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
   }
 
   private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
-    return this.usageService.refreshKey(key.id, forceRefresh);
+    if (forceRefresh) return this.usageService.refreshKey(key.id, true);
+    return this.usageService.cachedSnapshot(key.id);
   }
 
   private parseUsageSnapshot(value: string | null): OllamaCloudUsageSnapshot | null {
@@ -1165,9 +1167,9 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
     official: OllamaCloudUsageSnapshot | null
   ) {
     const usageState = this.store.getUsageAccountState(key.id);
-    const lastRefresh = usageState?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
-    const stale = lastRefresh
-      ? Date.now() - Date.parse(lastRefresh) > this.config.ollamaUsageRefreshTtlSeconds * 1000
+    const lastSuccessfulRefresh = usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt;
+    const stale = lastSuccessfulRefresh
+      ? Date.now() - Date.parse(lastSuccessfulRefresh) > this.config.usageOfficialStaleSeconds * 1000
       : false;
     if (!key.encryptedOllamaUsageCookie && !this.config.ollamaUsageCookie) target.official.missing += 1;
     if (key.ollamaUsageLastError) target.official.errors += 1;

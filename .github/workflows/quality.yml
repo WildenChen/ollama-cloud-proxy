@@ -2,62 +2,39 @@ name: Quality
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: quality-patch-${{ github.ref }}
+  group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-patch:
-    if: github.actor != 'github-actions[bot]'
+  test-and-build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          ref: fix/usage-refresh-stability
-          fetch-depth: 0
+          bun-version: 1.2.19
 
-      - name: Apply reviewed precise patch
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-          workflow = Path('.github/workflows/agent-usage-refresh-patch.yml').read_text()
-          start_marker = "          python3 <<'PY'\n"
-          end_marker = "\n          PY"
-          start = workflow.index(start_marker) + len(start_marker)
-          end = workflow.index(end_marker, start)
-          body = workflow[start:end]
-          body = "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
-          marker = "    count = text.count(old)\n"
-          fallback = '    if count != 1 and path == "src/usage/usageService.ts" and old.lstrip().startswith("async refreshMany"):\n        method_start = text.find("  async refreshMany(")\n        method_end = text.find("\\n\\n  refreshKey(", method_start)\n        if method_start >= 0 and method_end > method_start:\n            file.write_text(text[:method_start] + new + text[method_end:])\n            return\n    if count != 1 and path == "src/admin/adminRoutes.ts" and old.lstrip().startswith("fetchedAt: usageState?.officialFetchedAt"):\n        method_start = text.find("  private officialUsageCardForKey(")\n        method_end = text.find("\\n  private effectiveRemainingThreshold(", method_start)\n        if method_start >= 0 and method_end > method_start:\n            section = text[method_start:method_end]\n            if section.count(old) == 1:\n                section = section.replace(old, new, 1)\n                file.write_text(text[:method_start] + section + text[method_end:])\n                return\n'
-          if body.count(marker) != 1:
-              raise SystemExit(f'Expected one helper marker, found {body.count(marker)}')
-          body = body.replace(marker, marker + fallback, 1)
-          admin_version_line = 'replace_if_present("public/admin/index.html", "1.6.1", "1.6.2")\n'
-          if body.count(admin_version_line) != 1:
-              raise SystemExit(f'Expected one admin version line, found {body.count(admin_version_line)}')
-          body = body.replace(admin_version_line, '', 1)
-          exec(compile(body, 'usage-refresh-patch.py', 'exec'))
-          PY
+      - name: Check environment initializer
+        run: sh -n scripts/init-env.sh
 
-      - name: Remove temporary files and restore Quality
-        run: |
-          rm -f .github/workflows/agent-usage-refresh-patch.yml .github/agent-usage-refresh-trigger .github/agent-usage-refresh-trigger-2
-          git checkout origin/main -- .github/workflows/quality.yml
+      - name: Run tests
+        run: bun test
 
-      - name: Commit and push final patch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Stabilize key validation and usage refresh"
-          git push origin HEAD:fix/usage-refresh-stability
+      - name: Validate Docker build
+        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .
