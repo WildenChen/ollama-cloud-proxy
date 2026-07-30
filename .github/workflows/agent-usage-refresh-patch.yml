@@ -1,0 +1,632 @@
+name: Apply usage refresh stability patch
+
+on:
+  push:
+    branches:
+      - fix/usage-refresh-stability
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/usage-refresh-stability
+          fetch-depth: 0
+
+      - name: Apply precise source updates
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}\n--- OLD ---\n{old[:500]}")
+              file.write_text(text.replace(old, new, 1))
+
+          def replace_if_present(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"{path}: missing expected value {old!r}")
+              file.write_text(text.replace(old, new))
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''};
+
+function clamp(value: number, min: number, max: number): number {''',
+              '''};
+
+export type UsageRefreshSummary = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  completed_at: string;
+};
+
+function clamp(value: number, min: number, max: number): number {''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''  private readonly flights = new Map<string, Promise<OllamaCloudUsageSnapshot | null>>();
+  private readonly timers = new Map<string, { timer: ReturnType<typeof setTimeout>; dueAt: number }>();''',
+              '''  private readonly flights = new Map<string, Promise<OllamaCloudUsageSnapshot | null>>();''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''  recordSuccess(keyId: string, usage?: TokenUsageInput): void {
+    if (!this.config.usageApiEnabled) return;
+    this.store.recordUsageLedger(keyId, this.config.usageEstimateUnitsPerSuccess, usage);
+    this.scheduleRefresh(keyId, this.config.usageRefreshDebounceSeconds * 1000);
+  }
+
+  maybeScheduleStale(keyId: string): void {
+    if (!this.config.usageApiEnabled) return;
+    const key = this.store.getKey(keyId, false);
+    if (!key) return;
+    const state = this.ensureState(key);
+    const checkedAt = safeDate(state?.officialCheckedAt);
+    if (!checkedAt || Date.now() - checkedAt > this.config.usageOfficialStaleSeconds * 1000) {
+      this.scheduleRefresh(keyId, 0);
+    }
+  }
+
+  notifyRateLimit(keyId: string): void {
+    if (!this.config.usageApiEnabled) return;
+    this.scheduleRefresh(keyId, 0);
+  }
+
+  notifyCookieChanged(keyId: string): void {
+    if (!this.config.usageApiEnabled) return;
+    this.scheduleRefresh(keyId, 0);
+  }
+
+  scheduleRefresh(keyId: string, delayMs: number): void {
+    if (!this.config.usageApiEnabled || this.flights.has(keyId)) return;
+    const totalDelay = Math.max(0, delayMs + this.jitterMs());
+    const dueAt = Date.now() + totalDelay;
+    const existing = this.timers.get(keyId);
+    if (existing && existing.dueAt <= dueAt) return;
+    if (existing) clearTimeout(existing.timer);
+    const timer = setTimeout(() => {
+      this.timers.delete(keyId);
+      void this.refreshKey(keyId, true);
+    }, totalDelay);
+    timer.unref?.();
+    this.timers.set(keyId, { timer, dueAt });
+  }''',
+              '''  recordSuccess(keyId: string, usage?: TokenUsageInput): void {
+    if (!this.config.usageApiEnabled) return;
+    this.store.recordUsageLedger(keyId, this.config.usageEstimateUnitsPerSuccess, usage);
+    void this.maybeRefreshAfterSuccess(keyId).catch((error) => {
+      this.events.emit({
+        level: "warn",
+        type: "official_usage_refresh_failed",
+        message: `Unable to schedule official usage refresh: ${(error as Error).message}`,
+        keyId,
+        details: { status: "schedule_error" },
+      });
+    });
+  }
+
+  notifyCookieChanged(keyId: string): void {
+    if (!this.config.usageApiEnabled) return;
+    const key = this.store.getKey(keyId, false);
+    if (!key) return;
+    this.store.upsertUsageAccountState({
+      keyId,
+      officialJson: null,
+      officialFetchedAt: null,
+      officialCheckedAt: null,
+      officialChangedAt: null,
+      baselineLedgerId: this.store.latestUsageLedgerId(keyId),
+      lastErrorCode: null,
+      lastErrorAt: null,
+    });
+    this.store.patchKey(keyId, {
+      ollamaUsageJson: null,
+      ollamaUsageLastRefreshAt: null,
+      ollamaUsageLastError: null,
+    });
+  }
+
+  cachedSnapshot(keyId: string): OllamaCloudUsageSnapshot | null {
+    const key = this.store.getKey(keyId, false);
+    if (!key) return null;
+    const state = this.stateForRead(key);
+    return this.parseStored(state?.officialJson)?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
+  }
+
+  private async maybeRefreshAfterSuccess(keyId: string): Promise<void> {
+    const key = this.store.getKey(keyId, false);
+    if (!key || !key.enabled) return;
+    if (!key.encryptedOllamaUsageCookie && !this.config.ollamaUsageCookie) return;
+    const state = this.ensureState(key);
+    const lastAttemptAt = safeDate(state?.officialCheckedAt) ?? safeDate(key.ollamaUsageLastRefreshAt);
+    if (lastAttemptAt && Date.now() - lastAttemptAt < this.config.ollamaUsageRefreshTtlSeconds * 1000) return;
+    await this.refreshKey(keyId, false);
+  }''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''  async refreshMany(keyIds: string[], concurrency = 3): Promise<void> {
+    const queue = [...new Set(keyIds)];
+    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length) {
+        const keyId = queue.shift();
+        if (!keyId) return;
+        await this.refreshKey(keyId, true);
+        if (queue.length && this.config.usageRefreshJitterSeconds > 0) {
+          await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
+        }
+      }
+    });
+    await Promise.all(workers);
+  }''',
+              '''  async refreshMany(keyIds: string[], concurrency = 3): Promise<UsageRefreshSummary> {
+    const queue = [...new Set(keyIds)];
+    const total = queue.length;
+    const startedAt = Date.now();
+    let succeeded = 0;
+    let failed = 0;
+    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length) {
+        const keyId = queue.shift();
+        if (!keyId) return;
+        await this.refreshKey(keyId, true);
+        const state = this.store.getUsageAccountState(keyId);
+        const errorAt = safeDate(state?.lastErrorAt);
+        if (state?.lastErrorCode && errorAt && errorAt >= startedAt) failed += 1;
+        else succeeded += 1;
+        if (queue.length && this.config.usageRefreshJitterSeconds > 0) {
+          await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
+        }
+      }
+    });
+    await Promise.all(workers);
+    return { total, succeeded, failed, completed_at: new Date().toISOString() };
+  }''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''    const checkedAt = safeDate(state?.officialCheckedAt);
+    if (!force && stored && checkedAt && Date.now() - checkedAt <= this.config.ollamaUsageRefreshTtlSeconds * 1000) {
+      return stored.snapshot;
+    }''',
+              '''    const checkedAt = safeDate(state?.officialCheckedAt) ?? safeDate(key.ollamaUsageLastRefreshAt);
+    if (!force && checkedAt && Date.now() - checkedAt < this.config.ollamaUsageRefreshTtlSeconds * 1000) {
+      return stored?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
+    }''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''      officialCheckedAt: state?.officialCheckedAt ?? null,''',
+              '''      officialCheckedAt: now,''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''    const official = stored?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
+    const checkedAt = state?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
+    const stale = !checkedAt || Date.now() - (safeDate(checkedAt) ?? 0) > this.config.usageOfficialStaleSeconds * 1000;''',
+              '''    const official = stored?.snapshot ?? this.parseLegacy(key.ollamaUsageJson);
+    const fetchedAt = state?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt ?? official?.fetchedAt ?? null;
+    const checkedAt = state?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
+    const stale = !fetchedAt || Date.now() - (safeDate(fetchedAt) ?? 0) > this.config.usageOfficialStaleSeconds * 1000;''',
+          )
+
+          replace_once(
+              "src/usage/usageService.ts",
+              '''        fetched_at: state?.officialFetchedAt ?? official?.fetchedAt ?? null,''',
+              '''        fetched_at: fetchedAt,''',
+          )
+
+          replace_once(
+              "src/index.ts",
+              '''keyPool.setUsageHooks({
+  onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
+  onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
+  onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
+  onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
+});''',
+              '''keyPool.setUsageHooks({
+  onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
+  onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
+});''',
+          )
+
+          for path in ["tests/integration.test.ts", "tests/proxy-client-key-upgrade.test.ts"]:
+              replace_once(
+                  path,
+                  '''  keyPool.setUsageHooks({
+    onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
+    onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
+    onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
+    onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
+  });''',
+                  '''  keyPool.setUsageHooks({
+    onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
+    onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
+  });''',
+              )
+
+          replace_once(
+              "src/keyPool/keyPoolManager.ts",
+              '''  private usageHooks: {
+    onSelected?: (keyId: string) => void;
+    onSuccess?: (keyId: string, usage?: TokenUsageInput) => void;
+    onRateLimit?: (keyId: string) => void;
+    onCookieChanged?: (keyId: string) => void;
+  } = {};''',
+              '''  private usageHooks: {
+    onSuccess?: (keyId: string, usage?: TokenUsageInput) => void;
+    onCookieChanged?: (keyId: string) => void;
+  } = {};''',
+          )
+
+          replace_once(
+              "src/keyPool/keyPoolManager.ts",
+              '''  notifyUsageRateLimit(keyId: string): void {
+    this.usageHooks.onRateLimit?.(keyId);
+  }
+
+  notifyUsageCookieChanged(keyId: string): void {''',
+              '''  notifyUsageCookieChanged(keyId: string): void {''',
+          )
+
+          replace_once(
+              "src/keyPool/keyPoolManager.ts",
+              '''    const key = this.store.incrementKeyActive(selected.id);
+    this.usageHooks.onSelected?.(key.id);
+    this.events.emit({''',
+              '''    const key = this.store.incrementKeyActive(selected.id);
+    this.events.emit({''',
+          )
+
+          replace_once(
+              "src/proxy/proxyHandler.ts",
+              '''        if (upstream.status === 429) this.keyPool.notifyUsageRateLimit(key.id);
+''',
+              '''''',
+          )
+
+          replace_once(
+              "src/config/env.ts",
+              '''    ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 300),''',
+              '''    ollamaUsageRefreshTtlSeconds: numberEnv("OLLAMA_USAGE_REFRESH_TTL_SECONDS", 600),''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''  fetchedAt: string | null;
+  lastError: string | null;
+  session: OfficialUsageWindow | null;''',
+              '''  fetchedAt: string | null;
+  checkedAt: string | null;
+  lastError: string | null;
+  lastErrorCode: string | null;
+  lastErrorAt: string | null;
+  session: OfficialUsageWindow | null;''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''  private async refreshKeyUsage(id: string) {
+    const key = this.store.getKey(id, false);
+    if (!key) return openAiError(404, "key_not_found", "Key not found");
+    const official = await this.officialUsageForKey(key, true);
+    const currentKey = this.store.getKey(id, false) ?? key;
+    let probeResult: unknown = null;
+    if (currentKey.status === "invalid") {
+      const probeResponse = await this.testKey(id);
+      try {
+        probeResult = await probeResponse.clone().json();
+      } catch {
+        probeResult = { ok: false };
+      }
+    }
+    const refreshedKey = this.store.getKey(id, false) ?? currentKey;
+    return json({
+      key: this.keyPool.getPublic(id),
+      usage: this.officialUsageCardForKey(refreshedKey, official ?? this.parseUsageSnapshot(refreshedKey.ollamaUsageJson)),
+      probe: probeResult,
+    });
+  }''',
+              '''  private async refreshKeyUsage(id: string) {
+    const key = this.store.getKey(id, false);
+    if (!key) return openAiError(404, "key_not_found", "Key not found");
+    const official = await this.usageService.refreshKey(id, true);
+    const refreshedKey = this.store.getKey(id, false) ?? key;
+    return json({
+      key: this.keyPool.getPublic(id),
+      usage: this.officialUsageCardForKey(refreshedKey, official ?? this.usageService.cachedSnapshot(id)),
+    });
+  }''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''    const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
+    const keyCards: OfficialKeyUsageCard[] = [];
+
+    if (forceRefresh) await this.usageService.refreshMany(keys.map((key) => key.id));''',
+              '''    const accounts = new Map<string, ReturnType<typeof this.emptyAccountUsage>>();
+    const keyCards: OfficialKeyUsageCard[] = [];
+    const refreshSummary = forceRefresh
+      ? await this.usageService.refreshMany(
+          keys
+            .filter((key) => key.enabled && Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie))
+            .map((key) => key.id)
+        )
+      : null;''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''      note: "Official Ollama Cloud usage is shown when a usage cookie is configured. Proxy request/token stats are local activity only.",
+      totals,''',
+              '''      note: "Official Ollama Cloud usage is cached locally and refreshed after successful model traffic when at least 10 minutes have elapsed, or when an administrator forces a refresh.",
+      refresh: refreshSummary,
+      totals,''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''      fetchedAt: usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt,
+      lastError: key.ollamaUsageLastError,
+      session: official?.session ?? null,''',
+              '''      fetchedAt: usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt,
+      checkedAt: usageState?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt,
+      lastError: key.ollamaUsageLastError,
+      lastErrorCode: usageState?.lastErrorCode ?? null,
+      lastErrorAt: usageState?.lastErrorAt ?? null,
+      session: official?.session ?? null,''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''  private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
+    return this.usageService.refreshKey(key.id, forceRefresh);
+  }''',
+              '''  private async officialUsageForKey(key: KeyRecord, forceRefresh: boolean): Promise<OllamaCloudUsageSnapshot | null> {
+    if (forceRefresh) return this.usageService.refreshKey(key.id, true);
+    return this.usageService.cachedSnapshot(key.id);
+  }''',
+          )
+
+          replace_once(
+              "src/admin/adminRoutes.ts",
+              '''    const usageState = this.store.getUsageAccountState(key.id);
+    const lastRefresh = usageState?.officialCheckedAt ?? key.ollamaUsageLastRefreshAt;
+    const stale = lastRefresh
+      ? Date.now() - Date.parse(lastRefresh) > this.config.ollamaUsageRefreshTtlSeconds * 1000
+      : false;''',
+              '''    const usageState = this.store.getUsageAccountState(key.id);
+    const lastSuccessfulRefresh = usageState?.officialFetchedAt ?? key.ollamaUsageLastRefreshAt;
+    const stale = lastSuccessfulRefresh
+      ? Date.now() - Date.parse(lastSuccessfulRefresh) > this.config.usageOfficialStaleSeconds * 1000
+      : false;''',
+          )
+
+          replace_once(
+              "public/admin/credential-status.js",
+              '''export function deriveUsageCookieState(card = {}) {
+  if (card.lastError) {
+    return { category: "usage-error", tone: "warning", label: "usage_error" };
+  }
+  if (card.fetchedAt) {''',
+              '''export function deriveUsageCookieState(card = {}) {
+  if (card.lastError && card.fetchedAt) {
+    return { category: "usage-stale", tone: "warning", label: "usage_stale" };
+  }
+  if (card.lastError) {
+    return { category: "usage-error", tone: "warning", label: "usage_error" };
+  }
+  if (card.fetchedAt) {''',
+          )
+
+          replace_once(
+              "public/admin/credential-ux.js",
+              '''    usageReady: "官方用量已同步",
+    usagePending: "Cookie 已設定，等待讀取官方用量",
+    usageError: "Cookie 讀取失敗；只影響用量顯示，不影響模型",''',
+              '''    usageReady: "官方用量已同步",
+    usageStale: "本次用量讀取失敗；保留上次成功資料，不影響模型",
+    usagePending: "Cookie 已設定，等待讀取官方用量",
+    usageError: "Cookie 讀取失敗；只影響用量顯示，不影響模型",''',
+          )
+
+          replace_once(
+              "public/admin/credential-ux.js",
+              '''    usageReady: "Official usage is synchronized",
+    usagePending: "Cookie is set; waiting for official usage",
+    usageError: "Cookie read failed; model proxying is unaffected",''',
+              '''    usageReady: "Official usage is synchronized",
+    usageStale: "This usage refresh failed; keeping the last successful data and model proxying is unaffected",
+    usagePending: "Cookie is set; waiting for official usage",
+    usageError: "Cookie read failed; model proxying is unaffected",''',
+          )
+
+          replace_once(
+              "public/admin/credential-ux.js",
+              '''function localizedCookieState(state) {
+  if (state.label === "usage_ready") return w("usageReady");
+  if (state.label === "usage_pending") return w("usagePending");''',
+              '''function localizedCookieState(state) {
+  if (state.label === "usage_ready") return w("usageReady");
+  if (state.label === "usage_stale") return w("usageStale");
+  if (state.label === "usage_pending") return w("usagePending");''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''    refreshOfficialUsage: "刷新官方用量",
+    officialUsageTitle: "官方用量",''',
+              '''    refreshOfficialUsage: "全部更新",
+    refreshingOfficialUsage: "正在更新全部官方用量…",
+    refreshOfficialUsageDone: (succeeded, failed) => `全部更新完成：${succeeded} 成功，${failed} 失敗`,
+    officialUsageTitle: "官方用量",''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''    usageSyncedLabel: "用量已同步",
+    usageReadFailedLabel: "用量讀取失敗",
+    officialUnavailable: "尚無官方用量資料",''',
+              '''    usageSyncedLabel: "用量已同步",
+    usageStaleLabel: "沿用上次成功用量",
+    usageReadFailedLabel: "用量讀取失敗",
+    usageReadFailedDetail: "官方用量讀取失敗，只影響用量顯示；API Key 驗證與模型代理不受影響。",
+    officialUnavailable: "尚無官方用量資料",''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''    refreshOfficialUsage: "Refresh Official Usage",
+    officialUsageTitle: "Official Usage",''',
+              '''    refreshOfficialUsage: "Refresh All",
+    refreshingOfficialUsage: "Refreshing all official usage…",
+    refreshOfficialUsageDone: (succeeded, failed) => `Refresh complete: ${succeeded} succeeded, ${failed} failed`,
+    officialUsageTitle: "Official Usage",''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''    usageSyncedLabel: "Usage synced",
+    usageReadFailedLabel: "Usage read failed",
+    officialUnavailable: "No official usage data yet",''',
+              '''    usageSyncedLabel: "Usage synced",
+    usageStaleLabel: "Using last successful usage",
+    usageReadFailedLabel: "Usage read failed",
+    usageReadFailedDetail: "Official usage could not be read. Only usage display is affected; API-key validation and model proxying are unchanged.",
+    officialUnavailable: "No official usage data yet",''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''      ${card.lastError ? `<small class="usageError">${escapeHtml(card.lastError)}</small>` : ""}''',
+              '''      ${card.lastError ? `<small class="usageError">${escapeHtml(t("usageReadFailedDetail"))}</small>` : ""}''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''function officialUsageStateLabel(card) {
+  if (card.lastError) {
+    return { text: t("usageReadFailedLabel"), className: "bad" };
+  }
+  if (card.fetchedAt) {''',
+              '''function officialUsageStateLabel(card) {
+  if (card.lastError && card.fetchedAt) {
+    return { text: t("usageStaleLabel"), className: "warning" };
+  }
+  if (card.lastError) {
+    return { text: t("usageReadFailedLabel"), className: "bad" };
+  }
+  if (card.fetchedAt) {''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''async function refreshOfficialUsage() {
+  if (!isAuthenticated()) {
+    requestAdminLogin();
+    return;
+  }
+  try {
+    const refreshButton = $("refreshUsageButton");
+    if (refreshButton) refreshButton.disabled = true;
+    const overview = await api("/admin/usage-overview/refresh", { method: "POST" });
+    state.stats = state.stats || {};
+    state.stats.usage = state.stats.usage || {};
+    state.stats.usage.overview = overview;
+    state.keys = (await api("/admin/keys")).keys || state.keys;
+    renderAll();
+    showNotice(t("refreshOfficialUsage"));
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    const refreshButton = $("refreshUsageButton");
+    if (refreshButton) refreshButton.disabled = false;
+  }
+}''',
+              '''async function refreshOfficialUsage() {
+  if (!isAuthenticated()) {
+    requestAdminLogin();
+    return;
+  }
+  const refreshButton = $("refreshUsageButton");
+  const originalLabel = refreshButton?.textContent || t("refreshOfficialUsage");
+  try {
+    if (refreshButton) {
+      refreshButton.disabled = true;
+      refreshButton.textContent = t("refreshingOfficialUsage");
+    }
+    const overview = await api("/admin/usage-overview/refresh", { method: "POST" });
+    state.stats = state.stats || {};
+    state.stats.usage = state.stats.usage || {};
+    state.stats.usage.overview = overview;
+    state.keys = (await api("/admin/keys")).keys || state.keys;
+    renderAll();
+    const summary = overview.refresh || { succeeded: 0, failed: 0 };
+    showNotice(t("refreshOfficialUsageDone")(summary.succeeded || 0, summary.failed || 0), summary.failed ? "warning" : "success");
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    const currentButton = $("refreshUsageButton");
+    if (currentButton) {
+      currentButton.disabled = false;
+      currentButton.textContent = originalLabel;
+    }
+  }
+}''',
+          )
+
+          replace_if_present("package.json", '"version": "1.6.1"', '"version": "1.6.2"')
+          replace_if_present("src/config/version.ts", '"1.6.1"', '"1.6.2"')
+          replace_if_present("README.md", "1.6.1", "1.6.2")
+          replace_if_present("public/admin/index.html", "1.6.1", "1.6.2")
+          replace_if_present("tests/integration.test.ts", 'proxy_version).toBe("1.6.1")', 'proxy_version).toBe("1.6.2")')
+
+          changelog = Path("docs/changelog.md")
+          text = changelog.read_text()
+          marker = "# 版本更新紀錄\n\n"
+          if marker not in text:
+              raise SystemExit("docs/changelog.md: missing heading marker")
+          section = """## 1.6.2 - 2026-07-30
+
+- 將 Ollama Cloud API Key 驗證與 Usage Cookie 官方用量狀態徹底分離；Cookie、settings 404、解析或網路錯誤不再改變 Key 狀態。
+- 官方用量只在成功模型請求後且距離上次嘗試至少 10 分鐘時自動更新；管理台載入、畫面重繪與一般狀態讀取只使用本地快取。
+- 「全部更新」與單張「立即刷新」可明確強制更新，並以 per-key single-flight 防止重複呼叫。
+- 用量更新失敗會保留最後一次成功快照，分別記錄成功時間、嘗試時間與錯誤資訊。
+- 新增 10 分鐘 TTL、settings 404、快取讀取、失敗保留及並行刷新整合測試。
+
+"""
+          changelog.write_text(text.replace(marker, marker + section, 1))
+          PY
+
+      - name: Remove one-shot workflow and trigger
+        run: rm -f .github/workflows/agent-usage-refresh-patch.yml .github/agent-usage-refresh-trigger
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Stabilize key validation and usage refresh"
+          git push origin HEAD:fix/usage-refresh-stability
