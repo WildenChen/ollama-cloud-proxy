@@ -36,6 +36,31 @@ jobs:
           end = workflow.index(end_marker, start)
           body = workflow[start:end]
           body = "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
+
+          original_helper = '''def replace_once(path, old, new):
+    file = Path(path)
+    text = file.read_text()
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected one match, found {count}\\n--- OLD ---\\n{old[:500]}")
+    file.write_text(text.replace(old, new, 1))'''
+          robust_helper = '''def replace_once(path, old, new):
+    file = Path(path)
+    text = file.read_text()
+    count = text.count(old)
+    if count == 1:
+        file.write_text(text.replace(old, new, 1))
+        return
+    if path == "src/usage/usageService.ts" and old.lstrip().startswith("async refreshMany"):
+        method_start = text.find("  async refreshMany(")
+        method_end = text.find("\n\n  refreshKey(", method_start)
+        if method_start >= 0 and method_end > method_start:
+            file.write_text(text[:method_start] + new + text[method_end:])
+            return
+    raise SystemExit(f"{path}: expected one match, found {count}\\n--- OLD ---\\n{old[:500]}")'''
+          if body.count(original_helper) != 1:
+              raise SystemExit('Unable to locate precise replace_once helper')
+          body = body.replace(original_helper, robust_helper, 1)
           exec(compile(body, 'usage-refresh-patch.py', 'exec'))
           PY
 
