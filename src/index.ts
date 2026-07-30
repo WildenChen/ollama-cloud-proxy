@@ -19,9 +19,7 @@ const concurrency = new ConcurrencyManager(config, events);
 const keyPool = new KeyPoolManager(config, store, events, cipher);
 const usageService = new UsageService(config, store, keyPool, events);
 keyPool.setUsageHooks({
-  onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
   onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
-  onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
   onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
 });
 const models = new ModelManager(config, store);

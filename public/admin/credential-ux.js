@@ -50,6 +50,7 @@ const words = {
     temporaryRetryState: "上游暫時異常，系統稍後可重試",
     recoveryAt: (value) => `預計 ${value} 恢復`,
     usageReady: "官方用量已同步",
+    usageStale: "本次用量讀取失敗；保留上次成功資料，不影響模型",
     usagePending: "Cookie 已設定，等待讀取官方用量",
     usageError: "Cookie 讀取失敗；只影響用量顯示，不影響模型",
     noCookieState: "未設定 Cookie；模型代理仍可正常使用",
@@ -100,6 +101,7 @@ const words = {
     temporaryRetryState: "Temporary upstream issue; retry later",
     recoveryAt: (value) => `Expected recovery ${value}`,
     usageReady: "Official usage is synchronized",
+    usageStale: "This usage refresh failed; keeping the last successful data and model proxying is unaffected",
     usagePending: "Cookie is set; waiting for official usage",
     usageError: "Cookie read failed; model proxying is unaffected",
     noCookieState: "Cookie is not set; model proxying still works",
@@ -306,6 +308,7 @@ function localizedKeyState(state) {
 
 function localizedCookieState(state) {
   if (state.label === "usage_ready") return w("usageReady");
+  if (state.label === "usage_stale") return w("usageStale");
   if (state.label === "usage_pending") return w("usagePending");
   if (state.label === "usage_error") return w("usageError");
   return w("noCookieState");

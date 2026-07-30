@@ -58,9 +58,7 @@ function parseQuotaLimit(value: unknown, field: string): number | null {
 
 export class KeyPoolManager {
   private usageHooks: {
-    onSelected?: (keyId: string) => void;
     onSuccess?: (keyId: string, usage?: TokenUsageInput) => void;
-    onRateLimit?: (keyId: string) => void;
     onCookieChanged?: (keyId: string) => void;
   } = {};
 
@@ -73,10 +71,6 @@ export class KeyPoolManager {
 
   setUsageHooks(hooks: typeof this.usageHooks): void {
     this.usageHooks = hooks;
-  }
-
-  notifyUsageRateLimit(keyId: string): void {
-    this.usageHooks.onRateLimit?.(keyId);
   }
 
   notifyUsageCookieChanged(keyId: string): void {
@@ -282,7 +276,6 @@ export class KeyPoolManager {
     const selected = this.selectCandidate(excludedKeyIds);
     if (!selected) return null;
     const key = this.store.incrementKeyActive(selected.id);
-    this.usageHooks.onSelected?.(key.id);
     this.events.emit({
       level: "debug",
       type: "key_selected",

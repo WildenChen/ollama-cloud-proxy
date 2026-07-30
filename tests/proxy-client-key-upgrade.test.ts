@@ -78,9 +78,7 @@ function createApp(appConfig: AppConfig) {
   const keyPool = new KeyPoolManager(appConfig, store, events, cipher);
   const usageService = new UsageService(appConfig, store, keyPool, events);
   keyPool.setUsageHooks({
-    onSelected: (keyId) => usageService.maybeScheduleStale(keyId),
     onSuccess: (keyId, usage) => usageService.recordSuccess(keyId, usage),
-    onRateLimit: (keyId) => usageService.notifyRateLimit(keyId),
     onCookieChanged: (keyId) => usageService.notifyCookieChanged(keyId),
   });
   const models = new ModelManager(appConfig, store);
