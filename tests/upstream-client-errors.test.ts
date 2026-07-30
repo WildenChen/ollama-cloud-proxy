@@ -79,7 +79,7 @@ function createProxy(upstreamHandler: (req: Request) => Response | Promise<Respo
   const proxy = new ProxyHandler(appConfig, concurrency, keyPool, models, events, store);
   const key = keyPool.create({ name: "working-key", apiKey: "upstream-secret-key" });
   store.patchKey(key.id, { status: "available", blockReason: "none", consecutiveFailures: 0 });
-  return { proxy, store, keyId: key.id };
+  return { proxy, store, events, keyId: key.id };
 }
 
 async function callChat(proxy: ProxyHandler) {
@@ -96,7 +96,7 @@ async function callChat(proxy: ProxyHandler) {
 
 describe("upstream client error preservation", () => {
   test("returns safe OpenAI-compatible fields from an upstream 400 JSON error without invalidating the key", async () => {
-    const { proxy, store, keyId } = createProxy(() =>
+    const { proxy, store, events, keyId } = createProxy(() =>
       Response.json(
         {
           error: {
@@ -129,6 +129,17 @@ describe("upstream client error preservation", () => {
     expect(serialized).not.toContain("upstream-secret-key");
     expect(stored.status).toBe("available");
     expect(stored.consecutiveFailures).toBe(0);
+
+    const event = events.list({ type: "request_failed", limit: 10 })[0];
+    expect(event.message).toContain("messages[3].tool_calls is invalid");
+    expect(event.details.upstreamError).toMatchObject({
+      type: "invalid_request_error",
+      code: "invalid_tool_calls",
+      status: 400,
+    });
+    expect(JSON.stringify(event)).not.toContain("bearer-secret");
+    expect(JSON.stringify(event)).not.toContain("inline-secret");
+    expect(JSON.stringify(event)).not.toContain("cookie-secret");
   });
 
   test("returns a redacted bounded message for an upstream 400 text response", async () => {

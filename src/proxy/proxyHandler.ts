@@ -3,6 +3,7 @@ import { APP_VERSION } from "../config/version";
 import type { ConcurrencyManager, ConcurrencySlot } from "../concurrency/concurrencyManager";
 import { QueueError } from "../concurrency/concurrencyManager";
 import { openAiError } from "../errors/responses";
+import { decodeUpstreamClientError } from "../errors/upstreamError";
 import type { EventStore } from "../events/eventStore";
 import { classifyNetworkError, classifyUpstreamResponse } from "../keyPool/errorClassifier";
 import type { KeyPoolManager } from "../keyPool/keyPoolManager";
@@ -456,10 +457,11 @@ export class ProxyHandler {
         }
         slot.release();
         this.recordResult(client.clientName, upstreamModel || originalModel || "unknown", false, classification.blockReason);
+        const safeUpstreamError = decodeUpstreamClientError(classification.message);
         this.events.emit({
           level: "error",
           type: "request_failed",
-          message: "Request failed",
+          message: safeUpstreamError?.message || "Request failed",
           clientName: client.clientName,
           requestId,
           keyId: key.id,
@@ -468,7 +470,21 @@ export class ProxyHandler {
           upstreamModel,
           statusCode: upstream.status,
           durationMs: Date.now() - startedAt,
-          details: { errorType: classification.blockReason },
+          details: {
+            errorType: classification.blockReason,
+            ...(safeUpstreamError
+              ? {
+                  upstreamError: {
+                    message: safeUpstreamError.message,
+                    type: safeUpstreamError.type,
+                    code: safeUpstreamError.code,
+                    requestId: safeUpstreamError.requestId,
+                    details: safeUpstreamError.details,
+                    status: upstream.status,
+                  },
+                }
+              : {}),
+          },
         });
         return {
           retry: false,
