@@ -997,9 +997,9 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
     const keyCards: OfficialKeyUsageCard[] = [];
     const refreshSummary = forceRefresh
       ? await this.usageService.refreshMany(
-keys
-  .filter((key) => key.enabled && Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie))
-  .map((key) => key.id)
+          keys
+            .filter((key) => key.enabled && Boolean(key.encryptedOllamaUsageCookie || this.config.ollamaUsageCookie))
+            .map((key) => key.id)
         )
       : null;
 

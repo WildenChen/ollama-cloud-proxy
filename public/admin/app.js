@@ -175,7 +175,7 @@ const dictionaries = {
     quotaUnavailableLabel: "目前不可用",
     refreshOfficialUsage: "全部更新",
     refreshingOfficialUsage: "正在更新全部官方用量…",
-    refreshOfficialUsageDone: (succeeded, failed) => `全部更新完成：${succeeded} 成功，${failed} 失敗`,
+    refreshOfficialUsageDone: (succeeded, failed, completedAt) => `全部更新完成：${succeeded} 成功，${failed} 失敗${completedAt ? `，完成時間 ${new Date(completedAt).toLocaleString()}` : ""}`,
     officialUsageTitle: "官方用量",
     proxyActivityTitle: "代理活動記錄",
     remainingLabel: "剩餘",
@@ -568,7 +568,7 @@ const dictionaries = {
     quotaUnavailableLabel: "Currently unavailable",
     refreshOfficialUsage: "Refresh All",
     refreshingOfficialUsage: "Refreshing all official usage…",
-    refreshOfficialUsageDone: (succeeded, failed) => `Refresh complete: ${succeeded} succeeded, ${failed} failed`,
+    refreshOfficialUsageDone: (succeeded, failed, completedAt) => `Refresh complete: ${succeeded} succeeded, ${failed} failed${completedAt ? ` at ${new Date(completedAt).toLocaleString()}` : ""}`,
     officialUsageTitle: "Official Usage",
     proxyActivityTitle: "Proxy Activity",
     remainingLabel: "Remaining",
@@ -1949,7 +1949,10 @@ async function refreshOfficialUsage() {
     state.keys = (await api("/admin/keys")).keys || state.keys;
     renderAll();
     const summary = overview.refresh || { succeeded: 0, failed: 0 };
-    showNotice(t("refreshOfficialUsageDone")(summary.succeeded || 0, summary.failed || 0), summary.failed ? "warning" : "success");
+    showNotice(
+      t("refreshOfficialUsageDone")(summary.succeeded || 0, summary.failed || 0, summary.completed_at || null),
+      summary.failed ? "warning" : "success"
+    );
   } catch (error) {
     showNotice(error.message, "error");
   } finally {

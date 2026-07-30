@@ -321,7 +321,7 @@ describe("proxy integration", () => {
     expect(JSON.stringify(body)).not.toContain("second-cookie");
   });
 
-  test("Per-key usage refresh probes and restores an invalid key when the key works", async () => {
+  test("Per-key usage refresh only refreshes Cookie usage and never changes API-key validation state", async () => {
     const seen: string[] = [];
     const upstreamBaseUrl = createMockUpstream((req) => {
       const url = new URL(req.url);
@@ -356,13 +356,12 @@ describe("proxy integration", () => {
     const updated = app.store.getKey(key.id, true)!;
 
     expect(refresh.status).toBe(200);
-    expect(seen).toContain("/settings:__Secure-session=cookie-value");
-    expect(seen).toContain("/v1/models:Bearer good-key");
-    expect(body.key.status).toBe("available");
-    expect(body.probe.ok).toBe(true);
-    expect(updated.status).toBe("available");
-    expect(updated.blockReason).toBe("none");
-    expect(updated.consecutiveFailures).toBe(0);
+    expect(seen).toEqual(["/settings:__Secure-session=cookie-value"]);
+    expect(body.key.status).toBe("invalid");
+    expect(body.probe).toBeUndefined();
+    expect(updated.status).toBe("invalid");
+    expect(updated.blockReason).toBe("invalid_api_key");
+    expect(updated.consecutiveFailures).toBe(2);
   });
 
   test("Admin delete key hides it from the active key list", async () => {
@@ -2030,7 +2029,7 @@ describe("proxy integration", () => {
     expect(refreshEvents).toHaveLength(1);
   });
 
-  test("debounce coalesces traffic refreshes and a rate limit accelerates the same key only", async () => {
+  test("successful traffic uses single-flight and the 10-minute TTL for only the successful key", async () => {
     const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const cookies: string[] = [];
     const settingsBaseUrl = createMockUpstream((req) => {
@@ -2042,7 +2041,7 @@ describe("proxy integration", () => {
     });
     const app = createApp(config({
       ollamaCloudUsageUrl: `${settingsBaseUrl}/settings`,
-      usageRefreshDebounceSeconds: 0.2,
+      ollamaUsageRefreshTtlSeconds: 600,
       usageRefreshJitterSeconds: 0,
     }));
     const first = app.keyPool.create({ name: "first", apiKey: "first-key", ollamaUsageCookie: "first-cookie" });
@@ -2051,13 +2050,12 @@ describe("proxy integration", () => {
     app.usageService.recordSuccess(first.id);
     app.usageService.recordSuccess(first.id);
     app.usageService.recordSuccess(first.id);
-    app.usageService.notifyRateLimit(first.id);
     await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(cookies).toEqual(["__Secure-session=first-cookie"]);
   });
 
-  test("cookie replacement schedules only that account and disabled usage API records no ledger", async () => {
+  test("cookie replacement clears cached usage without fetching, and disabled usage API records no ledger", async () => {
     let requests = 0;
     const settingsBaseUrl = createMockUpstream(() => {
       requests += 1;
@@ -2078,12 +2076,13 @@ describe("proxy integration", () => {
     const disabledResponse = await fetch(`${disabled.baseUrl}/api/usage`);
 
     expect(patch.status).toBe(200);
-    expect(requests).toBe(1);
+    expect(requests).toBe(0);
+    expect(enabled.store.getUsageAccountState(created.id)?.officialCheckedAt).toBeNull();
     expect(disabledResponse.status).toBe(404);
     expect(disabled.store.getUsageLedgerTotals(disabledKey.id).units).toBe(0);
   });
 
-  test("an upstream 429 schedules official refresh for only the attempted key", async () => {
+  test("an upstream 429 changes key availability but does not call the Usage Cookie endpoint", async () => {
     const upstreamBaseUrl = createMockUpstream(() => Response.json({ error: "rate limit" }, { status: 429 }));
     const refreshedCookies: string[] = [];
     const usageBaseUrl = createMockUpstream((req) => {
@@ -2107,7 +2106,7 @@ describe("proxy integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(response.status).toBe(503);
-    expect(refreshedCookies).toEqual(["__Secure-session=first-cookie"]);
+    expect(refreshedCookies).toEqual([]);
   });
 
   test("unknown account makes aggregate unknown while stale metadata remains explicit", async () => {

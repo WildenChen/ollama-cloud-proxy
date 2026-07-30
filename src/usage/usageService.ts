@@ -154,7 +154,7 @@ export class UsageService {
         if (state?.lastErrorCode && errorAt && errorAt >= startedAt) failed += 1;
         else succeeded += 1;
         if (queue.length && this.config.usageRefreshJitterSeconds > 0) {
-await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
+          await new Promise((resolve) => setTimeout(resolve, this.jitterMs()));
         }
       }
     });
