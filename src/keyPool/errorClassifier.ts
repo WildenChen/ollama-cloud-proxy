@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/env";
+import { encodeUpstreamClientError } from "../errors/upstreamError";
 import type { UsageSettings } from "../storage/database";
 import type { ErrorClassification } from "../types/domain";
 import { addMsIso, getNextAnchoredIntervalResetAt, getNextFixedWeeklyResetAt, randomInt } from "../utils/time";
@@ -93,6 +94,18 @@ export async function classifyUpstreamResponse(
     };
   }
 
+  if (statusCode >= 400 && statusCode < 500) {
+    return {
+      retryable: false,
+      category: "request",
+      status: "unknown",
+      blockReason: "provider_error",
+      cooldownMs: null,
+      eventType: "upstream_error",
+      message: encodeUpstreamClientError(bodyText, statusCode),
+    };
+  }
+
   if (statusCode === 500 || statusCode === 502 || statusCode === 503) {
     return {
       retryable: true,
@@ -108,9 +121,9 @@ export async function classifyUpstreamResponse(
   return {
     retryable: false,
     category: "request",
-    status: "cooling_down",
+    status: "unknown",
     blockReason: "provider_error",
-    cooldownMs: 60 * 1000,
+    cooldownMs: null,
     eventType: "upstream_error",
     message: "Upstream request failed",
   };
