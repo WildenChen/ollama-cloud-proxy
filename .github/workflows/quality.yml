@@ -2,36 +2,39 @@ name: Quality
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply-release-patch:
-    if: github.actor != 'github-actions[bot]'
+  test-and-build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          ref: fix/preserve-upstream-client-errors
-          fetch-depth: 0
+          bun-version: 1.2.19
 
-      - name: Apply release metadata patch
-        run: python3 .github/patch-release-1.6.3.py
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Remove temporary file and restore Quality
-        run: |
-          rm -f .github/patch-release-1.6.3.py
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/quality.yml
+      - name: Check environment initializer
+        run: sh -n scripts/init-env.sh
 
-      - name: Commit and push release metadata
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Release 1.6.3 upstream error diagnostics"
-          git push origin HEAD:fix/preserve-upstream-client-errors
+      - name: Run tests
+        run: bun test
+
+      - name: Validate Docker build
+        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .

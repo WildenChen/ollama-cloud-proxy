@@ -2,7 +2,7 @@
 
 把多把 Ollama Cloud API Key 集中管理，讓 OpenClaw、Kilo Code、VS Code 或其他工具共用同一個安全入口。
 
-目前版本：`1.6.2`
+目前版本：`1.6.3`
 
 ## 這個服務能做什麼
 
@@ -107,7 +107,7 @@ curl http://localhost:11435/health
 應看到類似：
 
 ```json
-{"status":"ok","version":"1.6.2"}
+{"status":"ok","version":"1.6.3"}
 ```
 
 ### 5. 開啟管理頁
@@ -216,7 +216,7 @@ docker compose -f docker-compose.release.yml up -d
 curl http://localhost:11435/health
 ```
 
-目前應顯示版本 `1.6.2`。資料保存在本機 `data/`，更新容器不會刪除既有設定。
+目前應顯示版本 `1.6.3`。資料保存在本機 `data/`，更新容器不會刪除既有設定。
 
 ## 備份與還原
 
