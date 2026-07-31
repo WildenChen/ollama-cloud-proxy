@@ -182,6 +182,34 @@ describe("proxy integration", () => {
     expect(JSON.stringify(overview)).not.toContain("test-cookie");
   });
 
+  test("Admin reveals a saved usage cookie only through the authenticated no-store action", async () => {
+    const app = createApp(config());
+    const key = app.keyPool.create({
+      name: "reveal-cookie",
+      apiKey: "good-key",
+      ollamaUsageCookie: "__Secure-session=saved-cookie",
+    });
+
+    const denied = await fetch(`${app.baseUrl}/admin/keys/${key.id}/reveal-usage-cookie`, { method: "POST" });
+    expect(denied.status).toBe(401);
+
+    const revealed = await fetch(`${app.baseUrl}/admin/keys/${key.id}/reveal-usage-cookie`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(revealed.status).toBe(200);
+    expect(revealed.headers.get("cache-control")).toBe("no-store");
+    expect(await revealed.json()).toEqual({ ollamaUsageCookie: "__Secure-session=saved-cookie" });
+
+    const withoutCookie = app.keyPool.create({ name: "no-cookie", apiKey: "good-key-2" });
+    const missing = await fetch(`${app.baseUrl}/admin/keys/${withoutCookie.id}/reveal-usage-cookie`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token" },
+    });
+    expect(missing.status).toBe(404);
+    expect(JSON.stringify(await missing.json())).not.toContain("saved-cookie");
+  });
+
   test("Official exhausted usage blocks the key from selection until reset", async () => {
     const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const settingsBaseUrl = createMockUpstream(() =>
@@ -1151,7 +1179,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.6.3");
+    expect(body.proxy_version).toBe("1.6.4");
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

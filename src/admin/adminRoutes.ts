@@ -133,6 +133,7 @@ export class AdminRoutes {
     if (action === "enable") return json({ key: this.keyPool.enable(id) });
     if (action === "disable") return json({ key: this.keyPool.disable(id) });
     if (action === "reset-cooldown") return json({ key: this.keyPool.resetCooldown(id) });
+    if (action === "reveal-usage-cookie") return this.revealUsageCookie(id);
     if (action === "rotate") return this.rotateKey(req, id);
     if (action === "usage-refresh") return this.refreshKeyUsage(id);
     if (action === "test") return this.testKey(id);
@@ -566,6 +567,30 @@ message: modelCount > 0 ? `${modelCount} models are ready` : "The model list is 
       return json({ key });
     } catch (error) {
       return openAiError(400, "invalid_request", (error as Error).message);
+    }
+  }
+
+  private revealUsageCookie(id: string) {
+    const key = this.store.getKey(id, false);
+    if (!key) return openAiError(404, "key_not_found", "Key not found");
+    if (!key.encryptedOllamaUsageCookie) {
+      return openAiError(404, "usage_cookie_not_found", "This key does not have a saved Ollama usage cookie");
+    }
+    try {
+      const ollamaUsageCookie = this.keyPool.decryptOllamaUsageCookie(key);
+      if (!ollamaUsageCookie) {
+        return openAiError(404, "usage_cookie_not_found", "This key does not have a saved Ollama usage cookie");
+      }
+      this.events.emit({
+        level: "info",
+        type: "usage_cookie_revealed",
+        message: `Saved usage cookie viewed for ${key.name}`,
+        keyId: key.id,
+        keyName: key.name,
+      });
+      return json({ ollamaUsageCookie }, 200, { "cache-control": "no-store" });
+    } catch {
+      return openAiError(500, "usage_cookie_unavailable", "The saved Ollama usage cookie could not be decrypted");
     }
   }
 

@@ -1303,6 +1303,21 @@ dialog::backdrop {
   gap: 7px;
 }
 
+.sensitiveInput {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.sensitiveInput input {
+  min-width: 0;
+}
+
+.sensitiveInput .iconButton {
+  min-height: 44px;
+}
+
 .dialogCard .inlineCheck {
   grid-template-columns: auto 1fr;
   align-items: center;

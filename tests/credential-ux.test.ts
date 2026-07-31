@@ -131,4 +131,17 @@ describe("credential management assets", () => {
     expect(source).toContain("const form = new FormData(formElement);");
     expect(source).toContain("formElement.reset();\n      closeKeyDialog();");
   });
+
+  test("reveals saved usage cookies only on demand and clears them when masked or closed", async () => {
+    const source = await Bun.file("public/admin/app.js").text();
+    const html = await Bun.file("public/admin/index.html").text();
+
+    expect(html).toContain('id="toggleUsageCookieButton"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(source).toContain("/reveal-usage-cookie`");
+    expect(source).toContain('input.value = "";');
+    expect(source).toContain('input.readOnly = true;');
+    expect(source).toContain('state.editingKeySettingsId !== keyId');
+    expect(source).toContain('const cookie = cookieInput.readOnly ? ""');
+  });
 });

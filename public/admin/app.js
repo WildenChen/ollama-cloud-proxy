@@ -53,6 +53,7 @@ const eventTypes = [
   "key_rotated",
   "key_deleted",
   "key_tested",
+  "usage_cookie_revealed",
   "official_usage_refreshed",
   "official_usage_refresh_failed",
   "official_usage_blocked",
@@ -214,6 +215,9 @@ const dictionaries = {
     editThresholds: "編輯截止值",
     refreshNow: "立即刷新",
     cookieInputHint: "留空代表不變；勾選清除會移除已保存 Cookie。",
+    showUsageCookie: "顯示已保存的 Cookie",
+    hideUsageCookie: "遮蔽 Cookie",
+    savedUsageCookiePlaceholder: "已保存；按眼睛顯示",
     noAccountLabel: "未設定標籤",
     totalAccountsUsage: "全部帳號總計",
     accountUsageTitle: "帳號分組",
@@ -440,6 +444,7 @@ const dictionaries = {
       key_rotated: "金鑰已輪替",
       key_deleted: "金鑰已刪除",
       key_tested: "金鑰已測試",
+      usage_cookie_revealed: "用量 Cookie 已查看",
       official_usage_refreshed: "官方用量已刷新",
       official_usage_refresh_failed: "官方用量刷新失敗",
       official_usage_blocked: "官方用量封鎖",
@@ -607,6 +612,9 @@ const dictionaries = {
     editThresholds: "Edit Cutoffs",
     refreshNow: "Refresh Now",
     cookieInputHint: "Leave blank to keep the saved cookie; check clear to remove it.",
+    showUsageCookie: "Show saved cookie",
+    hideUsageCookie: "Hide cookie",
+    savedUsageCookiePlaceholder: "Saved; select the eye to show",
     noAccountLabel: "No label",
     totalAccountsUsage: "All accounts total",
     accountUsageTitle: "Account groups",
@@ -833,6 +841,7 @@ const dictionaries = {
       key_rotated: "Key Rotated",
       key_deleted: "Key Deleted",
       key_tested: "Key Tested",
+      usage_cookie_revealed: "Usage Cookie Viewed",
       official_usage_refreshed: "Official Usage Refreshed",
       official_usage_refresh_failed: "Official Usage Refresh Failed",
       official_usage_blocked: "Official Usage Blocked",
@@ -885,7 +894,61 @@ function closeKeyDialog() {
 function closeKeySettingsDialog() {
   const dialog = $("keySettingsDialog");
   if (dialog.open) dialog.close();
+  resetUsageCookieDisclosure();
   state.editingKeySettingsId = null;
+}
+
+function usageCookieEyeIcon(hidden) {
+  return hidden
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A11.8 11.8 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.1 3M6.6 6.6C3.5 8.4 2 12 2 12s3.5 7 10 7a10.8 10.8 0 0 0 4.1-.8"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>';
+}
+
+function resetUsageCookieDisclosure(hasSavedCookie = false) {
+  const input = $("keySettingsUsageCookie");
+  const button = $("toggleUsageCookieButton");
+  if (!input || !button) return;
+  input.value = "";
+  input.type = "password";
+  input.readOnly = false;
+  input.disabled = false;
+  input.dataset.revealed = "false";
+  input.placeholder = hasSavedCookie ? t("savedUsageCookiePlaceholder") : "__Secure-session=...";
+  button.disabled = !hasSavedCookie;
+  button.setAttribute("aria-pressed", "false");
+  button.setAttribute("title", t("showUsageCookie"));
+  button.setAttribute("aria-label", t("showUsageCookie"));
+  button.innerHTML = usageCookieEyeIcon(false);
+}
+
+async function toggleUsageCookieVisibility() {
+  const keyId = state.editingKeySettingsId;
+  const key = keyId ? findKey(keyId) : null;
+  const input = $("keySettingsUsageCookie");
+  const button = $("toggleUsageCookieButton");
+  if (!keyId || !key?.hasOllamaUsageCookie || !input || !button) return;
+  if (input.dataset.revealed === "true") {
+    resetUsageCookieDisclosure(true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const result = await api(`/admin/keys/${encodeURIComponent(keyId)}/reveal-usage-cookie`, { method: "POST" });
+    if (state.editingKeySettingsId !== keyId || !$("keySettingsDialog").open) return;
+    input.value = String(result?.ollamaUsageCookie || "");
+    input.type = "text";
+    input.readOnly = true;
+    input.dataset.revealed = "true";
+    button.setAttribute("aria-pressed", "true");
+    button.setAttribute("title", t("hideUsageCookie"));
+    button.setAttribute("aria-label", t("hideUsageCookie"));
+    button.innerHTML = usageCookieEyeIcon(true);
+  } catch (error) {
+    resetUsageCookieDisclosure(true);
+    showNotice(error.message, "error");
+  } finally {
+    if (input.dataset.revealed === "true") button.disabled = false;
+  }
 }
 
 function closeThresholdDialog() {
@@ -1860,6 +1923,7 @@ function openKeySettingsDialog(keyId) {
   form.elements.ollamaUsageCookie.value = "";
   form.elements.clearOllamaUsageCookie.checked = false;
   form.elements.notes.value = key.notes || "";
+  resetUsageCookieDisclosure(key.hasOllamaUsageCookie === true);
   $("keySettingsDialog").showModal();
 }
 
@@ -1994,7 +2058,8 @@ async function saveKeySettings(event) {
     name: String(form.get("name") || ""),
     notes: String(form.get("notes") || ""),
   };
-  const cookie = String(form.get("ollamaUsageCookie") || "").trim();
+  const cookieInput = event.currentTarget.elements.ollamaUsageCookie;
+  const cookie = cookieInput.readOnly ? "" : String(form.get("ollamaUsageCookie") || "").trim();
   if (event.currentTarget.elements.clearOllamaUsageCookie.checked) {
     payload.clearOllamaUsageCookie = true;
   } else if (cookie) {
@@ -2442,6 +2507,12 @@ function bindEvents() {
   $("closeKeyDialogButton").addEventListener("click", closeKeyDialog);
   $("cancelKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
   $("closeKeySettingsButton").addEventListener("click", closeKeySettingsDialog);
+  $("toggleUsageCookieButton").addEventListener("click", toggleUsageCookieVisibility);
+  $("keySettingsForm").elements.clearOllamaUsageCookie.addEventListener("change", (event) => {
+    const key = state.editingKeySettingsId ? findKey(state.editingKeySettingsId) : null;
+    resetUsageCookieDisclosure(event.target.checked ? false : key?.hasOllamaUsageCookie === true);
+    $("keySettingsUsageCookie").disabled = event.target.checked;
+  });
   $("keySettingsForm").addEventListener("submit", saveKeySettings);
   $("cancelThresholdButton").addEventListener("click", closeThresholdDialog);
   $("closeThresholdButton").addEventListener("click", closeThresholdDialog);

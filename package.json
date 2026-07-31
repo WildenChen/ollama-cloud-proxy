@@ -1,6 +1,6 @@
 {
   "name": "ollama-cloud-proxy",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "private": true,
   "license": "MIT",
   "type": "module",

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama 雲端代理管理台</title>
-    <link rel="stylesheet" href="/admin/app.css?v=1.4.0-usage-api" />
+    <link rel="stylesheet" href="/admin/app.css?v=1.6.4-cookie-reveal" />
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -380,7 +380,13 @@
         </label>
         <label>
           <span data-i18n="usageCookieLabel">Ollama 用量 Cookie</span>
-          <input name="ollamaUsageCookie" type="password" autocomplete="off" placeholder="__Secure-session=..." />
+          <span class="sensitiveInput">
+            <input id="keySettingsUsageCookie" name="ollamaUsageCookie" type="password" autocomplete="off" spellcheck="false" placeholder="__Secure-session=..." />
+            <button id="toggleUsageCookieButton" class="iconButton ghost" type="button" aria-pressed="false" title="顯示已保存的 Cookie" aria-label="顯示已保存的 Cookie" data-i18n-title="showUsageCookie" data-i18n-aria-label="showUsageCookie" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+            </button>
+          </span>
+          <small data-i18n="cookieInputHint">留空代表不變；勾選清除會移除已保存 Cookie。</small>
         </label>
         <label class="inlineCheck">
           <input name="clearOllamaUsageCookie" type="checkbox" />
@@ -420,6 +426,6 @@
       </form>
     </dialog>
 
-    <script src="/admin/app.js?v=1.6.3-key-dialog-reset" type="module"></script>
+    <script src="/admin/app.js?v=1.6.4-cookie-reveal" type="module"></script>
   </body>
 </html>
