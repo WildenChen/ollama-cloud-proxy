@@ -1,0 +1,188 @@
+name: Apply and validate quota card layout patch
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/quota-card-name-layout
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.19
+
+      - name: Apply exact UI changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "public/admin/app.js",
+              '''function renderOfficialKeyUsage(card) {
+  const status = officialQuotaStatus(card);
+  const subtitle = card.apiKeyPreview;
+  const usageState = officialUsageStateLabel(card);
+  const usable = isOfficialKeyUsable(card);''',
+              '''function compactPlanLabel(plan) {
+  const normalized = String(plan || "").trim().replace(/^Ollama\\s+Cloud\\s*/i, "").trim();
+  if (!normalized) return "-";
+  if (/^free$/i.test(normalized)) return "Free";
+  if (/^pro$/i.test(normalized)) return "Pro";
+  return normalized;
+}
+
+function renderOfficialKeyUsage(card) {
+  const status = officialQuotaStatus(card);
+  const subtitle = card.apiKeyPreview;
+  const usageState = officialUsageStateLabel(card);
+  const usable = isOfficialKeyUsable(card);
+  const planLabel = compactPlanLabel(card.plan);''',
+          )
+
+          replace_once(
+              "public/admin/app.js",
+              '''        <div>
+          <strong>${escapeHtml(card.name)}</strong>
+          <small>${escapeHtml(subtitle)}</small>
+        </div>
+        <span class="quotaBadge">${escapeHtml(card.plan || "-")}</span>''',
+              '''        <div class="officialQuotaIdentity">
+          <strong class="officialQuotaName" title="${escapeHtml(card.name)}">${escapeHtml(card.name)}</strong>
+          <small title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</small>
+        </div>
+        <span class="quotaBadge" title="${escapeHtml(card.plan || planLabel)}">${escapeHtml(planLabel)}</span>''',
+          )
+
+          replace_once(
+              "public/admin/app.css",
+              '''.officialQuotaHeader {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.officialQuotaHeader strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}''',
+              '''.officialQuotaHeader {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: start;
+}
+
+.officialQuotaIdentity {
+  min-width: 0;
+}
+
+.officialQuotaName {
+  display: -webkit-box;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}''',
+          )
+
+          replace_once(
+              "public/admin/app.css",
+              '''  font-weight: 760;
+  white-space: nowrap;
+}
+
+.officialQuotaGrid {''',
+              '''  font-weight: 760;
+  white-space: nowrap;
+}
+
+.quotaBadge {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.officialQuotaGrid {''',
+          )
+
+          replace_once(
+              "public/admin/app.css",
+              '''.officialQuotaCard .toggleSwitch {
+  margin-top: 0;
+  justify-self: end;
+}''',
+              '''.officialQuotaCard .toggleSwitch {
+  margin-top: 2px;
+  justify-self: end;
+}''',
+          )
+
+          replace_once(
+              "tests/usage-refresh-ui.test.ts",
+              '''  });
+});
+''',
+              '''  });
+
+  test("shows longer quota-card names and compact plan badges", async () => {
+    const adminSource = await Bun.file("public/admin/app.js").text();
+    const cssSource = await Bun.file("public/admin/app.css").text();
+
+    expect(adminSource).toContain('function compactPlanLabel(plan)');
+    expect(adminSource).toContain('replace(/^Ollama\\\\s+Cloud\\\\s*/i, "")');
+    expect(adminSource).toContain('class="officialQuotaName" title="${escapeHtml(card.name)}"');
+    expect(adminSource).toContain('${escapeHtml(planLabel)}</span>');
+    expect(cssSource).toContain("-webkit-line-clamp: 2");
+    expect(cssSource).toContain("overflow-wrap: anywhere");
+    expect(cssSource).toContain("grid-template-columns: 18px minmax(0, 1fr) auto auto");
+  });
+});
+''',
+          )
+          PY
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun test
+
+      - name: Validate Docker build
+        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quota-card .
+
+      - name: Commit validated patch
+        run: |
+          rm .github/workflows/quality-quota-card-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Improve quota card name visibility"
+          git push origin HEAD:fix/quota-card-name-layout
