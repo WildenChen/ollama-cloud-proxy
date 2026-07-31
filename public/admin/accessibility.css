@@ -170,6 +170,13 @@ pre,
     padding-inline: 13px;
   }
 
+  /* The usage-header actions are intentionally compact on desktop, but the
+   * more specific header rule would otherwise shrink their touch targets on
+   * phones and tablets. */
+  .officialUsageChips .button.compact {
+    min-height: 44px;
+  }
+
   input,
   select,
   textarea {

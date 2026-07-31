@@ -123,4 +123,12 @@ describe("credential management assets", () => {
     expect(css).toContain('button[data-client-action="copy"]');
     expect(css).toContain("display: none !important");
   });
+
+  test("keeps the upstream-key form reference across its asynchronous create request", async () => {
+    const source = await Bun.file("public/admin/app.js").text();
+
+    expect(source).toContain("const formElement = event.currentTarget;");
+    expect(source).toContain("const form = new FormData(formElement);");
+    expect(source).toContain("formElement.reset();\n      closeKeyDialog();");
+  });
 });

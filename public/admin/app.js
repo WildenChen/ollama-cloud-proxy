@@ -2449,12 +2449,16 @@ function bindEvents() {
   $("keyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (state.creatingKey) return;
+    // Event.currentTarget is cleared by the browser after the synchronous
+    // dispatch phase. Keep the form before awaiting the create request so a
+    // successful response can reset it and close the dialog reliably.
+    const formElement = event.currentTarget;
     state.creatingKey = true;
     const submitButton = $("createKeyButton");
     const originalLabel = submitButton.textContent;
     submitButton.disabled = true;
     submitButton.textContent = t("creating");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     const payload = {
       name: String(form.get("name") || ""),
       apiKey: String(form.get("apiKey") || ""),
@@ -2471,7 +2475,7 @@ function bindEvents() {
         state.keys = [...state.keys.filter((key) => key.id !== created.key.id), created.key];
         renderAll();
       }
-      event.currentTarget.reset();
+      formElement.reset();
       closeKeyDialog();
       showNotice(t("keyCreated"));
       refresh({ showErrors: false, preserveOnError: true });

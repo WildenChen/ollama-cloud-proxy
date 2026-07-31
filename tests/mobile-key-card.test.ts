@@ -49,4 +49,11 @@ describe("mobile key card layout", () => {
     expect(css).toContain(".quotaActionsSecondary .button.danger");
     expect(css).toContain("min-height: 44px");
   });
+
+  test("preserves 44px touch targets for compact usage-header actions", async () => {
+    const css = await Bun.file("public/admin/accessibility.css").text();
+
+    expect(css).toContain(".officialUsageChips .button.compact {");
+    expect(css).toContain("min-height: 44px;");
+  });
 });
