@@ -1,5 +1,14 @@
 # 版本更新紀錄
 
+## 1.7.0 - 2026-08-02
+
+- 新增 OpenAI Responses API `POST /v1/responses`，支援非串流、SSE 串流、tools/function calling、reasoning 與模型別名。
+- Responses API 沿用既有 Proxy Client Key、Concurrency、Key Pool、重試、Key 狀態與安全化上游 4xx 錯誤處理。
+- 非串流 Responses 回應可解析 `input_tokens`、`output_tokens` 與 `total_tokens`，寫入既有用量統計。
+- 對 `previous_response_id` 與 `conversation` 提供明確的 non-stateful 400 錯誤，避免送出 Ollama Cloud 不支援的 stateful 請求。
+- 新增非串流、串流、工具 payload、模型別名、stateful 欄位、上游 400 與真正 401 的整合測試。
+- 重寫 README，新增 API 支援矩陣、Responses／Chat／Web Search 範例與 non-stateful 使用說明。
+
 ## 1.6.4 - 2026-08-01
 
 - 上游金鑰設定新增 Usage Cookie 眼睛按鈕，只有管理員明確操作時才讀取已加密保存的 Cookie。
