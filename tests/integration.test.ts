@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { AdminRoutes } from "../src/admin/adminRoutes";
 import type { AppConfig } from "../src/config/env";
+import { APP_VERSION } from "../src/config/version";
 import { ConcurrencyManager } from "../src/concurrency/concurrencyManager";
 import { EventStore } from "../src/events/eventStore";
 import { KeyPoolManager } from "../src/keyPool/keyPoolManager";
@@ -1179,7 +1180,7 @@ describe("proxy integration", () => {
 
     expect(response.status).toBe(200);
     expect(body.version).toBe("0.12.6");
-    expect(body.proxy_version).toBe("1.6.4");
+    expect(body.proxy_version).toBe(APP_VERSION);
   });
 
   test("Ollama /api/ps returns public empty running-model list", async () => {

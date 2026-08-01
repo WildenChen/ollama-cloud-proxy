@@ -1,71 +1,32 @@
 # Ollama Cloud Proxy
 
-把多把 Ollama Cloud API Key 集中管理，讓 OpenClaw、Kilo Code、VS Code 或其他工具共用同一個安全入口。
+把多把 Ollama Cloud API Key 集中管理，讓 OpenMinis、OpenClaw、Hermes、Kilo Code、VS Code 與自製工具共用同一個安全入口。
 
-目前版本：`1.6.4`
+目前版本：`1.7.0`
 
-## 這個服務能做什麼
-
-Ollama Cloud Proxy 會放在你的工具和 Ollama Cloud 之間：
+## 主要功能
 
 ```text
-OpenClaw / Kilo Code / VS Code / 自製工具
-                  ↓
-          Proxy 專屬金鑰
-                  ↓
-          Ollama Cloud Proxy
-                  ↓
-       Ollama Cloud 上游金鑰池
+OpenMinis / OpenClaw / Hermes / IDE / 自製工具
+                         ↓
+                  Proxy 專屬金鑰
+                         ↓
+                  Ollama Cloud Proxy
+                         ↓
+                 Ollama Cloud Key Pool
 ```
-
-主要功能：
 
 - 集中管理一把或多把 Ollama Cloud 上游 API Key。
 - 自動避開失效、冷卻中或額度受限的上游金鑰。
 - 支援 `ordered` 與 `balanced` 兩種金鑰選取模式。
-- 為不同工具建立獨立的 Proxy 專屬金鑰。
-- 提供 OpenAI-compatible 與 Ollama native 兩種連線方式。
-- 顯示每把金鑰的 5hr、每週用量、重置時間與可用狀態。
+- 為不同工具建立可獨立停用、更換的 Proxy 專屬金鑰。
+- 支援 OpenAI Chat Completions、OpenAI Responses API 與 Ollama native API。
+- 支援 Responses API 非串流、SSE 串流、tools/function calling、reasoning 與模型別名。
+- 提供 Ollama Web Search、Web Fetch 與搜尋供應商相容介面。
+- 顯示每把金鑰的 5hr、每週用量、重置時間與狀態。
 - 顯示請求、模型、錯誤與客戶端活動紀錄。
-- 提供首次設定指南、錯誤修復指引與安全診斷資訊。
-- 支援手機與桌面管理介面。
-- 支援 YAML 匯入、匯出與 Docker 持久化更新。
-
-## 三種憑證不要混用
-
-| 名稱 | 用途 | 必要性 |
-| --- | --- | --- |
-| Ollama Cloud 上游金鑰 | Proxy 連線到 Ollama Cloud | 至少一把 |
-| Proxy 專屬金鑰 | OpenClaw、Kilo Code 等工具連線到 Proxy | 建議啟用 |
-| Usage Cookie | 讀取 Ollama Cloud 官方用量 | 選填 |
-
-外部工具應使用 **Proxy 專屬金鑰**，不要直接填入真正的 Ollama Cloud 上游金鑰。
-
-## 適合誰
-
-這個服務適合以下情境：
-
-- 有多把 Ollama Cloud API Key，希望集中管理。
-- 多個工具需要共用同一組 Ollama Cloud 額度。
-- 不想把真正的上游金鑰分散填進每個工具。
-- 想知道哪把金鑰失效、冷卻或即將用完。
-- 想為不同工具建立可獨立停用的專屬金鑰。
-
-不需要具備程式開發經驗，只要能使用 Docker、複製指令並打開瀏覽器即可。
-
-## 安裝前準備
-
-你需要：
-
-- 一台可執行 Docker 的電腦、NAS 或小主機。
-- Docker Desktop 或 Docker Engine。
-- 至少一把 Ollama Cloud API Key。
-
-確認 Docker 是否可用：
-
-```bash
-docker --version
-```
+- 對上游 4xx 錯誤保留安全化後的具體原因，不洩漏憑證。
+- 支援手機與桌面管理介面、YAML 匯入匯出與 Docker 持久化更新。
 
 ## 五分鐘快速安裝
 
@@ -76,21 +37,13 @@ git clone https://github.com/WildenChen/ollama-cloud-proxy.git
 cd ollama-cloud-proxy
 ```
 
-已經有專案資料夾時，只需進入該資料夾。
-
-### 2. 安全初始化設定
+### 2. 建立安全設定
 
 ```bash
 sh scripts/init-env.sh
 ```
 
-這個指令會：
-
-- 從 `.env.example` 建立 `.env`。
-- 自動產生安全的 `KEY_ENCRYPTION_SECRET`。
-- 再次執行時保留既有設定，不會重設密鑰。
-
-一般使用者不需要手動設定 `CLIENT_API_KEYS`，稍後可直接從管理頁建立 Proxy 專屬金鑰。
+這個指令會從 `.env.example` 建立 `.env`，並自動產生 `KEY_ENCRYPTION_SECRET`。再次執行不會覆蓋既有密鑰。
 
 ### 3. 啟動服務
 
@@ -107,7 +60,7 @@ curl http://localhost:11435/health
 應看到類似：
 
 ```json
-{"status":"ok","version":"1.6.4"}
+{"status":"ok","version":"1.7.0"}
 ```
 
 ### 5. 開啟管理頁
@@ -118,47 +71,186 @@ http://localhost:11435/admin
 
 ## 第一次設定
 
-管理頁會依目前狀態提示下一步。建議依序完成：
+建議依序完成：
 
 1. 建立管理密碼。
-2. 新增第一把 Ollama Cloud 上游 API Key。
-3. 等待管理台自動驗證上游金鑰。
-4. 建立 Proxy 專屬金鑰，例如 `openclaw`、`kilo` 或 `vscode`。
+2. 新增至少一把 Ollama Cloud 上游 API Key。
+3. 等待管理台驗證上游金鑰。
+4. 為 OpenMinis、OpenClaw 或其他工具建立獨立的 Proxy 專屬金鑰。
 5. 立即複製並保存完整 Proxy 專屬金鑰。
-6. 把 Base URL 與 Proxy 專屬金鑰填入外部工具。
-7. 測試連線。
+6. 把 Base URL 與 Proxy 專屬金鑰填入工具。
+7. 測試模型請求。
 8. 確認所有工具完成切換後，再啟用存取保護。
 
-完整 Proxy 專屬金鑰只會在建立或進階更換時顯示一次。關閉視窗後，管理台只保留安全前綴，無法重新顯示完整 token。
+完整 Proxy 專屬金鑰只會在建立或更換當下顯示一次。管理台之後只保留安全前綴。
 
-### Usage Cookie 是選填
+## 三種憑證不要混用
 
-沒有 Usage Cookie 時，模型代理仍可正常運作；只是管理台無法顯示 Ollama Cloud 官方 5hr 與每週剩餘用量。
-
-## 外部工具怎麼設定
-
-大多數工具只需要 Base URL 和 Proxy 專屬金鑰。
-
-| 工具類型 | Base URL | API Key |
+| 名稱 | 用途 | 必要性 |
 | --- | --- | --- |
-| OpenAI-compatible | `http://你的主機:11435/v1` | 管理頁建立的 Proxy 專屬金鑰 |
-| Ollama native | `http://你的主機:11435` | 管理頁建立的 Proxy 專屬金鑰 |
+| Ollama Cloud 上游金鑰 | Proxy 連線到 Ollama Cloud | 至少一把 |
+| Proxy 專屬金鑰 | OpenMinis、OpenClaw 等工具連線到 Proxy | 建議啟用 |
+| Usage Cookie | 讀取 Ollama Cloud 官方用量 | 選填 |
 
-同一台電腦測試可先使用：
+外部工具只能填 **Proxy 專屬金鑰**，不要把真正的 Ollama Cloud 上游金鑰散落在各個工具中。
+
+沒有 Usage Cookie 時，模型代理仍可正常運作，只是管理台無法顯示官方 5hr 與每週剩餘用量。
+
+## API 支援矩陣
+
+| 用途 | 方法與路徑 | 支援狀態 | 適合情境 |
+| --- | --- | --- | --- |
+| OpenAI Responses API | `POST /v1/responses` | 支援非串流與串流 | OpenMinis、新版 OpenAI SDK、Agent Framework |
+| Chat Completions | `POST /v1/chat/completions` | 支援 | 傳統 OpenAI-compatible 工具 |
+| Legacy Completions | `POST /v1/completions` | 支援 | 舊版文字補全客戶端 |
+| Model List | `GET /v1/models` | 支援 | 模型探索與連線測試 |
+| Ollama Chat | `POST /api/chat` | 支援 | Ollama native 客戶端 |
+| Ollama Generate | `POST /api/generate` | 支援 | Ollama native 文字生成 |
+| Ollama Tags | `GET /api/tags` | 支援 | Ollama 模型清單 |
+| Web Search | `POST /v1/web/search` | 支援 | 搜尋公開網路 |
+| Web Fetch | `POST /v1/web/fetch` | 支援 | 讀取指定網頁 |
+| Search Provider | `GET/POST /v1/search` | 支援 | Omni Search 相容客戶端 |
+
+OpenAI-compatible 工具的 Base URL：
 
 ```text
-http://localhost:11435/v1
+http://你的主機:11435/v1
 ```
 
-工具在其他裝置時，請把 `localhost` 改成 Docker 主機的 LAN IP 或網域。
+Ollama native 工具的 Base URL：
 
-更多設定範例請看 [工具接入指南](./docs/tool-integrations.md)。
+```text
+http://你的主機:11435
+```
 
-## 金鑰管理方式
+工具在其他裝置時，請把 `localhost` 改成 Docker 主機的 LAN IP 或 HTTPS 網域。
+
+## OpenAI Responses API
+
+### 非串流請求
+
+```bash
+curl -X POST http://localhost:11435/v1/responses \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimax-m3",
+    "instructions": "請使用繁體中文回答。",
+    "input": "說明這個服務的用途",
+    "max_output_tokens": 300
+  }'
+```
+
+Proxy 會原樣保留 Responses API 的輸出結構，並套用既有的模型別名、Key Pool、Concurrency、重試與錯誤分類。
+
+### 串流請求
+
+```bash
+curl -N -X POST http://localhost:11435/v1/responses \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimax-m3",
+    "input": "用三點說明 AI Agent",
+    "stream": true
+  }'
+```
+
+串流事件會以 Ollama Cloud 回傳的 SSE 格式直接轉送。
+
+### Function calling
+
+```bash
+curl -X POST http://localhost:11435/v1/responses \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimax-m3",
+    "input": "台北現在天氣如何？",
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "description": "查詢指定城市天氣",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" }
+          },
+          "required": ["city"]
+        }
+      }
+    ]
+  }'
+```
+
+`tools`、`input`、`instructions`、`reasoning`、`temperature`、`top_p` 與 `max_output_tokens` 都會保留並送往上游。
+
+### Non-stateful 限制
+
+Ollama Cloud 目前提供的是非狀態 Responses API。Proxy 會在本地明確拒絕以下欄位，不會把不支援的請求送往上游：
+
+- `previous_response_id`
+- `conversation`
+
+收到這類請求時會回傳：
+
+```json
+{
+  "error": {
+    "message": "Ollama Cloud Responses API is non-stateful; previous_response_id is not supported",
+    "type": "unsupported_responses_state",
+    "details": {
+      "field": "previous_response_id",
+      "mode": "non-stateful"
+    }
+  }
+}
+```
+
+需要多輪對話時，請由客戶端把必要的歷史內容重新放入 `input`，不要依賴伺服器保存前一個 response。
+
+## Chat Completions
+
+```bash
+curl -X POST http://localhost:11435/v1/chat/completions \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimax-m3",
+    "messages": [
+      { "role": "user", "content": "你好" }
+    ]
+  }'
+```
+
+既有客戶端不需要改用 Responses API；`/v1/chat/completions` 會繼續支援。
+
+## Web Search 與 Web Fetch
+
+### 搜尋網路
+
+```bash
+curl -X POST http://localhost:11435/v1/web/search \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Ollama Responses API","max_results":5}'
+```
+
+### 讀取網頁
+
+```bash
+curl -X POST http://localhost:11435/v1/web/fetch \
+  -H "Authorization: Bearer $PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://ollama.com"}'
+```
+
+## 金鑰管理
 
 ### Ollama Cloud 上游金鑰
 
-上游金鑰由 Proxy 用來呼叫 Ollama Cloud。管理頁可：
+管理頁可：
 
 - 新增、測試、停用及刪除金鑰。
 - 設定名稱、備註與 Usage Cookie。
@@ -168,41 +260,32 @@ http://localhost:11435/v1
 
 ### Proxy 專屬金鑰
 
-Proxy 專屬金鑰提供給外部工具使用。管理頁可：
+管理頁可：
 
-- 為不同工具建立獨立金鑰。
+- 為每個工具建立獨立金鑰。
 - 查看來源、狀態、前綴與最近使用時間。
 - 停用、重新啟用或刪除資料庫型金鑰。
 - 建立替代金鑰，讓新舊金鑰並存後再逐步切換。
 - 分別測試金鑰驗證、上游可用性與模型狀態。
 
-`.env` 中既有的 `CLIENT_API_KEYS` 仍可使用，但在管理頁只會顯示為「環境變數管理｜唯讀」，不會顯示完整 token，也不會自動遷移。
+`.env` 中既有的 `CLIENT_API_KEYS` 仍可使用，但在管理頁只會顯示為唯讀來源，不會顯示完整 token，也不會自動遷移。
 
 ## 存取保護與升級相容性
 
-若既有部署原本沒有任何 Proxy 專屬金鑰，升級後仍會維持匿名模式，不會突然中斷已連線工具。
+既有部署沒有 Proxy 專屬金鑰時，升級後會維持匿名模式，不會突然中斷現有工具。
 
-建立第一把 Proxy 專屬金鑰後，也不會立即強制驗證。建議流程：
-
-1. 建立新金鑰。
-2. 複製並測試。
-3. 更新所有外部工具。
-4. 確認新金鑰已有成功使用紀錄。
-5. 在管理頁明確啟用存取保護。
-6. 確認服務正常後，再停用舊金鑰。
+建立第一把 Proxy 專屬金鑰後，也不會立刻強制驗證。建議先更新並測試所有客戶端，再從管理頁明確啟用存取保護。
 
 ## 金鑰選取模式
 
-在管理頁「設定」可選擇：
+管理頁「設定」可選擇：
 
-- `ordered`：固定從第一把可用金鑰開始；額度受限後才切換下一把。
-- `balanced`：依可用狀態與近期負載分散到多把金鑰。
+- `ordered`：固定從第一把可用金鑰開始，受限後切換下一把。
+- `balanced`：依可用狀態與近期負載分散請求。
 
 設定保存在資料庫中，不需要重啟服務。
 
 ## 更新方式
-
-使用 release compose 時：
 
 ```bash
 git pull
@@ -216,7 +299,7 @@ docker compose -f docker-compose.release.yml up -d
 curl http://localhost:11435/health
 ```
 
-目前應顯示版本 `1.6.4`。資料保存在本機 `data/`，更新容器不會刪除既有設定。
+目前應顯示版本 `1.7.0`。資料保存在本機 `data/`，更新容器不會刪除既有設定。
 
 ## 備份與還原
 
@@ -231,56 +314,33 @@ curl http://localhost:11435/health
 
 ## 常見問題
 
-### 啟動時出現 KEY_ENCRYPTION_SECRET 錯誤
-
-重新執行：
-
-```bash
-sh scripts/init-env.sh
-```
-
-不要把 README 或 `.env.example` 中的範例文字直接當成正式密鑰。
-
-### 打不開管理頁
-
-先確認容器：
-
-```bash
-docker ps
-```
-
-再確認健康狀態：
-
-```bash
-curl http://localhost:11435/health
-```
-
-查看服務紀錄：
-
-```bash
-docker compose -f docker-compose.release.yml logs --tail=100
-```
-
-### 管理頁要求重新登入
-
-管理密碼不會因容器更新而消失。若登入 Cookie 過期或更換瀏覽器，直接使用原本的管理密碼登入即可。
-
-### 金鑰建立後找不到完整 token
-
-這是正常的安全設計。完整 token 只顯示一次；請建立替代金鑰、更新工具後，再停用舊金鑰。
-
-### 沒有官方用量資料
-
-確認該上游金鑰是否設定有效的 Usage Cookie。Cookie 只影響官方用量，不影響模型請求。
-
 ### 工具回傳 401
 
 確認：
 
-- 工具填的是 Proxy 專屬金鑰，而不是 Ollama Cloud 上游金鑰。
+- 工具填的是 Proxy 專屬金鑰，不是 Ollama Cloud 上游金鑰。
 - Base URL 是否正確。
-- 該 Proxy 專屬金鑰是否啟用。
-- 是否已啟用存取保護。
+- Proxy 專屬金鑰是否啟用。
+- 管理頁的存取保護狀態是否符合預期。
+
+### Responses API 回傳 unsupported_responses_state
+
+客戶端送出了 `previous_response_id` 或 `conversation`。請停用客戶端的 stateful Responses 模式，並由客戶端自行帶入對話歷史。
+
+### 上游回傳 400
+
+Proxy 會保留安全化後的上游 `message`、`type`、`code` 與 validation details。請依回傳內容修正 `input`、`tools`、message 格式或模型專屬參數；換 Key 通常無法解決 payload 錯誤。
+
+### 沒有官方用量資料
+
+確認該上游金鑰是否設定有效的 Usage Cookie。Cookie 只影響官方用量顯示，不影響模型請求。
+
+### 打不開管理頁
+
+```bash
+docker ps
+docker compose -f docker-compose.release.yml logs --tail=100
+```
 
 ## 進階文件
 
@@ -295,22 +355,9 @@ docker compose -f docker-compose.release.yml logs --tail=100
 
 ## 開發方式
 
-本機開發：
-
 ```bash
 bun install
-bun run dev
-```
-
-執行測試：
-
-```bash
 bun test
-```
-
-建立 Docker image：
-
-```bash
 docker build -t ollama-cloud-proxy:local .
 ```
 
