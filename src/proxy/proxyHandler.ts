@@ -113,7 +113,8 @@ export class ProxyHandler {
     if (
       !(
         (path === "/v1/chat/completions" && req.method === "POST") ||
-        (path === "/v1/completions" && req.method === "POST")
+        (path === "/v1/completions" && req.method === "POST") ||
+        (path === "/v1/responses" && req.method === "POST")
       )
     ) {
       return openAiError(404, "not_found", "Not Found");
@@ -122,6 +123,17 @@ export class ProxyHandler {
     let mappedBody: { body: string; originalModel: string | null; upstreamModel: string | null };
     try {
       const rawBody = await readBodyWithLimit(req, this.config.maxRequestBodySizeBytes);
+      if (path === "/v1/responses") {
+        const unsupportedField = this.unsupportedResponsesStateField(rawBody);
+        if (unsupportedField) {
+          return openAiError(
+            400,
+            "unsupported_responses_state",
+            `Ollama Cloud Responses API is non-stateful; ${unsupportedField} is not supported`,
+            { field: unsupportedField, mode: "non-stateful" }
+          );
+        }
+      }
       mappedBody = this.models.applyAliasToBody(rawBody);
     } catch (error) {
       const type = (error as Error).message === "request_body_too_large" ? "request_body_too_large" : "invalid_request";
@@ -669,6 +681,17 @@ export class ProxyHandler {
   private recordResult(clientName: string, model: string, success: boolean, errorType?: string, usage?: TokenUsageInput) {
     this.store.recordClientRequest(clientName, success, errorType);
     this.store.recordModelRequest(model, success, usage);
+  }
+
+  private unsupportedResponsesStateField(rawBody: string): "previous_response_id" | "conversation" | null {
+    const parsed = JSON.parse(rawBody || "{}") as Record<string, unknown>;
+    if (parsed.previous_response_id !== undefined && parsed.previous_response_id !== null) {
+      return "previous_response_id";
+    }
+    if (parsed.conversation !== undefined && parsed.conversation !== null) {
+      return "conversation";
+    }
+    return null;
   }
 
   private modelFromBody(rawBody: string): string | null {
