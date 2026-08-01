@@ -43,9 +43,6 @@ jobs:
               raise SystemExit("proxy version assertion mismatch")
           text = text.replace(old_assertion, new_assertion, 1)
           path.write_text(text)
-
-          official = "name: Quality\n\non:\n  pull_request:\n  push:\n    branches:\n      - main\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: quality-${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: true\n\njobs:\n  test-and-build:\n    runs-on: ubuntu-latest\n\n    steps:\n      - name: Checkout\n        uses: actions/checkout@v4\n\n      - name: Set up Bun\n        uses: oven-sh/setup-bun@v2\n        with:\n          bun-version: 1.2.19\n\n      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      - name: Check environment initializer\n        run: sh -n scripts/init-env.sh\n\n      - name: Run tests\n        run: bun test\n\n      - name: Validate Docker build\n        run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .\n"
-          Path(".github/workflows/quality.yml").write_text(official)
           PY
 
       - name: Set up Bun
@@ -69,7 +66,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/integration.test.ts .github/workflows/quality.yml
+          git add tests/integration.test.ts
           git diff --cached --check
           git commit -m "Use runtime version in integration assertion"
           git push origin HEAD:feat/openai-responses-api
