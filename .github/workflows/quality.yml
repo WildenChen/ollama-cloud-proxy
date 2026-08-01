@@ -2,48 +2,25 @@ name: Quality
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  synchronize-and-validate:
+  test-and-build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: feat/openai-responses-api
-          fetch-depth: 0
-
-      - name: Replace hard-coded version assertion
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          path = Path("tests/integration.test.ts")
-          text = path.read_text()
-
-          old_import = 'import type { AppConfig } from "../src/config/env";'
-          new_import = old_import + '\nimport { APP_VERSION } from "../src/config/version";'
-          if text.count(old_import) != 1:
-              raise SystemExit("AppConfig import mismatch")
-          text = text.replace(old_import, new_import, 1)
-
-          old_assertion = 'expect(body.proxy_version).toBe("1.6.4");'
-          new_assertion = 'expect(body.proxy_version).toBe(APP_VERSION);'
-          if text.count(old_assertion) != 1:
-              raise SystemExit("proxy version assertion mismatch")
-          text = text.replace(old_assertion, new_assertion, 1)
-          path.write_text(text)
-          PY
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -61,12 +38,3 @@ jobs:
 
       - name: Validate Docker build
         run: docker build --platform linux/amd64 -t ollama-cloud-proxy:quality .
-
-      - name: Commit synchronized assertion
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/integration.test.ts
-          git diff --cached --check
-          git commit -m "Use runtime version in integration assertion"
-          git push origin HEAD:feat/openai-responses-api
